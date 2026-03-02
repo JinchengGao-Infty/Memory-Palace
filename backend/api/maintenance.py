@@ -1,17 +1,23 @@
 import asyncio
+import hashlib
 import hmac
+import inspect
 import json
 import math
 import os
+import re
 import time
+import uuid
 from collections import Counter, deque
 from datetime import datetime, timezone
-from typing import Any, Deque, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from db import get_sqlite_client
 from runtime_state import runtime_state
+from security.import_guard import ExternalImportGuard, ExternalImportGuardConfig
 
 _MCP_API_KEY_ENV = "MCP_API_KEY"
 _MCP_API_KEY_HEADER = "X-MCP-API-Key"
@@ -89,6 +95,12 @@ router = APIRouter(
     dependencies=[Depends(require_maintenance_api_key)],
 )
 _ALLOWED_SEARCH_MODES = {"keyword", "semantic", "hybrid"}
+_VALID_DOMAINS = [
+    d.strip().lower()
+    for d in str(os.getenv("VALID_DOMAINS", "core,writer,game,notes,system")).split(",")
+    if d.strip()
+]
+_SCOPE_URI_PATTERN = re.compile(r"^([a-zA-Z_][a-zA-Z0-9_]*)://(.*)$")
 _SEARCH_EVENT_LIMIT = 200
 _SEARCH_EVENTS_META_KEY = "observability.search_events.v1"
 _search_events: Deque[Dict[str, Any]] = deque(maxlen=_SEARCH_EVENT_LIMIT)
@@ -112,6 +124,7 @@ def _env_float(name: str, default: float) -> float:
 _CLEANUP_QUERY_SLOW_MS = max(
     1.0, _env_float("OBSERVABILITY_CLEANUP_QUERY_SLOW_MS", 250.0)
 )
+_INTENT_LLM_ENABLED = str(os.getenv("INTENT_LLM_ENABLED") or "").strip().lower() in _TRUTHY_ENV_VALUES
 
 
 class SearchConsoleRequest(BaseModel):
@@ -122,6 +135,7 @@ class SearchConsoleRequest(BaseModel):
     include_session: bool = True
     session_id: Optional[str] = None
     filters: Dict[str, Any] = Field(default_factory=dict)
+    scope_hint: Optional[str] = None
 
 
 class VitalityCleanupQueryRequest(BaseModel):
@@ -158,6 +172,39 @@ class IndexJobRetryRequest(BaseModel):
     reason: str = Field(default="", max_length=120)
 
 
+class ImportPrepareRequest(BaseModel):
+    file_paths: List[str] = Field(min_length=1, max_length=200)
+    actor_id: str = Field(min_length=1, max_length=128)
+    session_id: str = Field(min_length=1, max_length=128)
+    source: str = Field(default="external_import", min_length=1, max_length=128)
+    reason: str = Field(default="manual_import", min_length=1, max_length=240)
+    domain: str = Field(default="notes", min_length=1, max_length=32)
+    parent_path: str = Field(default="", max_length=512)
+    priority: int = Field(default=2, ge=0, le=9)
+
+
+class ImportExecuteRequest(BaseModel):
+    job_id: str = Field(min_length=8, max_length=64)
+
+
+class ImportRollbackRequest(BaseModel):
+    reason: str = Field(default="manual_rollback", min_length=1, max_length=240)
+
+
+IMPORT_LEARN_AUDIT_META_KEY = "audit.import_learn.summary.v1"
+_IMPORT_LEARN_META_PERSIST_LOCK = asyncio.Lock()
+_IMPORT_JOB_MAX_PENDING = 64
+_IMPORT_JOBS: Dict[str, Dict[str, Any]] = {}
+_IMPORT_JOBS_GUARD = asyncio.Lock()
+_IMPORT_JOBS_META_KEY = "maintenance.import.jobs.v1"
+_IMPORT_JOBS_META_PERSIST_LOCK = asyncio.Lock()
+_IMPORT_TITLE_SEGMENT_PATTERN = re.compile(r"[^a-zA-Z0-9._-]+")
+_EXTERNAL_IMPORT_GUARD: Optional[ExternalImportGuard] = None
+_EXTERNAL_IMPORT_GUARD_FINGERPRINT: Optional[Tuple[Any, ...]] = None
+_EXTERNAL_IMPORT_GUARD_LOCK = asyncio.Lock()
+_EXTERNAL_IMPORT_ALLOWED_DOMAINS_ENV = "EXTERNAL_IMPORT_ALLOWED_DOMAINS"
+
+
 def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -177,6 +224,495 @@ def _safe_percentile(values: List[float], ratio: float) -> float:
     ordered = sorted(values)
     index = max(0, min(len(ordered) - 1, math.ceil(len(ordered) * ratio) - 1))
     return float(ordered[index])
+
+
+def _safe_non_negative_int(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _normalize_import_parent_path(parent_path: Optional[str]) -> str:
+    raw = str(parent_path or "").strip().strip("/")
+    if not raw:
+        return ""
+    segments = [segment for segment in raw.split("/") if segment]
+    return "/".join(segments)
+
+
+def _sanitize_import_title(path_value: str, source_hash: str, *, suffix: str = "") -> str:
+    stem = Path(path_value).stem.strip()
+    stem = _IMPORT_TITLE_SEGMENT_PATTERN.sub("-", stem).strip("-._")
+    if not stem:
+        stem = "imported"
+    normalized_suffix = _IMPORT_TITLE_SEGMENT_PATTERN.sub("-", str(suffix or "")).strip(
+        "-._"
+    )
+    if normalized_suffix:
+        return f"{stem}-{source_hash[:8]}-{normalized_suffix[:10]}"
+    return f"{stem}-{source_hash[:8]}"
+
+
+def _build_import_source_hash(content: str) -> str:
+    return hashlib.sha256((content or "").encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _build_import_target_uri(*, domain: str, parent_path: str, title: str) -> tuple[str, str]:
+    normalized_parent = _normalize_import_parent_path(parent_path)
+    target_path = f"{normalized_parent}/{title}" if normalized_parent else title
+    return target_path, f"{domain}://{target_path}"
+
+
+def _trim_import_preview(content: str, limit: int = 160) -> str:
+    snippet = (content or "").strip().replace("\r\n", "\n").replace("\r", "\n")
+    if len(snippet) <= max(1, limit):
+        return snippet
+    return f"{snippet[:max(1, limit)]}..."
+
+
+def _clone_import_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    return json.loads(json.dumps(payload, ensure_ascii=False))
+
+
+def _clone_import_payload_for_persistence(payload: Dict[str, Any]) -> Dict[str, Any]:
+    persisted_payload = _clone_import_payload(payload)
+    files = persisted_payload.get("files")
+    if isinstance(files, list):
+        for item in files:
+            if isinstance(item, dict):
+                item.pop("content", None)
+    return persisted_payload
+
+
+def _trim_import_jobs(jobs: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    ordered = sorted(
+        (
+            (job_id, payload)
+            for job_id, payload in jobs.items()
+            if isinstance(job_id, str) and job_id and isinstance(payload, dict)
+        ),
+        key=lambda item: (str(item[1].get("created_at") or ""), item[0]),
+    )
+    if len(ordered) > _IMPORT_JOB_MAX_PENDING:
+        ordered = ordered[-_IMPORT_JOB_MAX_PENDING:]
+    return {
+        job_id: _clone_import_payload(payload)
+        for job_id, payload in ordered
+    }
+
+
+def _serialize_import_jobs_for_runtime_meta(
+    jobs: Dict[str, Dict[str, Any]],
+) -> str:
+    trimmed_jobs = _trim_import_jobs(jobs)
+    payload = {
+        "version": 1,
+        "updated_at": _utc_iso_now(),
+        "jobs": {
+            job_id: _clone_import_payload_for_persistence(job_payload)
+            for job_id, job_payload in trimmed_jobs.items()
+        },
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _parse_import_jobs_from_runtime_meta(raw: Optional[str]) -> Dict[str, Dict[str, Any]]:
+    if not raw or not isinstance(raw, str):
+        return {}
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    jobs = payload.get("jobs")
+    if not isinstance(jobs, dict):
+        return {}
+    parsed: Dict[str, Dict[str, Any]] = {}
+    for job_id, job_payload in jobs.items():
+        normalized_job_id = str(job_id or "").strip()
+        if not normalized_job_id or not isinstance(job_payload, dict):
+            continue
+        parsed[normalized_job_id] = _clone_import_payload_for_persistence(job_payload)
+    return _trim_import_jobs(parsed)
+
+
+async def _persist_import_jobs_runtime_meta(
+    jobs: Dict[str, Dict[str, Any]],
+) -> None:
+    try:
+        client = get_sqlite_client()
+        set_runtime_meta = getattr(client, "set_runtime_meta", None)
+        if not callable(set_runtime_meta):
+            return
+        payload = _serialize_import_jobs_for_runtime_meta(jobs)
+        async with _IMPORT_JOBS_META_PERSIST_LOCK:
+            await set_runtime_meta(_IMPORT_JOBS_META_KEY, payload)
+    except Exception:
+        return
+
+
+async def _load_import_jobs_from_runtime_meta() -> Dict[str, Dict[str, Any]]:
+    try:
+        client = get_sqlite_client()
+        get_runtime_meta = getattr(client, "get_runtime_meta", None)
+        if not callable(get_runtime_meta):
+            return {}
+        raw = await get_runtime_meta(_IMPORT_JOBS_META_KEY)
+    except Exception:
+        return {}
+    return _parse_import_jobs_from_runtime_meta(raw)
+
+
+async def _hydrate_import_jobs_cache(job_id: Optional[str] = None) -> None:
+    normalized_job_id = str(job_id or "").strip()
+    async with _IMPORT_JOBS_GUARD:
+        if normalized_job_id and normalized_job_id in _IMPORT_JOBS:
+            return
+    persisted_jobs = await _load_import_jobs_from_runtime_meta()
+    if not persisted_jobs:
+        return
+    async with _IMPORT_JOBS_GUARD:
+        if normalized_job_id and normalized_job_id in _IMPORT_JOBS:
+            return
+        for persisted_job_id, persisted_payload in persisted_jobs.items():
+            if persisted_job_id not in _IMPORT_JOBS:
+                _IMPORT_JOBS[persisted_job_id] = _clone_import_payload(persisted_payload)
+        trimmed = _trim_import_jobs(_IMPORT_JOBS)
+        _IMPORT_JOBS.clear()
+        _IMPORT_JOBS.update(trimmed)
+
+
+def _external_import_allowed_domains() -> Tuple[str, ...]:
+    raw = str(os.getenv(_EXTERNAL_IMPORT_ALLOWED_DOMAINS_ENV, "notes") or "")
+    allowed_domains: List[str] = []
+    for item in raw.split(","):
+        value = str(item or "").strip().lower()
+        if value and value not in allowed_domains:
+            allowed_domains.append(value)
+    return tuple(allowed_domains)
+
+
+def _public_import_job_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    public_payload = _clone_import_payload(payload)
+    files = public_payload.get("files")
+    if isinstance(files, list):
+        for item in files:
+            if isinstance(item, dict):
+                item.pop("content", None)
+                item.pop("resolved_path", None)
+    return public_payload
+
+
+def _http_error_for_import_guard(result: Dict[str, Any]) -> HTTPException:
+    reason = str(result.get("reason") or "rejected")
+    detail: Dict[str, Any] = {
+        "error": "external_import_prepare_rejected",
+        "reason": reason,
+        "requested_file_count": _safe_non_negative_int(result.get("requested_file_count")),
+        "rejected_files": result.get("rejected_files") if isinstance(result.get("rejected_files"), list) else [],
+    }
+    config_errors = result.get("config_errors")
+    if isinstance(config_errors, list) and config_errors:
+        detail["config_errors"] = [str(item) for item in config_errors]
+    storage = str(result.get("rate_limit_storage") or "").strip()
+    if storage:
+        detail["rate_limit_storage"] = storage
+    retry_after = _safe_non_negative_int(result.get("retry_after_seconds"))
+    if retry_after > 0:
+        detail["retry_after_seconds"] = retry_after
+    if reason in {
+        "external_import_disabled",
+        "allowed_roots_not_configured",
+        "allowed_exts_not_configured",
+        "rate_limit_shared_state_required",
+    }:
+        return HTTPException(status_code=409, detail=detail)
+    if reason in {
+        "rate_limited",
+        "rate_limit_state_unavailable",
+        "max_files_exceeded",
+        "max_total_bytes_exceeded",
+    }:
+        return HTTPException(status_code=429, detail=detail)
+    if reason == "file_validation_failed":
+        rejected_files = detail.get("rejected_files") or []
+        if any(
+            isinstance(item, dict) and str(item.get("reason") or "") == "path_not_allowed"
+            for item in rejected_files
+        ):
+            return HTTPException(status_code=403, detail=detail)
+        return HTTPException(status_code=422, detail=detail)
+    return HTTPException(status_code=422, detail=detail)
+
+
+def _validate_import_domain(domain: str) -> str:
+    normalized = str(domain or "").strip().lower()
+    if normalized not in _VALID_DOMAINS:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "external_import_invalid_domain",
+                "reason": f"unknown_domain:{normalized or 'empty'}",
+                "valid_domains": list(_VALID_DOMAINS),
+            },
+        )
+    allowed_domains = _external_import_allowed_domains()
+    if not allowed_domains:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "external_import_invalid_policy",
+                "reason": "allowed_domains_not_configured",
+                "env": _EXTERNAL_IMPORT_ALLOWED_DOMAINS_ENV,
+                "valid_domains": list(_VALID_DOMAINS),
+            },
+        )
+    invalid_allowed_domains = [
+        item for item in allowed_domains if item not in _VALID_DOMAINS
+    ]
+    if invalid_allowed_domains:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "external_import_invalid_policy",
+                "reason": "allowed_domains_invalid",
+                "invalid_allowed_domains": invalid_allowed_domains,
+                "valid_domains": list(_VALID_DOMAINS),
+            },
+        )
+    if normalized not in allowed_domains:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "external_import_invalid_domain",
+                "reason": "domain_not_allowed_for_external_import",
+                "domain": normalized,
+                "allowed_domains": list(allowed_domains),
+            },
+        )
+    return normalized
+
+
+def _external_import_guard_fingerprint(config: ExternalImportGuardConfig) -> Tuple[Any, ...]:
+    return (
+        bool(config.enabled),
+        tuple(str(item) for item in config.allowed_roots),
+        tuple(str(item) for item in config.allowed_exts),
+        int(config.max_total_bytes),
+        int(config.max_files),
+        int(config.rate_limit_window_seconds),
+        int(config.rate_limit_max_requests),
+        str(config.rate_limit_state_file) if config.rate_limit_state_file else "",
+        bool(config.require_shared_rate_limit),
+    )
+
+
+def _build_external_import_policy_snapshot(guard: ExternalImportGuard) -> Dict[str, Any]:
+    allowed_domains = list(_external_import_allowed_domains())
+    policy = {
+        **guard.policy_snapshot(),
+        "allowed_domains": allowed_domains,
+    }
+    fingerprint_payload = json.dumps(policy, ensure_ascii=False, sort_keys=True)
+    policy["policy_hash"] = hashlib.sha256(
+        fingerprint_payload.encode("utf-8", errors="ignore")
+    ).hexdigest()
+    return policy
+
+
+async def _get_external_import_guard() -> ExternalImportGuard:
+    global _EXTERNAL_IMPORT_GUARD, _EXTERNAL_IMPORT_GUARD_FINGERPRINT
+    config = ExternalImportGuardConfig.from_env()
+    fingerprint = _external_import_guard_fingerprint(config)
+    async with _EXTERNAL_IMPORT_GUARD_LOCK:
+        if (
+            _EXTERNAL_IMPORT_GUARD is None
+            or _EXTERNAL_IMPORT_GUARD_FINGERPRINT != fingerprint
+        ):
+            _EXTERNAL_IMPORT_GUARD = ExternalImportGuard(config=config)
+            _EXTERNAL_IMPORT_GUARD_FINGERPRINT = fingerprint
+        return _EXTERNAL_IMPORT_GUARD
+
+
+async def _record_import_learn_event(
+    *,
+    event_type: str,
+    operation: str,
+    decision: str,
+    reason: str,
+    source: str,
+    session_id: Optional[str],
+    actor_id: Optional[str] = None,
+    batch_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    persist_runtime_meta: bool = True,
+) -> None:
+    try:
+        await runtime_state.import_learn_tracker.record_event(
+            event_type=event_type,
+            operation=operation,
+            decision=decision,
+            reason=reason,
+            source=source,
+            session_id=session_id,
+            actor_id=actor_id,
+            batch_id=batch_id,
+            metadata=metadata,
+        )
+    except Exception:
+        return
+
+    if not persist_runtime_meta:
+        return
+
+    try:
+        client = get_sqlite_client()
+        set_runtime_meta = getattr(client, "set_runtime_meta", None)
+        if callable(set_runtime_meta):
+            async with _IMPORT_LEARN_META_PERSIST_LOCK:
+                summary_payload = await runtime_state.import_learn_tracker.summary()
+                await set_runtime_meta(
+                    IMPORT_LEARN_AUDIT_META_KEY,
+                    json.dumps(summary_payload, ensure_ascii=False, separators=(",", ":")),
+                )
+    except Exception:
+        return
+
+
+async def _put_import_job(payload: Dict[str, Any]) -> None:
+    job_id = str(payload.get("job_id") or "").strip()
+    if not job_id:
+        return
+    snapshot: Dict[str, Dict[str, Any]] = {}
+    async with _IMPORT_JOBS_GUARD:
+        while len(_IMPORT_JOBS) >= _IMPORT_JOB_MAX_PENDING:
+            oldest_key = min(
+                _IMPORT_JOBS.items(),
+                key=lambda item: str(item[1].get("created_at") or ""),
+            )[0]
+            _IMPORT_JOBS.pop(oldest_key, None)
+        _IMPORT_JOBS[job_id] = _clone_import_payload(payload)
+        trimmed = _trim_import_jobs(_IMPORT_JOBS)
+        _IMPORT_JOBS.clear()
+        _IMPORT_JOBS.update(trimmed)
+        snapshot = {
+            item_job_id: _clone_import_payload(item_payload)
+            for item_job_id, item_payload in _IMPORT_JOBS.items()
+        }
+    await _persist_import_jobs_runtime_meta(snapshot)
+
+
+async def _get_import_job(job_id: str) -> Optional[Dict[str, Any]]:
+    normalized = str(job_id or "").strip()
+    if not normalized:
+        return None
+    async with _IMPORT_JOBS_GUARD:
+        payload = _IMPORT_JOBS.get(normalized)
+    if isinstance(payload, dict):
+        return _clone_import_payload(payload)
+
+    await _hydrate_import_jobs_cache(job_id=normalized)
+    async with _IMPORT_JOBS_GUARD:
+        persisted_payload = _IMPORT_JOBS.get(normalized)
+        if not isinstance(persisted_payload, dict):
+            return None
+        return _clone_import_payload(persisted_payload)
+
+
+async def _update_import_job(job_id: str, payload: Dict[str, Any]) -> None:
+    normalized = str(job_id or "").strip()
+    if not normalized:
+        return
+    cloned = _clone_import_payload(payload)
+    cloned["updated_at"] = _utc_iso_now()
+    snapshot: Dict[str, Dict[str, Any]] = {}
+    async with _IMPORT_JOBS_GUARD:
+        _IMPORT_JOBS[normalized] = cloned
+        trimmed = _trim_import_jobs(_IMPORT_JOBS)
+        _IMPORT_JOBS.clear()
+        _IMPORT_JOBS.update(trimmed)
+        snapshot = {
+            item_job_id: _clone_import_payload(item_payload)
+            for item_job_id, item_payload in _IMPORT_JOBS.items()
+        }
+    await _persist_import_jobs_runtime_meta(snapshot)
+
+
+async def _transition_import_job_status(
+    job_id: str,
+    *,
+    allowed_from: set[str],
+    next_status: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    normalized = str(job_id or "").strip()
+    if not normalized:
+        return None, "job_id_required"
+    await _hydrate_import_jobs_cache(job_id=normalized)
+    snapshot: Dict[str, Dict[str, Any]] = {}
+    async with _IMPORT_JOBS_GUARD:
+        payload = _IMPORT_JOBS.get(normalized)
+        if not isinstance(payload, dict):
+            return None, "job_not_found"
+        current_status = str(payload.get("status") or "unknown")
+        if current_status not in allowed_from:
+            return _clone_import_payload(payload), f"invalid_status:{current_status}"
+        updated = _clone_import_payload(payload)
+        updated["status"] = next_status
+        updated["updated_at"] = _utc_iso_now()
+        _IMPORT_JOBS[normalized] = _clone_import_payload(updated)
+        trimmed = _trim_import_jobs(_IMPORT_JOBS)
+        _IMPORT_JOBS.clear()
+        _IMPORT_JOBS.update(trimmed)
+        snapshot = {
+            item_job_id: _clone_import_payload(item_payload)
+            for item_job_id, item_payload in _IMPORT_JOBS.items()
+        }
+    await _persist_import_jobs_runtime_meta(snapshot)
+    return updated, None
+
+
+async def _rollback_import_created_memories(
+    *,
+    client: Any,
+    created_memories: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    attempted_memory_ids: List[int] = []
+    rolled_back: List[int] = []
+    errors: List[Dict[str, Any]] = []
+    for item in reversed(created_memories):
+        if not isinstance(item, dict):
+            continue
+        memory_id = _safe_non_negative_int(item.get("memory_id"))
+        if memory_id <= 0:
+            continue
+        attempted_memory_ids.append(memory_id)
+        try:
+            await client.permanently_delete_memory(
+                memory_id,
+                require_orphan=False,
+            )
+            rolled_back.append(memory_id)
+        except Exception as exc:
+            errors.append(
+                {
+                    "memory_id": memory_id,
+                    "error": str(exc) or type(exc).__name__,
+                }
+            )
+
+    return {
+        "attempted_memory_ids": attempted_memory_ids,
+        "rolled_back_memory_ids": rolled_back,
+        "rolled_back_count": len(rolled_back),
+        "error_count": len(errors),
+        "errors": errors,
+        "side_effects_audit_required": bool(attempted_memory_ids),
+        "residual_artifacts_review_required": bool(attempted_memory_ids),
+        "side_effects_note": "rollback_only_covers_created_memory_ids",
+        "completed_at": _utc_iso_now(),
+    }
 
 
 def _raise_on_enqueue_drop(
@@ -208,6 +744,12 @@ def _sanitize_search_event(raw: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(raw, dict):
         return None
 
+    def _safe_int(value: Any) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 0
+
     degrade_reasons_raw = raw.get("degrade_reasons")
     degrade_reasons = (
         [str(item) for item in degrade_reasons_raw if isinstance(item, str) and item.strip()]
@@ -222,9 +764,12 @@ def _sanitize_search_event(raw: Any) -> Optional[Dict[str, Any]]:
         "latency_ms": round(float(raw.get("latency_ms") or 0.0), 3),
         "degraded": bool(raw.get("degraded")),
         "degrade_reasons": degrade_reasons,
-        "session_count": int(raw.get("session_count") or 0),
-        "global_count": int(raw.get("global_count") or 0),
-        "returned_count": int(raw.get("returned_count") or 0),
+        "session_count": _safe_int(raw.get("session_count") or 0),
+        "global_count": _safe_int(raw.get("global_count") or 0),
+        "returned_count": _safe_int(raw.get("returned_count") or 0),
+        "dedup_dropped": _safe_int(raw.get("dedup_dropped") or 0),
+        "session_contributed": _safe_int(raw.get("session_contributed") or 0),
+        "global_contributed": _safe_int(raw.get("global_contributed") or 0),
         "intent": str(raw.get("intent") or "unknown"),
         "intent_applied": str(raw.get("intent_applied") or "unknown"),
         "strategy_template": str(raw.get("strategy_template") or "default"),
@@ -328,7 +873,151 @@ def _normalize_search_filters(raw_filters: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(updated_after, str) and updated_after.strip():
         normalized["updated_after"] = updated_after.strip()
 
+    scope_hint = raw_filters.get("scope_hint")
+    if scope_hint is not None:
+        if not isinstance(scope_hint, str):
+            raise ValueError("filters.scope_hint must be a string")
+        normalized_scope_hint = scope_hint.strip()
+        if normalized_scope_hint:
+            normalized["scope_hint"] = normalized_scope_hint
+
     return normalized
+
+
+def _normalize_scope_hint(scope_hint: Optional[Any]) -> Dict[str, Any]:
+    if scope_hint is None:
+        return {
+            "provided": False,
+            "raw": None,
+            "domain": None,
+            "path_prefix": None,
+            "strategy": "none",
+        }
+
+    raw_value = str(scope_hint).strip()
+    if not raw_value:
+        return {
+            "provided": False,
+            "raw": raw_value,
+            "domain": None,
+            "path_prefix": None,
+            "strategy": "none",
+        }
+
+    if "://" in raw_value:
+        match = _SCOPE_URI_PATTERN.match(raw_value)
+        if not match:
+            raise ValueError("scope_hint must be a valid URI/domain/path prefix string")
+        domain = str(match.group(1) or "").strip().lower()
+        path_prefix = str(match.group(2) or "").strip("/")
+        if domain not in _VALID_DOMAINS:
+            raise ValueError(
+                f"Unknown scope_hint domain '{domain}'. "
+                f"Valid domains: {', '.join(_VALID_DOMAINS)}"
+            )
+        return {
+            "provided": True,
+            "raw": raw_value,
+            "domain": domain,
+            "path_prefix": path_prefix or None,
+            "strategy": "uri_prefix" if path_prefix else "domain_uri",
+        }
+
+    lowered = raw_value.lower()
+    if lowered in _VALID_DOMAINS:
+        return {
+            "provided": True,
+            "raw": raw_value,
+            "domain": lowered,
+            "path_prefix": None,
+            "strategy": "domain",
+        }
+
+    path_prefix = raw_value.strip("/")
+    return {
+        "provided": bool(path_prefix),
+        "raw": raw_value,
+        "domain": None,
+        "path_prefix": path_prefix or None,
+        "strategy": "path_prefix" if path_prefix else "none",
+    }
+
+
+def _merge_scope_hint_with_filters(
+    *,
+    normalized_filters: Dict[str, Any],
+    scope_hint: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    merged = dict(normalized_filters)
+    merged.pop("scope_hint", None)
+
+    provided = bool(scope_hint.get("provided"))
+    hint_domain = scope_hint.get("domain")
+    hint_path_prefix = scope_hint.get("path_prefix")
+    conflicts: List[str] = []
+    applied = False
+    domain_conflict = False
+
+    if provided and isinstance(hint_domain, str) and hint_domain:
+        existing_domain = merged.get("domain")
+        if existing_domain is None:
+            merged["domain"] = hint_domain
+            applied = True
+        elif str(existing_domain) != hint_domain:
+            conflicts.append("domain_conflict")
+            domain_conflict = True
+
+    if provided and isinstance(hint_path_prefix, str) and hint_path_prefix:
+        if not domain_conflict:
+            existing_prefix = merged.get("path_prefix")
+            hint_prefix_norm = hint_path_prefix.strip("/")
+            if existing_prefix is None:
+                merged["path_prefix"] = hint_prefix_norm
+                applied = True
+            else:
+                existing_prefix_norm = str(existing_prefix).strip("/")
+                if not existing_prefix_norm:
+                    merged["path_prefix"] = hint_prefix_norm
+                    applied = True
+                elif existing_prefix_norm == hint_prefix_norm:
+                    pass
+                elif existing_prefix_norm.startswith(hint_prefix_norm):
+                    pass
+                elif hint_prefix_norm.startswith(existing_prefix_norm):
+                    merged["path_prefix"] = hint_prefix_norm
+                    applied = True
+                else:
+                    conflicts.append("path_prefix_conflict")
+
+    resolution = {
+        "provided": provided,
+        "raw": scope_hint.get("raw"),
+        "strategy": (
+            str(scope_hint.get("strategy") or "none")
+            if applied
+            else ("filters_preferred" if provided else "none")
+        ),
+        "applied": applied,
+        "effective": {
+            "domain": merged.get("domain"),
+            "path_prefix": merged.get("path_prefix"),
+        },
+        "conflicts": conflicts,
+    }
+    return merged, resolution
+
+
+async def _build_sm_lite_stats() -> Dict[str, Any]:
+    session_cache_stats = await runtime_state.session_cache.summary()
+    flush_tracker_stats = await runtime_state.flush_tracker.summary()
+    promotion_stats = await runtime_state.promotion_tracker.summary()
+    return {
+        "storage": "runtime_ephemeral",
+        "promotion_path": "compact_context + auto_flush",
+        "session_cache": session_cache_stats,
+        "flush_tracker": flush_tracker_stats,
+        "promotion": promotion_stats,
+    }
 
 
 def _session_row_to_result(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -374,19 +1063,36 @@ def _merge_session_global_results(
     session_results: List[Dict[str, Any]],
     global_results: List[Dict[str, Any]],
     limit: int,
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     merged: List[Dict[str, Any]] = []
     seen: set[str] = set()
+    dedup_dropped = 0
+    session_contributed = 0
+    global_contributed = 0
 
-    for row in session_results + global_results:
+    for index, row in enumerate(session_results + global_results):
+        source_bucket = "session" if index < len(session_results) else "global"
         uri = str(row.get("uri") or "")
         if not uri or uri in seen:
+            dedup_dropped += 1
             continue
         seen.add(uri)
         merged.append(row)
+        if source_bucket == "session":
+            session_contributed += 1
+        else:
+            global_contributed += 1
         if len(merged) >= max(1, limit):
             break
-    return merged
+    return merged, {
+        "session_candidates": len(session_results),
+        "global_candidates": len(global_results),
+        "merged_candidates": len(merged),
+        "returned_candidates": len(merged),
+        "dedup_dropped": dedup_dropped,
+        "session_contributed": session_contributed,
+        "global_contributed": global_contributed,
+    }
 
 
 def _build_search_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -397,6 +1103,10 @@ def _build_search_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]:
             "degraded_queries": 0,
             "cache_hit_queries": 0,
             "cache_hit_ratio": 0.0,
+            "dedup_dropped_total": 0,
+            "avg_dedup_dropped": 0.0,
+            "session_contributed_total": 0,
+            "global_contributed_total": 0,
             "latency_ms": {"avg": 0.0, "p95": 0.0, "max": 0.0},
             "mode_breakdown": {},
             "intent_breakdown": {},
@@ -408,6 +1118,13 @@ def _build_search_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]:
     latencies = [float(item.get("latency_ms") or 0.0) for item in events]
     degraded_queries = sum(1 for item in events if bool(item.get("degraded")))
     cache_hit_queries = sum(1 for item in events if int(item.get("session_count") or 0) > 0)
+    dedup_dropped_total = sum(max(0, int(item.get("dedup_dropped") or 0)) for item in events)
+    session_contributed_total = sum(
+        max(0, int(item.get("session_contributed") or 0)) for item in events
+    )
+    global_contributed_total = sum(
+        max(0, int(item.get("global_contributed") or 0)) for item in events
+    )
 
     mode_counts = Counter(str(item.get("mode_applied") or "unknown") for item in events)
     intent_counts = Counter(
@@ -436,6 +1153,10 @@ def _build_search_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]:
         "degraded_queries": degraded_queries,
         "cache_hit_queries": cache_hit_queries,
         "cache_hit_ratio": round(cache_hit_queries / max(1, len(events)), 6),
+        "dedup_dropped_total": dedup_dropped_total,
+        "avg_dedup_dropped": round(dedup_dropped_total / max(1, len(events)), 6),
+        "session_contributed_total": session_contributed_total,
+        "global_contributed_total": global_contributed_total,
         "latency_ms": {
             "avg": round(sum(latencies) / max(1, len(latencies)), 3),
             "p95": round(_safe_percentile(latencies, 0.95), 3),
@@ -551,6 +1272,635 @@ def _build_cleanup_query_summary(events: List[Dict[str, Any]]) -> Dict[str, Any]
             "max": round(max(latencies), 3),
         },
         "last_query_at": events[-1].get("timestamp"),
+    }
+
+
+@router.post("/import/prepare")
+async def prepare_external_import(payload: ImportPrepareRequest):
+    actor_id = str(payload.actor_id or "").strip()
+    session_id = str(payload.session_id or "").strip()
+    source = str(payload.source or "external_import").strip() or "external_import"
+    reason_text = str(payload.reason or "manual_import").strip() or "manual_import"
+    domain = _validate_import_domain(payload.domain)
+    parent_path = _normalize_import_parent_path(payload.parent_path)
+
+    if parent_path:
+        client = get_sqlite_client()
+        parent = None
+        try:
+            parent = await client.get_memory_by_path(
+                parent_path,
+                domain,
+                reinforce_access=False,
+            )
+        except TypeError:
+            parent = await client.get_memory_by_path(parent_path, domain)
+        if parent is None:
+            await _record_import_learn_event(
+                event_type="reject",
+                operation="import_prepare",
+                decision="rejected",
+                reason="parent_path_not_found",
+                source=source,
+                session_id=session_id,
+                actor_id=actor_id,
+                metadata={"domain": domain, "parent_path": parent_path},
+            )
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "external_import_prepare_rejected",
+                    "reason": "parent_path_not_found",
+                    "domain": domain,
+                    "parent_path": parent_path,
+                },
+            )
+
+    guard = await _get_external_import_guard()
+    guard_result = guard.validate_batch(
+        file_paths=payload.file_paths,
+        actor_id=actor_id,
+        session_id=session_id,
+    )
+    if not bool(guard_result.get("ok")):
+        await _record_import_learn_event(
+            event_type="reject",
+            operation="import_prepare",
+            decision="rejected",
+            reason=str(guard_result.get("reason") or "guard_rejected"),
+            source=source,
+            session_id=session_id,
+            actor_id=actor_id,
+            metadata={
+                "domain": domain,
+                "parent_path": parent_path,
+                "requested_file_count": _safe_non_negative_int(
+                    guard_result.get("requested_file_count")
+                ),
+            },
+        )
+        raise _http_error_for_import_guard(guard_result)
+
+    job_id = f"import-{uuid.uuid4().hex[:12]}"
+    policy_snapshot = _build_external_import_policy_snapshot(guard)
+    title_suffix = job_id.rsplit("-", 1)[-1]
+    allowed_files = (
+        guard_result.get("allowed_files")
+        if isinstance(guard_result.get("allowed_files"), list)
+        else []
+    )
+    prepared_files: List[Dict[str, Any]] = []
+    read_failures: List[Dict[str, Any]] = []
+    total_bytes = 0
+
+    for index, file_info in enumerate(allowed_files):
+        if not isinstance(file_info, dict):
+            continue
+        source_path = str(file_info.get("path") or "").strip()
+        resolved_path = str(file_info.get("resolved_path") or "").strip()
+        extension = str(file_info.get("extension") or "").strip().lower()
+        size_bytes = _safe_non_negative_int(file_info.get("size_bytes"))
+        if not resolved_path:
+            read_failures.append(
+                {
+                    "path": source_path,
+                    "reason": "resolved_path_missing",
+                }
+            )
+            continue
+        try:
+            content = Path(resolved_path).read_text(encoding="utf-8")
+        except Exception as exc:
+            read_failures.append(
+                {
+                    "path": source_path,
+                    "reason": "file_read_failed",
+                    "detail": type(exc).__name__,
+                }
+            )
+            continue
+
+        source_hash = _build_import_source_hash(content)
+        title = _sanitize_import_title(
+            source_path or resolved_path,
+            source_hash,
+            suffix=title_suffix,
+        )
+        target_path, target_uri = _build_import_target_uri(
+            domain=domain,
+            parent_path=parent_path,
+            title=title,
+        )
+        prepared_files.append(
+            {
+                "file_index": index,
+                "source_path": source_path,
+                "resolved_path": resolved_path,
+                "extension": extension,
+                "size_bytes": size_bytes,
+                "source_hash": source_hash,
+                "title": title,
+                "target_path": target_path,
+                "target_uri": target_uri,
+                "preview": _trim_import_preview(content),
+                "content": content,
+            }
+        )
+        total_bytes += size_bytes
+
+    if read_failures:
+        await _record_import_learn_event(
+            event_type="reject",
+            operation="import_prepare",
+            decision="rejected",
+            reason="file_read_failed",
+            source=source,
+            session_id=session_id,
+            actor_id=actor_id,
+            metadata={
+                "domain": domain,
+                "parent_path": parent_path,
+                "read_failure_count": len(read_failures),
+            },
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "external_import_prepare_rejected",
+                "reason": "file_read_failed",
+                "read_failures": read_failures,
+            },
+        )
+
+    now_iso = _utc_iso_now()
+    job_payload: Dict[str, Any] = {
+        "job_id": job_id,
+        "status": "prepared",
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "operation": "import_prepare",
+        "dry_run": True,
+        "actor_id": actor_id,
+        "session_id": session_id,
+        "source": source,
+        "reason_text": reason_text,
+        "domain": domain,
+        "parent_path": parent_path,
+        "priority": int(payload.priority),
+        "file_count": len(prepared_files),
+        "total_bytes": total_bytes,
+        "guard": {
+            "reason": str(guard_result.get("reason") or "ok"),
+            "rate_limit": guard_result.get("rate_limit")
+            if isinstance(guard_result.get("rate_limit"), dict)
+            else None,
+            "rate_limit_storage": str(
+                guard_result.get("rate_limit_storage") or "process_memory"
+            ),
+            "require_shared_rate_limit": bool(
+                guard_result.get("require_shared_rate_limit")
+            ),
+            "max_files": _safe_non_negative_int(guard_result.get("max_files")),
+            "max_total_bytes": _safe_non_negative_int(
+                guard_result.get("max_total_bytes")
+            ),
+            "policy": policy_snapshot,
+        },
+        "files": prepared_files,
+        "created_memories": [],
+        "side_effects": {
+            "audit_required": True,
+            "scope": [
+                "created_memory_ids",
+                "index_chunks",
+                "runtime_audit_events",
+            ],
+            "note": "rollback_only_covers_created_memory_ids",
+        },
+        "rollback": {
+            "status": "not_started",
+            "rolled_back_count": 0,
+            "error_count": 0,
+            "errors": [],
+            "completed_at": None,
+        },
+    }
+    await _put_import_job(job_payload)
+    await _record_import_learn_event(
+        event_type="import",
+        operation="import_prepare",
+        decision="accepted",
+        reason="prepared",
+        source=source,
+        session_id=session_id,
+        actor_id=actor_id,
+        batch_id=job_id,
+        metadata={
+            "domain": domain,
+            "parent_path": parent_path,
+            "file_count": len(prepared_files),
+            "total_bytes": total_bytes,
+            "policy_hash": str(policy_snapshot.get("policy_hash") or ""),
+        },
+    )
+
+    return {
+        "ok": True,
+        "status": "prepared",
+        "job_id": job_id,
+        "dry_run": True,
+        "file_count": len(prepared_files),
+        "total_bytes": total_bytes,
+        "job": _public_import_job_payload(job_payload),
+    }
+
+
+@router.post("/import/execute")
+async def execute_external_import(payload: ImportExecuteRequest):
+    job_id = str(payload.job_id or "").strip()
+    job, transition_error = await _transition_import_job_status(
+        job_id,
+        allowed_from={"prepared"},
+        next_status="executing",
+    )
+    if transition_error == "job_not_found":
+        raise HTTPException(status_code=404, detail={"error": "import_job_not_found"})
+    if transition_error:
+        current_status = (
+            str(job.get("status") or "unknown")
+            if isinstance(job, dict)
+            else "unknown"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "import_job_invalid_status",
+                "reason": transition_error,
+                "status": current_status,
+                "job_id": job_id,
+            },
+        )
+    if not isinstance(job, dict):
+        raise HTTPException(status_code=404, detail={"error": "import_job_not_found"})
+
+    files = job.get("files") if isinstance(job.get("files"), list) else []
+    if not files:
+        job["status"] = "failed"
+        job["failure"] = {
+            "reason": "prepared_files_missing",
+            "updated_at": _utc_iso_now(),
+        }
+        await _update_import_job(job_id, job)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "external_import_execute_rejected",
+                "reason": "prepared_files_missing",
+                "job_id": job_id,
+            },
+        )
+
+    client = get_sqlite_client()
+    domain = _validate_import_domain(str(job.get("domain") or "notes"))
+    parent_path = _normalize_import_parent_path(str(job.get("parent_path") or ""))
+    priority = _safe_non_negative_int(job.get("priority"))
+    actor_id = str(job.get("actor_id") or "").strip() or None
+    session_id = str(job.get("session_id") or "").strip() or None
+    source = str(job.get("source") or "external_import").strip() or "external_import"
+
+    validated_entries: List[Dict[str, Any]] = []
+    source_mismatch: List[Dict[str, Any]] = []
+    guard_blocked: List[Dict[str, Any]] = []
+    guard_errors: List[Dict[str, Any]] = []
+
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        source_path = str(item.get("source_path") or "").strip()
+        resolved_path = str(item.get("resolved_path") or "").strip()
+        expected_hash = str(item.get("source_hash") or "").strip()
+        title = str(item.get("title") or "").strip()
+        if not resolved_path or not expected_hash or not title:
+            source_mismatch.append(
+                {
+                    "path": source_path,
+                    "reason": "prepared_file_incomplete",
+                }
+            )
+            continue
+        try:
+            current_content = Path(resolved_path).read_text(encoding="utf-8")
+        except Exception as exc:
+            source_mismatch.append(
+                {
+                    "path": source_path,
+                    "reason": "file_read_failed",
+                    "detail": type(exc).__name__,
+                }
+            )
+            continue
+        current_hash = _build_import_source_hash(current_content)
+        if current_hash != expected_hash:
+            source_mismatch.append(
+                {
+                    "path": source_path,
+                    "reason": "source_changed_since_prepare",
+                }
+            )
+            continue
+
+        try:
+            guard_decision = await client.write_guard(
+                content=current_content,
+                domain=domain,
+                path_prefix=parent_path or None,
+            )
+        except Exception as exc:
+            guard_errors.append(
+                {
+                    "path": source_path,
+                    "reason": "write_guard_unavailable",
+                    "detail": type(exc).__name__,
+                }
+            )
+            continue
+
+        action = str(guard_decision.get("action") or "UNKNOWN").upper()
+        if action != "ADD":
+            guard_blocked.append(
+                {
+                    "path": source_path,
+                    "reason": f"write_guard_blocked:{action.lower()}",
+                    "guard_action": action,
+                    "guard_method": str(guard_decision.get("method") or "unknown"),
+                }
+            )
+            continue
+
+        validated_entries.append(
+            {
+                "source_path": source_path,
+                "title": title,
+                "content": current_content,
+                "target_path": str(item.get("target_path") or ""),
+                "target_uri": str(item.get("target_uri") or ""),
+                "source_hash": expected_hash,
+            }
+        )
+
+    if source_mismatch or guard_errors or guard_blocked:
+        reason = (
+            "source_changed_since_prepare"
+            if source_mismatch
+            else ("write_guard_unavailable" if guard_errors else "write_guard_blocked")
+        )
+        job["status"] = "failed"
+        job["failure"] = {
+            "reason": reason,
+            "source_mismatch": source_mismatch,
+            "guard_errors": guard_errors,
+            "guard_blocked": guard_blocked,
+            "updated_at": _utc_iso_now(),
+        }
+        await _update_import_job(job_id, job)
+        await _record_import_learn_event(
+            event_type="reject",
+            operation="import_execute",
+            decision="rejected",
+            reason=reason,
+            source=source,
+            session_id=session_id,
+            actor_id=actor_id,
+            batch_id=job_id,
+            metadata={
+                "domain": domain,
+                "source_mismatch_count": len(source_mismatch),
+                "guard_error_count": len(guard_errors),
+                "guard_blocked_count": len(guard_blocked),
+            },
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "external_import_execute_rejected",
+                "reason": reason,
+                "job_id": job_id,
+                "source_mismatch": source_mismatch,
+                "guard_errors": guard_errors,
+                "guard_blocked": guard_blocked,
+            },
+        )
+
+    created_memories: List[Dict[str, Any]] = []
+    for entry in validated_entries:
+        try:
+            created = await client.create_memory(
+                parent_path=parent_path,
+                content=str(entry.get("content") or ""),
+                priority=priority,
+                title=str(entry.get("title") or ""),
+                domain=domain,
+            )
+        except Exception as exc:
+            rollback_summary = await _rollback_import_created_memories(
+                client=client,
+                created_memories=created_memories,
+            )
+            job["status"] = "failed"
+            job["created_memories"] = created_memories
+            job["rollback"] = rollback_summary
+            job["failure"] = {
+                "reason": "create_memory_failed",
+                "detail": str(exc) or type(exc).__name__,
+                "updated_at": _utc_iso_now(),
+            }
+            await _update_import_job(job_id, job)
+            await _record_import_learn_event(
+                event_type="reject",
+                operation="import_execute",
+                decision="rejected",
+                reason="create_memory_failed",
+                source=source,
+                session_id=session_id,
+                actor_id=actor_id,
+                batch_id=job_id,
+                metadata={
+                    "domain": domain,
+                    "created_count": len(created_memories),
+                    "rollback_count": rollback_summary.get("rolled_back_count"),
+                },
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error": "external_import_execute_failed",
+                    "reason": "create_memory_failed",
+                    "job_id": job_id,
+                    "created_count": len(created_memories),
+                    "rollback": rollback_summary,
+                },
+            )
+
+        created_memories.append(
+            {
+                "memory_id": _safe_non_negative_int(created.get("id")),
+                "uri": str(created.get("uri") or ""),
+                "path": str(created.get("path") or ""),
+                "source_path": str(entry.get("source_path") or ""),
+                "source_hash": str(entry.get("source_hash") or ""),
+            }
+        )
+
+    job["status"] = "executed"
+    job["created_memories"] = created_memories
+    job["failure"] = None
+    job["rollback"] = {
+        "status": "not_started",
+        "rolled_back_count": 0,
+        "error_count": 0,
+        "errors": [],
+        "completed_at": None,
+    }
+    await _update_import_job(job_id, job)
+    await _record_import_learn_event(
+        event_type="import",
+        operation="import_execute",
+        decision="executed",
+        reason="executed",
+        source=source,
+        session_id=session_id,
+        actor_id=actor_id,
+        batch_id=job_id,
+        metadata={
+            "domain": domain,
+            "created_count": len(created_memories),
+            "file_count": len(validated_entries),
+        },
+    )
+
+    return {
+        "ok": True,
+        "status": "executed",
+        "job_id": job_id,
+        "created_count": len(created_memories),
+        "created_memories": created_memories,
+        "job": _public_import_job_payload(job),
+    }
+
+
+@router.get("/import/jobs/{job_id}")
+async def get_external_import_job(job_id: str):
+    payload = await _get_import_job(job_id)
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=404, detail={"error": "import_job_not_found"})
+    return {
+        "ok": True,
+        "job_id": str(payload.get("job_id") or job_id),
+        "status": str(payload.get("status") or "unknown"),
+        "job": _public_import_job_payload(payload),
+    }
+
+
+@router.post("/import/jobs/{job_id}/rollback")
+async def rollback_external_import_job(job_id: str, payload: ImportRollbackRequest):
+    current_job = await _get_import_job(job_id)
+    if not isinstance(current_job, dict):
+        raise HTTPException(status_code=404, detail={"error": "import_job_not_found"})
+
+    current_status = str(current_job.get("status") or "unknown")
+    created_memories = (
+        current_job.get("created_memories")
+        if isinstance(current_job.get("created_memories"), list)
+        else []
+    )
+
+    if current_status == "rolled_back":
+        return {
+            "ok": True,
+            "status": "rolled_back",
+            "job_id": str(current_job.get("job_id") or job_id),
+            "job": _public_import_job_payload(current_job),
+        }
+
+    if current_status not in {"executed", "failed", "rollback_failed"}:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "import_job_invalid_status",
+                "reason": f"invalid_status:{current_status}",
+                "job_id": job_id,
+            },
+        )
+    if not created_memories:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "import_job_no_created_memories",
+                "job_id": job_id,
+            },
+        )
+
+    transitioned_job, transition_error = await _transition_import_job_status(
+        job_id,
+        allowed_from={"executed", "failed", "rollback_failed"},
+        next_status="rolling_back",
+    )
+    if transition_error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "import_job_invalid_status",
+                "reason": transition_error,
+                "job_id": job_id,
+            },
+        )
+    if not isinstance(transitioned_job, dict):
+        raise HTTPException(status_code=404, detail={"error": "import_job_not_found"})
+
+    client = get_sqlite_client()
+    rollback_summary = await _rollback_import_created_memories(
+        client=client,
+        created_memories=created_memories,
+    )
+    has_errors = bool(rollback_summary.get("error_count"))
+    final_status = "rollback_failed" if has_errors else "rolled_back"
+    transitioned_job["status"] = final_status
+    transitioned_job["rollback"] = rollback_summary
+    await _update_import_job(job_id, transitioned_job)
+
+    await _record_import_learn_event(
+        event_type="rollback",
+        operation="import_rollback",
+        decision="rejected" if has_errors else "rolled_back",
+        reason=(
+            "rollback_failed"
+            if has_errors
+            else str(payload.reason or "manual_rollback").strip()
+        ),
+        source=str(transitioned_job.get("source") or "external_import"),
+        session_id=str(transitioned_job.get("session_id") or ""),
+        actor_id=str(transitioned_job.get("actor_id") or "") or None,
+        batch_id=str(transitioned_job.get("job_id") or job_id),
+        metadata={
+            "rolled_back_count": _safe_non_negative_int(
+                rollback_summary.get("rolled_back_count")
+            ),
+            "error_count": _safe_non_negative_int(rollback_summary.get("error_count")),
+            "side_effects_audit_required": bool(
+                rollback_summary.get("side_effects_audit_required")
+            ),
+            "residual_artifacts_review_required": bool(
+                rollback_summary.get("residual_artifacts_review_required")
+            ),
+        },
+    )
+
+    return {
+        "ok": not has_errors,
+        "status": final_status,
+        "job_id": str(transitioned_job.get("job_id") or job_id),
+        "rollback": rollback_summary,
+        "job": _public_import_job_payload(transitioned_job),
     }
 
 
@@ -1115,6 +2465,19 @@ async def run_observability_search(payload: SearchConsoleRequest):
         filters = _normalize_search_filters(payload.filters)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+    scope_hint_raw: Optional[Any] = payload.scope_hint
+    if scope_hint_raw is None and isinstance(payload.filters, dict):
+        scope_hint_raw = payload.filters.get("scope_hint")
+    try:
+        normalized_scope_hint = _normalize_scope_hint(scope_hint_raw)
+        filters, scope_resolution = _merge_scope_hint_with_filters(
+            normalized_filters=filters,
+            scope_hint=normalized_scope_hint,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
     client = get_sqlite_client()
     await runtime_state.ensure_started(get_sqlite_client)
     await _ensure_search_events_loaded(client)
@@ -1134,6 +2497,8 @@ async def run_observability_search(payload: SearchConsoleRequest):
         "signals": ["fallback_default"],
     }
     preprocess_degrade_reasons: List[str] = []
+    for conflict in scope_resolution.get("conflicts", []):
+        preprocess_degrade_reasons.append(f"scope_hint_{conflict}")
 
     preprocess_fn = getattr(client, "preprocess_query", None)
     if callable(preprocess_fn):
@@ -1150,14 +2515,52 @@ async def run_observability_search(payload: SearchConsoleRequest):
         str(query_preprocess.get("rewritten_query") or "").strip() or query
     )
 
-    classify_fn = getattr(client, "classify_intent", None)
+    classify_fn = None
+    fallback_classify_fn = getattr(client, "classify_intent", None)
+    classify_with_intent_llm = False
+    if _INTENT_LLM_ENABLED:
+        classify_fn = getattr(client, "classify_intent_with_llm", None)
+        classify_with_intent_llm = callable(classify_fn)
+        if not callable(classify_fn):
+            preprocess_degrade_reasons.append("intent_llm_unavailable")
+            classify_fn = fallback_classify_fn
+    else:
+        classify_fn = fallback_classify_fn
     if callable(classify_fn):
         try:
             classify_payload = classify_fn(query, query_effective)
+            if inspect.isawaitable(classify_payload):
+                classify_payload = await classify_payload
             if isinstance(classify_payload, dict):
                 intent_profile.update(classify_payload)
+                classify_degrade_reasons = classify_payload.get("degrade_reasons")
+                if isinstance(classify_degrade_reasons, list):
+                    for reason in classify_degrade_reasons:
+                        if isinstance(reason, str) and reason.strip():
+                            preprocess_degrade_reasons.append(reason.strip())
         except Exception:
             preprocess_degrade_reasons.append("intent_classification_failed")
+            if classify_with_intent_llm and callable(fallback_classify_fn):
+                try:
+                    fallback_payload = fallback_classify_fn(query, query_effective)
+                    if inspect.isawaitable(fallback_payload):
+                        fallback_payload = await fallback_payload
+                    if isinstance(fallback_payload, dict):
+                        intent_profile.update(fallback_payload)
+                        preprocess_degrade_reasons.append(
+                            "intent_llm_fallback_rule_applied"
+                        )
+                        fallback_degrade_reasons = fallback_payload.get(
+                            "degrade_reasons"
+                        )
+                        if isinstance(fallback_degrade_reasons, list):
+                            for reason in fallback_degrade_reasons:
+                                if isinstance(reason, str) and reason.strip():
+                                    preprocess_degrade_reasons.append(reason.strip())
+                except Exception:
+                    preprocess_degrade_reasons.append(
+                        "intent_classification_fallback_failed"
+                    )
     else:
         preprocess_degrade_reasons.append("intent_classification_unavailable")
 
@@ -1220,8 +2623,9 @@ async def run_observability_search(payload: SearchConsoleRequest):
             ]
         except Exception:
             session_results = []
+            preprocess_degrade_reasons.append("session_cache_lookup_failed")
 
-    merged_results = _merge_session_global_results(
+    merged_results, session_first_metrics = _merge_session_global_results(
         session_results=session_results,
         global_results=global_results,
         limit=payload.max_results,
@@ -1269,6 +2673,11 @@ async def run_observability_search(payload: SearchConsoleRequest):
         "session_count": len(session_results),
         "global_count": len(global_results),
         "returned_count": len(merged_results),
+        "dedup_dropped": int(session_first_metrics.get("dedup_dropped") or 0),
+        "session_contributed": int(
+            session_first_metrics.get("session_contributed") or 0
+        ),
+        "global_contributed": int(session_first_metrics.get("global_contributed") or 0),
         "intent": str(intent_profile.get("intent") or "unknown"),
         "intent_applied": intent_applied,
         "strategy_template": str(
@@ -1287,12 +2696,18 @@ async def run_observability_search(payload: SearchConsoleRequest):
         "query_preprocess": query_preprocess,
         "intent": str(intent_profile.get("intent") or "unknown"),
         "intent_applied": intent_applied,
+        "intent_llm_enabled": _INTENT_LLM_ENABLED,
+        "intent_llm_applied": bool(intent_profile.get("intent_llm_applied")),
         "intent_profile": intent_profile,
         "strategy_template": str(intent_profile.get("strategy_template") or "default"),
         "strategy_template_applied": strategy_template_applied,
         "mode_requested": mode,
         "mode_applied": mode_applied,
         "filters": filters,
+        "scope_hint": scope_resolution.get("raw"),
+        "scope_hint_applied": bool(scope_resolution.get("applied")),
+        "scope_strategy_applied": scope_resolution.get("strategy"),
+        "scope_effective": scope_resolution.get("effective", {}),
         "max_results": payload.max_results,
         "candidate_multiplier": payload.candidate_multiplier,
         "include_session": payload.include_session,
@@ -1304,9 +2719,15 @@ async def run_observability_search(payload: SearchConsoleRequest):
             "global": len(global_results),
             "returned": len(merged_results),
         },
+        "session_first_metrics": session_first_metrics,
         "results": merged_results,
         "backend_metadata": backend_metadata,
         "timestamp": event["timestamp"],
+        **(
+            {"scope_conflicts": scope_resolution.get("conflicts")}
+            if scope_resolution.get("conflicts")
+            else {}
+        ),
     }
 
 
@@ -1376,6 +2797,17 @@ async def get_observability_summary():
     vitality_decay_status = await runtime_state.vitality_decay.status()
     cleanup_review_status = await runtime_state.cleanup_reviews.summary()
     sleep_consolidation_status = await runtime_state.sleep_consolidation.status()
+    try:
+        sm_lite_stats = await _build_sm_lite_stats()
+    except Exception as exc:
+        sm_lite_stats = {
+            "degraded": True,
+            "reason": str(exc),
+            "storage": "runtime_ephemeral",
+            "promotion_path": "compact_context + auto_flush",
+            "session_cache": {},
+            "flush_tracker": {},
+        }
 
     async with _search_events_guard:
         events = list(_search_events)
@@ -1392,6 +2824,7 @@ async def get_observability_summary():
         if bool(index_status.get("degraded"))
         or bool(gist_stats.get("degraded"))
         or bool(vitality_stats.get("degraded"))
+        or bool(sm_lite_stats.get("degraded"))
         else "ok"
     )
 
@@ -1404,6 +2837,7 @@ async def get_observability_summary():
                 "write_lanes": write_lane_status,
                 "index_worker": worker_status,
                 "sleep_consolidation": sleep_consolidation_status,
+                "sm_lite": sm_lite_stats,
             },
         },
         "search_stats": search_summary,
