@@ -81,7 +81,42 @@ class WriteLaneCoordinator:
         self._session_waiting: Dict[str, int] = {}
         self._global_waiting = 0
         self._global_active = 0
+        self._writes_total = 0
+        self._writes_failed = 0
+        self._writes_success = 0
+        self._last_error: Optional[str] = None
+        self._session_wait_samples: Deque[int] = deque(maxlen=200)
+        self._global_wait_samples: Deque[int] = deque(maxlen=200)
+        self._duration_samples: Deque[int] = deque(maxlen=200)
         self._guard = asyncio.Lock()
+
+    @staticmethod
+    def _p95(values: Deque[int]) -> int:
+        if not values:
+            return 0
+        ranked = sorted(values)
+        idx = max(0, math.ceil(len(ranked) * 0.95) - 1)
+        return int(ranked[idx])
+
+    async def _record_write_metrics(
+        self,
+        *,
+        success: bool,
+        session_wait_ms: int,
+        global_wait_ms: int,
+        duration_ms: int,
+        error: Optional[str] = None,
+    ) -> None:
+        async with self._guard:
+            self._writes_total += 1
+            if success:
+                self._writes_success += 1
+            else:
+                self._writes_failed += 1
+                self._last_error = error or "unknown_error"
+            self._session_wait_samples.append(max(0, int(session_wait_ms)))
+            self._global_wait_samples.append(max(0, int(global_wait_ms)))
+            self._duration_samples.append(max(0, int(duration_ms)))
 
     async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         async with self._guard:
@@ -98,6 +133,7 @@ class WriteLaneCoordinator:
         operation: str,
         task: Callable[[], Awaitable[Any]],
     ) -> Any:
+        write_start = time.monotonic()
         lane = _normalize_session_id(session_id)
         session_lock = await self._get_session_lock(lane)
 
@@ -125,7 +161,25 @@ class WriteLaneCoordinator:
                 _ = operation
                 _ = waited_session_ms
                 _ = waited_global_ms
-                return await task()
+                result = await task()
+                duration_ms = int((time.monotonic() - write_start) * 1000)
+                await self._record_write_metrics(
+                    success=True,
+                    session_wait_ms=waited_session_ms,
+                    global_wait_ms=waited_global_ms,
+                    duration_ms=duration_ms,
+                )
+                return result
+            except Exception as exc:
+                duration_ms = int((time.monotonic() - write_start) * 1000)
+                await self._record_write_metrics(
+                    success=False,
+                    session_wait_ms=waited_session_ms,
+                    global_wait_ms=waited_global_ms,
+                    duration_ms=duration_ms,
+                    error=str(exc),
+                )
+                raise
             finally:
                 async with self._guard:
                     self._global_active = max(0, self._global_active - 1)
@@ -139,6 +193,8 @@ class WriteLaneCoordinator:
                 if waiting > 0
             }
             max_session_wait_ms = max(busy_sessions.values(), default=0)
+            writes_total = max(0, self._writes_total)
+            writes_failed = max(0, self._writes_failed)
             return {
                 "global_concurrency": self._global_concurrency,
                 "global_active": self._global_active,
@@ -147,6 +203,16 @@ class WriteLaneCoordinator:
                 "session_waiting_sessions": len(busy_sessions),
                 "max_session_waiting": max_session_wait_ms,
                 "wait_warn_ms": self._wait_warn_ms,
+                "writes_total": writes_total,
+                "writes_failed": writes_failed,
+                "writes_success": max(0, self._writes_success),
+                "failure_rate": (
+                    round(writes_failed / writes_total, 6) if writes_total > 0 else 0.0
+                ),
+                "session_wait_ms_p95": self._p95(self._session_wait_samples),
+                "global_wait_ms_p95": self._p95(self._global_wait_samples),
+                "duration_ms_p95": self._p95(self._duration_samples),
+                "last_error": self._last_error,
             }
 
 

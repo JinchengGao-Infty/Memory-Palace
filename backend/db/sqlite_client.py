@@ -38,6 +38,7 @@ from sqlalchemy import (
     and_,
     or_,
     text,
+    event,
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, relationship
@@ -274,6 +275,35 @@ class SQLiteClient:
         """
         self.database_url = database_url
         self.engine = create_async_engine(database_url, echo=False)
+        self._runtime_write_wal_enabled = self._env_bool("RUNTIME_WRITE_WAL_ENABLED", False)
+        self._runtime_write_journal_mode_requested = (
+            self._normalize_runtime_write_journal_mode(
+                os.getenv("RUNTIME_WRITE_JOURNAL_MODE", "delete"),
+                wal_enabled=self._runtime_write_wal_enabled,
+            )
+        )
+        self._runtime_write_wal_synchronous_requested = (
+            self._normalize_runtime_write_wal_synchronous(
+                os.getenv("RUNTIME_WRITE_WAL_SYNCHRONOUS", "normal")
+            )
+        )
+        self._runtime_write_busy_timeout_ms = max(
+            1, self._env_int("RUNTIME_WRITE_BUSY_TIMEOUT_MS", 120)
+        )
+        self._runtime_write_wal_autocheckpoint = max(
+            1, self._env_int("RUNTIME_WRITE_WAL_AUTOCHECKPOINT", 1000)
+        )
+        self._runtime_write_journal_mode_effective = "delete"
+        self._runtime_write_wal_synchronous_effective = "default"
+        self._runtime_write_busy_timeout_effective_ms = int(
+            self._runtime_write_busy_timeout_ms
+        )
+        self._runtime_write_wal_autocheckpoint_effective = int(
+            self._runtime_write_wal_autocheckpoint
+        )
+        self._runtime_write_pragma_status = "pending"
+        self._runtime_write_pragma_error = ""
+        self._register_runtime_write_pragma_hook()
         self.async_session = async_sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
         )
@@ -468,6 +498,152 @@ class SQLiteClient:
                 return candidate
         return default
 
+    @staticmethod
+    def _normalize_runtime_write_journal_mode(
+        value: Optional[str], *, wal_enabled: bool
+    ) -> str:
+        mode = str(value or "delete").strip().lower() or "delete"
+        if mode == "wal" and wal_enabled:
+            return "wal"
+        return "delete"
+
+    @staticmethod
+    def _normalize_runtime_write_wal_synchronous(value: Optional[str]) -> str:
+        mode = str(value or "normal").strip().lower() or "normal"
+        numeric_map = {
+            "0": "off",
+            "1": "normal",
+            "2": "full",
+            "3": "extra",
+        }
+        mode = numeric_map.get(mode, mode)
+        if mode in {"off", "normal", "full", "extra"}:
+            return mode
+        return "normal"
+
+    def _register_runtime_write_pragma_hook(self) -> None:
+        @event.listens_for(self.engine.sync_engine, "connect")
+        def _on_connect(dbapi_connection, _connection_record) -> None:
+            self._apply_runtime_write_pragmas(dbapi_connection)
+
+    def _apply_runtime_write_pragmas(self, dbapi_connection) -> None:
+        status = "disabled"
+        error = ""
+        journal_mode_effective = "delete"
+        wal_synchronous_effective = "default"
+        busy_timeout_effective = int(self._runtime_write_busy_timeout_ms)
+        wal_autocheckpoint_effective = int(self._runtime_write_wal_autocheckpoint)
+
+        cursor = None
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute(f"PRAGMA busy_timeout={int(self._runtime_write_busy_timeout_ms)}")
+            cursor.execute("PRAGMA busy_timeout")
+            busy_timeout_row = cursor.fetchone()
+            if busy_timeout_row and busy_timeout_row[0] is not None:
+                busy_timeout_effective = max(1, int(busy_timeout_row[0]))
+
+            requested_mode = (
+                "wal"
+                if (
+                    self._runtime_write_wal_enabled
+                    and self._runtime_write_journal_mode_requested == "wal"
+                )
+                else "delete"
+            )
+            cursor.execute(f"PRAGMA journal_mode={requested_mode.upper()}")
+            journal_mode_row = cursor.fetchone()
+            if journal_mode_row and journal_mode_row[0] is not None:
+                journal_mode_effective = (
+                    str(journal_mode_row[0]).strip().lower() or "delete"
+                )
+            else:
+                journal_mode_effective = requested_mode
+
+            if requested_mode == "wal":
+                if journal_mode_effective != "wal":
+                    status = "fallback_delete"
+                    error = f"journal_mode_unavailable:{journal_mode_effective}"
+                    cursor.execute("PRAGMA journal_mode=DELETE")
+                    delete_mode_row = cursor.fetchone()
+                    if delete_mode_row and delete_mode_row[0] is not None:
+                        journal_mode_effective = (
+                            str(delete_mode_row[0]).strip().lower() or "delete"
+                        )
+                    else:
+                        journal_mode_effective = "delete"
+                else:
+                    status = "enabled"
+                    sync_target = self._runtime_write_wal_synchronous_requested
+                    cursor.execute(f"PRAGMA synchronous={sync_target.upper()}")
+                    cursor.execute("PRAGMA synchronous")
+                    sync_row = cursor.fetchone()
+                    if sync_row and sync_row[0] is not None:
+                        wal_synchronous_effective = (
+                            self._normalize_runtime_write_wal_synchronous(
+                                str(sync_row[0])
+                            )
+                        )
+                    else:
+                        wal_synchronous_effective = sync_target
+                    cursor.execute(
+                        "PRAGMA wal_autocheckpoint={}".format(
+                            int(self._runtime_write_wal_autocheckpoint)
+                        )
+                    )
+                    cursor.execute("PRAGMA wal_autocheckpoint")
+                    wal_checkpoint_row = cursor.fetchone()
+                    if wal_checkpoint_row and wal_checkpoint_row[0] is not None:
+                        wal_autocheckpoint_effective = max(
+                            1, int(wal_checkpoint_row[0])
+                        )
+            else:
+                status = "disabled"
+        except Exception as exc:
+            status = "fallback_delete"
+            error = f"pragma_apply_failed:{type(exc).__name__}"
+            try:
+                if cursor is None:
+                    cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA journal_mode=DELETE")
+                delete_mode_row = cursor.fetchone()
+                if delete_mode_row and delete_mode_row[0] is not None:
+                    journal_mode_effective = (
+                        str(delete_mode_row[0]).strip().lower() or "delete"
+                    )
+                else:
+                    journal_mode_effective = "delete"
+            except Exception as rollback_exc:
+                status = "error"
+                suffix = f"journal_mode_reset_failed:{type(rollback_exc).__name__}"
+                error = f"{error};{suffix}" if error else suffix
+                journal_mode_effective = "unknown"
+        finally:
+            if cursor is not None:
+                try:
+                    cursor.close()
+                except Exception:
+                    pass
+            self._runtime_write_journal_mode_effective = (
+                "wal" if journal_mode_effective == "wal" else "delete"
+            )
+            if self._runtime_write_journal_mode_effective == "wal":
+                self._runtime_write_wal_synchronous_effective = (
+                    self._normalize_runtime_write_wal_synchronous(
+                        wal_synchronous_effective
+                    )
+                )
+            else:
+                self._runtime_write_wal_synchronous_effective = "default"
+            self._runtime_write_busy_timeout_effective_ms = int(
+                max(1, busy_timeout_effective)
+            )
+            self._runtime_write_wal_autocheckpoint_effective = int(
+                max(1, wal_autocheckpoint_effective)
+            )
+            self._runtime_write_pragma_status = status
+            self._runtime_write_pragma_error = error
+
     def _resolve_embedding_api_base(self, backend: str) -> str:
         backend_value = (backend or "").strip().lower()
         if backend_value == "router":
@@ -606,6 +782,7 @@ class SQLiteClient:
             self._sqlite_vec_capability = self._probe_sqlite_vec_capability()
             self._refresh_vector_engine_state()
             await conn.run_sync(self._sync_set_vector_engine_meta)
+            await conn.run_sync(self._sync_set_write_lane_wal_meta)
         await self._bootstrap_indexes()
 
     @staticmethod
@@ -732,6 +909,63 @@ class SQLiteClient:
             connection,
             "vector_engine_effective",
             self._vector_engine_effective,
+            now,
+        )
+
+    def _sync_set_write_lane_wal_meta(self, connection) -> None:
+        now = _utc_now_naive().isoformat()
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_wal_enabled",
+            "1" if self._runtime_write_wal_enabled else "0",
+            now,
+        )
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_journal_mode_requested",
+            self._runtime_write_journal_mode_requested,
+            now,
+        )
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_journal_mode_effective",
+            self._runtime_write_journal_mode_effective,
+            now,
+        )
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_wal_synchronous_requested",
+            self._runtime_write_wal_synchronous_requested,
+            now,
+        )
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_wal_synchronous_effective",
+            self._runtime_write_wal_synchronous_effective,
+            now,
+        )
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_busy_timeout_ms",
+            str(int(self._runtime_write_busy_timeout_effective_ms)),
+            now,
+        )
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_wal_autocheckpoint",
+            str(int(self._runtime_write_wal_autocheckpoint_effective)),
+            now,
+        )
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_pragma_status",
+            self._runtime_write_pragma_status,
+            now,
+        )
+        self._sync_set_index_meta(
+            connection,
+            "runtime_write_pragma_error",
+            self._runtime_write_pragma_error,
             now,
         )
 
@@ -4965,6 +5199,19 @@ class SQLiteClient:
                     ),
                     "vector_engine_requested": self._vector_engine_requested,
                     "vector_engine_effective": self._vector_engine_effective,
+                    "runtime_write_wal_enabled": self._runtime_write_wal_enabled,
+                    "runtime_write_journal_mode_requested": self._runtime_write_journal_mode_requested,
+                    "runtime_write_journal_mode_effective": self._runtime_write_journal_mode_effective,
+                    "runtime_write_wal_synchronous_requested": self._runtime_write_wal_synchronous_requested,
+                    "runtime_write_wal_synchronous_effective": self._runtime_write_wal_synchronous_effective,
+                    "runtime_write_busy_timeout_ms": int(
+                        self._runtime_write_busy_timeout_effective_ms
+                    ),
+                    "runtime_write_wal_autocheckpoint": int(
+                        self._runtime_write_wal_autocheckpoint_effective
+                    ),
+                    "runtime_write_pragma_status": self._runtime_write_pragma_status,
+                    "runtime_write_pragma_error": self._runtime_write_pragma_error,
                     "reranker_enabled": self._reranker_enabled,
                     "reranker_model": self._reranker_model,
                     "rerank_weight": self._rerank_weight,

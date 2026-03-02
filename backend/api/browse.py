@@ -5,6 +5,7 @@ This replaces the old Entity/Relation/Chapter conceptual split with a simple
 hierarchical browser. Every path is just a node with content and children.
 """
 
+import os
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Any
@@ -30,6 +31,16 @@ class NodeCreate(BaseModel):
     priority: int = 0
     disclosure: str | None = None
     domain: str = "core"
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+ENABLE_WRITE_LANE_QUEUE = _env_bool("RUNTIME_WRITE_LANE_QUEUE", True)
 
 
 def _normalize_guard_decision(payload: Any) -> dict[str, Any]:
@@ -78,6 +89,16 @@ async def _record_guard_event(operation: str, decision: dict[str, Any], blocked:
     except Exception:
         # Observability should not block write paths.
         return
+
+
+async def _run_write_lane(operation: str, task):
+    if not ENABLE_WRITE_LANE_QUEUE:
+        return await task()
+    return await runtime_state.write_lanes.run_write(
+        session_id=None,
+        operation=operation,
+        task=task,
+    )
 
 
 @router.get("/node")
@@ -222,8 +243,8 @@ async def create_node(
             **_guard_fields(guard_decision),
         }
 
-    try:
-        result = await client.create_memory(
+    async def _write_task():
+        return await client.create_memory(
             parent_path=parent_path,
             content=body.content,
             priority=body.priority,
@@ -231,6 +252,9 @@ async def create_node(
             disclosure=body.disclosure,
             domain=domain,
         )
+
+    try:
+        result = await _run_write_lane("browse.create_node", _write_task)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
@@ -302,19 +326,22 @@ async def update_node(
             ),
             **_guard_fields(guard_decision),
         }
-    
-    # Update (creates new version if content changed, updates path metadata otherwise)
-    try:
-        result = await client.update_memory(
+
+    async def _write_task():
+        return await client.update_memory(
             path=path,
             domain=domain,
             content=body.content,
             priority=body.priority,
             disclosure=body.disclosure,
         )
+
+    # Update (creates new version if content changed, updates path metadata otherwise)
+    try:
+        result = await _run_write_lane("browse.update_node", _write_task)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    
+
     return {
         "success": True,
         "updated": True,
@@ -334,8 +361,11 @@ async def delete_node(
     """
     client = get_sqlite_client()
 
+    async def _write_task():
+        return await client.remove_path(path=path, domain=domain)
+
     try:
-        result = await client.remove_path(path=path, domain=domain)
+        result = await _run_write_lane("browse.delete_node", _write_task)
     except ValueError as e:
         message = str(e)
         if "not found" in message:
