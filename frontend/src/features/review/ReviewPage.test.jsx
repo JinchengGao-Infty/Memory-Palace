@@ -214,4 +214,32 @@ describe('ReviewPage', () => {
       expect(screen.queryByRole('button', { name: /^Integrate$/i })).not.toBeInTheDocument();
     });
   });
+
+  it('renders object detail from loadDiff without crashing', async () => {
+    api.getDiff.mockRejectedValue({
+      response: { data: { detail: { error: 'backend_failed' } } },
+    });
+
+    render(<ReviewPage />);
+
+    await screen.findByText('Memory Retrieval Failed');
+    expect(screen.getByText('backend_failed')).toBeInTheDocument();
+    expect(api.extractApiError).toHaveBeenCalledWith(
+      expect.anything(),
+      'Failed to retrieve memory fragment.'
+    );
+  });
+
+  it('falls back to default diff error message for unknown object detail', async () => {
+    api.getDiff.mockRejectedValue({
+      response: { data: { detail: { foo: 'bar' } } },
+    });
+
+    render(<ReviewPage />);
+
+    await screen.findByText('Memory Retrieval Failed');
+    expect(
+      screen.getByText('Failed to retrieve memory fragment.')
+    ).toBeInTheDocument();
+  });
 });

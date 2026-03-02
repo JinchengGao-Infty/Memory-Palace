@@ -60,6 +60,11 @@ class _FakeClient:
         }
 
 
+class _GuardErrorClient(_FakeClient):
+    async def write_guard(self, **_: Any) -> Dict[str, Any]:
+        raise RuntimeError("guard_down")
+
+
 async def _noop_async(*_: Any, **__: Any) -> None:
     return None
 
@@ -190,6 +195,30 @@ async def test_create_memory_returns_guard_fields_on_success(
 
 
 @pytest.mark.asyncio
+async def test_create_memory_is_fail_closed_when_guard_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = _GuardErrorClient(
+        guard_decision={"action": "ADD", "reason": "unused", "method": "keyword"}
+    )
+    _patch_mcp_dependencies(monkeypatch, fake_client)
+
+    raw = await mcp_server.create_memory(
+        parent_uri="core://agent",
+        content="new information",
+        priority=2,
+        title="fresh_note",
+    )
+    payload = json.loads(raw)
+
+    assert payload["ok"] is True
+    assert payload["created"] is False
+    assert payload["guard_action"] == "NOOP"
+    assert payload["guard_method"] == "exception"
+    assert fake_client.create_called is False
+
+
+@pytest.mark.asyncio
 async def test_update_memory_is_blocked_when_guard_returns_noop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -214,6 +243,29 @@ async def test_update_memory_is_blocked_when_guard_returns_noop(
     assert payload["ok"] is True
     assert payload["updated"] is False
     assert payload["guard_action"] == "NOOP"
+    assert fake_client.update_called is False
+
+
+@pytest.mark.asyncio
+async def test_update_memory_is_fail_closed_when_guard_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = _GuardErrorClient(
+        guard_decision={"action": "ADD", "reason": "unused", "method": "keyword"}
+    )
+    _patch_mcp_dependencies(monkeypatch, fake_client)
+
+    raw = await mcp_server.update_memory(
+        uri="core://agent/current",
+        old_string="world",
+        new_string="planet",
+    )
+    payload = json.loads(raw)
+
+    assert payload["ok"] is True
+    assert payload["updated"] is False
+    assert payload["guard_action"] == "NOOP"
+    assert payload["guard_method"] == "exception"
     assert fake_client.update_called is False
 
 
@@ -304,6 +356,32 @@ async def test_browse_create_node_records_guard_event(
 
 
 @pytest.mark.asyncio
+async def test_browse_create_node_is_fail_closed_when_guard_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = _GuardErrorClient(
+        guard_decision={"action": "ADD", "reason": "unused", "method": "keyword"}
+    )
+    monkeypatch.setattr(browse_api, "get_sqlite_client", lambda: fake_client)
+
+    payload = await browse_api.create_node(
+        browse_api.NodeCreate(
+            parent_path="agent",
+            title="new_note",
+            content="create payload",
+            priority=1,
+            domain="core",
+        )
+    )
+
+    assert payload["success"] is True
+    assert payload["created"] is False
+    assert payload["guard_action"] == "NOOP"
+    assert payload["guard_method"] == "exception"
+    assert fake_client.create_called is False
+
+
+@pytest.mark.asyncio
 async def test_browse_update_node_metadata_only_marks_bypass(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -350,6 +428,28 @@ async def test_browse_update_node_blocks_guard_noop(
     assert payload["success"] is True
     assert payload["updated"] is False
     assert payload["guard_action"] == "NOOP"
+    assert fake_client.update_called is False
+
+
+@pytest.mark.asyncio
+async def test_browse_update_node_is_fail_closed_when_guard_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = _GuardErrorClient(
+        guard_decision={"action": "ADD", "reason": "unused", "method": "keyword"}
+    )
+    monkeypatch.setattr(browse_api, "get_sqlite_client", lambda: fake_client)
+
+    payload = await browse_api.update_node(
+        path="agent/current",
+        domain="core",
+        body=browse_api.NodeUpdate(content="replace payload"),
+    )
+
+    assert payload["success"] is True
+    assert payload["updated"] is False
+    assert payload["guard_action"] == "NOOP"
+    assert payload["guard_method"] == "exception"
     assert fake_client.update_called is False
 
 

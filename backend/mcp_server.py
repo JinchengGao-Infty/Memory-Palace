@@ -3047,8 +3047,8 @@ async def create_memory(
         except Exception as guard_exc:
             guard_decision = _normalize_guard_decision(
                 {
-                    "action": "ADD",
-                    "method": "fallback",
+                    "action": "NOOP",
+                    "method": "exception",
                     "reason": f"write_guard_unavailable: {guard_exc}",
                     "degraded": True,
                     "degrade_reasons": ["write_guard_exception"],
@@ -3397,8 +3397,8 @@ async def update_memory(
             except Exception as guard_exc:
                 guard_decision = _normalize_guard_decision(
                     {
-                        "action": "ADD",
-                        "method": "fallback",
+                        "action": "NOOP",
+                        "method": "exception",
                         "reason": f"write_guard_unavailable: {guard_exc}",
                         "degraded": True,
                         "degrade_reasons": ["write_guard_exception"],

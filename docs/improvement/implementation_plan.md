@@ -210,8 +210,8 @@
 2. **#4 层级继承**：`read_memory` 增 `include_ancestors` 可选参数，默认 `false`。
 3. **#14 意图 LLM（实验）**：加入 `INTENT_LLM_ENABLED` 实验开关，失败回退关键词规则。
 4. **`SM-2/SM-3`**：补齐短期记忆晋升元数据与 session-first 可观测指标。
-5. **C/D 联调口径（临时）**：开发测试阶段，`profile_c/profile_d` 的 benchmark 默认走 `RETRIEVAL_EMBEDDING_BACKEND=api`（不走 `router`），并显式配置 `RETRIEVAL_EMBEDDING_*` 与 `RETRIEVAL_RERANKER_*`；该约定仅用于本地联调，最终交付前需按部署模板口径回切并复验。
-6. **本地联调覆盖来源（记录）**：`new/run_post_change_checks.sh` 在 `--docker-profile c|d` 时允许加载本地 runtime `.env` 覆盖（优先 `Memory-Palace/.env`，其次 `~/Desktop/clawmemo/nocturne_memory/.env`）以便本地 API 链路联调继续进行；该行为仅用于开发验证，不改变 `deploy/profiles/*` 的默认模板。
+5. **C/D 联调口径（临时）**：开发测试阶段，`profile_c/profile_d` 的 benchmark 可临时走 `RETRIEVAL_EMBEDDING_BACKEND=api`（不走 `router`），并显式配置 `RETRIEVAL_EMBEDDING_*` 与 `RETRIEVAL_RERANKER_*`；该约定仅用于本地联调，最终交付前需按部署模板口径回切并复验。
+6. **本地联调覆盖来源（记录）**：`new/run_post_change_checks.sh` 对 `--docker-profile c|d` 默认为 `--runtime-env-mode none`（不加载本地 runtime 覆盖）；仅在显式传入 `--runtime-env-mode auto`（自动探测本地 `.env`）或 `--runtime-env-mode file --runtime-env-file <path>` 时才注入 runtime 覆盖。该行为仅用于开发验证，不改变 `deploy/profiles/*` 的默认模板。
 
 验收：
 1. 默认配置下行为与当前版本一致。

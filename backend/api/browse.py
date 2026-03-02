@@ -223,9 +223,9 @@ async def create_node(
     except Exception as exc:
         guard_decision = _normalize_guard_decision(
             {
-                "action": "ADD",
+                "action": "NOOP",
                 "reason": f"write_guard_unavailable: {exc}",
-                "method": "fallback",
+                "method": "exception",
             }
         )
 
@@ -296,9 +296,9 @@ async def update_node(
         except Exception as exc:
             guard_decision = _normalize_guard_decision(
                 {
-                    "action": "ADD",
+                    "action": "NOOP",
                     "reason": f"write_guard_unavailable: {exc}",
-                    "method": "fallback",
+                    "method": "exception",
                 }
             )
     else:

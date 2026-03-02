@@ -126,7 +126,7 @@ function ReviewPage() {
       if (requestId === diffRequestRef.current) setDiffData(data);
     } catch (err) {
       if (requestId === diffRequestRef.current) {
-        setDiffError(err.response?.data?.detail || "Failed to retrieve memory fragment.");
+        setDiffError(extractApiError(err, 'Failed to retrieve memory fragment.'));
         setDiffData(null);
       }
     }

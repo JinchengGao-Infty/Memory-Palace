@@ -244,8 +244,8 @@ bash new/run_post_change_checks.sh --skip-sse
 ```bash
 bash new/run_post_change_checks.sh --with-docker --docker-profile a
 bash new/run_post_change_checks.sh --with-docker --docker-profile b --skip-sse
-bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse
-bash new/run_post_change_checks.sh --with-docker --docker-profile d --skip-sse
+bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse --runtime-env-mode none
+bash new/run_post_change_checks.sh --with-docker --docker-profile d --skip-sse --runtime-env-mode none
 ```
 
 ## 5.3 Full Gate（发布前）
@@ -267,6 +267,7 @@ cd Memory-Palace/backend && .venv/bin/pytest tests/benchmark -q -k "profile_a or
 
 1. 任一阻断项失败必须先修复再继续。
 2. `C/D` 发布前必须回切模板默认（`router`）并复验。
+3. 本地联调若需显式注入 runtime 覆盖，使用 `--runtime-env-mode auto` 或 `--runtime-env-mode file --runtime-env-file <abs_path>`，不得用于发布判定。
 
 ---
 
