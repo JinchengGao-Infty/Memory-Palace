@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 from pathlib import Path
 
 from helpers.profile_abcd_real_runner import (
@@ -84,10 +85,34 @@ def parse_args() -> argparse.Namespace:
             "Use this when default cache dir has filesystem constraints."
         ),
     )
+    parser.add_argument(
+        "--phase6-gate-mode",
+        type=str,
+        default=None,
+        help=(
+            "Optional phase6 gate mode override. "
+            "Supported: strict, api_tolerant."
+        ),
+    )
+    parser.add_argument(
+        "--phase6-invalid-rate-threshold",
+        type=float,
+        default=None,
+        help=(
+            "Optional phase6 invalid rate threshold (0~1). "
+            "Effective when gate mode is api_tolerant."
+        ),
+    )
     return parser.parse_args()
 
 
 async def _run(args: argparse.Namespace) -> None:
+    if args.phase6_gate_mode is not None:
+        os.environ["BENCHMARK_PHASE6_GATE_MODE"] = str(args.phase6_gate_mode)
+    if args.phase6_invalid_rate_threshold is not None:
+        os.environ["BENCHMARK_PHASE6_INVALID_RATE_THRESHOLD"] = str(
+            float(args.phase6_invalid_rate_threshold)
+        )
     dataset_keys = [item.strip() for item in args.datasets.split(",") if item.strip()]
     payload = await build_profile_abcd_real_metrics(
         sample_size=int(args.sample_size),

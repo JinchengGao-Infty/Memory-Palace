@@ -2,6 +2,8 @@
 
 本文档汇总 Memory Palace 各档位（A/B/C/D）的检索质量、延迟与语义质量门禁测试结果。所有数据均来自仓库内已落盘 JSON 产物，可通过 `pytest` 命令完整复现。
 
+> 状态说明（2026-03-04）：本页表格基于 2026-02 历史口径，已与当前主线（Phase D 后续迭代）出现时间和样本口径漂移。最新重测评估与数据采集结论见 `docs/improvement/evaluation_rebaseline_assessment_2026-03-04.md`；扩展消融与 `api_tolerant` 门禁重测见 `docs/improvement/evaluation_ablation_results_2026-03-04.md`。
+
 ---
 
 ## 1. 数据来源
@@ -160,3 +162,17 @@ pytest tests/benchmark/test_compact_context_gist_quality.py -q
 | D | API-first / 远程服务优先 | 最高检索质量 | 延迟最高（p95 ~2000ms+），受网络影响 |
 
 > **上线建议**：固定一套 profile + 模型配置，长期追踪同一指标口径，避免跨档位混合比较。
+
+---
+
+## 7. 2026-03 重测进展（已完成本轮）
+
+- 已完成首轮数据采集与快速验证，详情见：
+  - `docs/improvement/evaluation_rebaseline_assessment_2026-03-04.md`
+  - `docs/improvement/evaluation_ablation_results_2026-03-04.md`
+- 当前关键观察：
+  - 评测产物时间戳已更新到 2026-03-03，明显晚于本页 2026-02 基线。
+  - 真实 A/B/C/D 产物当前为 `sample_size_requested=1`、`dataset_scope=squad_v2_dev`，与本页“2 数据集 × 8 查询”不一致。
+  - 本轮已确认两种口径：`runtime-env-mode none + injection` 下，`docker profile c/d` 会出现 `deployment.docker.smoke` 降级失败（`embedding_request_failed` + `embedding_fallback_hash`）；按本地联调约定改为 `runtime-env-mode file --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --allow-runtime-env-debug` 后，`profile c/d` 可通过同轮门禁。
+  - 已按评估方案完成 Phase B 产物重生成（`new/benchmark/*.json`）与 legacy 基线归档（`new/benchmark/legacy_archive/`）。
+  - 已完成 `edgefn reranker + api_tolerant<=5%` 重测（目录：`new/benchmark/ablation/retest_edgefn_t20_api_tolerant_venv_20260304_142636`）：`s100/s200/s500` 的 `phase6.gate.valid` 均为 `true`，实际 `request_failed_rate` 分别为 `1.0%`、`0.25%`、`0.2%`。

@@ -53,7 +53,9 @@
 >
 > **本仓本地联调补充（记录）**：`new/run_post_change_checks.sh` 在 `--docker-profile c|d` 下默认 `--runtime-env-mode none`（不加载本地 runtime 覆盖）；仅在显式传入 `--runtime-env-mode auto|file` 且附加 `--allow-runtime-env-debug` 时，才会加载覆盖文件（优先 `Memory-Palace/.env`，其次 `~/Desktop/clawmemo/nocturne_memory/.env`）。若保持 `--runtime-env-mode none`，可通过 `--allow-runtime-env-injection` 把当前进程环境变量注入 `.env.docker`（适配 CI secrets 注入）；若同时显式传入 `--runtime-env-file`，会先加载该文件再注入（不做自动探测）。注入范围仅限 API 地址/密钥/模型字段及 `WRITE_GUARD_LLM_ENABLED`、`COMPACT_GIST_LLM_ENABLED`，不会覆盖模板中的路由策略键（如 `RETRIEVAL_EMBEDDING_BACKEND`）。
 >
-> **当前本地开发约定（避免重复踩坑）**：当本机 router 未部署 embedding/reranker 时，C/D 本地联调使用 `/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env` 提供 embedding/reranker 配置；LLM 相关字段统一使用该文件中的 `gpt-5.2` 口径。推荐命令：`bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse --runtime-env-mode none --allow-runtime-env-injection --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env`（`profile d` 同理）。
+> **当前本地开发约定（避免重复踩坑）**：当本机 router 未部署 embedding/reranker 时，C/D 本地联调使用 `/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env` 提供 embedding/reranker 配置；LLM 相关字段统一使用该文件中的 `gpt-5.2` 口径。推荐命令：`bash new/run_post_change_checks.sh --with-docker --docker-profile c --runtime-env-mode file --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --allow-runtime-env-debug`（`profile d` 同理）。
+>
+> `runtime-env-mode none + --allow-runtime-env-injection` 适用于“保持 C/D router 策略不变，仅注入地址/密钥/模型字段”的场景；若本地 router 本身没有 embedding/reranker，可预期会出现 `embedding_request_failed` / `embedding_fallback_hash` 的 degraded 信号。
 >
 > **上线口径不变**：面向客户环境时仍以 C/D 模板中的 `router` 作为默认入口；若 router 侧未提供 embedding/reranker/llm，系统按既有降级链路 fallback，不因缺失而直接中断。
 >
@@ -399,17 +401,17 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 
 ```bash
 # 以 profile c 为例；profile d 只需把 --docker-profile c 改成 d
-bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse --runtime-env-mode none --allow-runtime-env-injection --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env
+bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse --runtime-env-mode file --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --allow-runtime-env-debug
 ```
 
-1. 如果日志里仍有 `embedding_request_failed` / `embedding_fallback_hash`，先检查外部 embedding/reranker 服务本身是否可达、API key 是否有效。
+1. 如果日志里仍有 `embedding_request_failed` / `embedding_fallback_hash`，先检查外部 embedding/reranker 服务本身是否可达、API key 是否有效（本地约定优先使用 `nocturne_memory/.env` 中的服务配置）。
 2. 用下面命令确认 `.env.docker` 已注入预期模型（本地约定为 `gpt-5.2`）：
 
 ```bash
 rg -n "RETRIEVAL_EMBEDDING_MODEL|RETRIEVAL_RERANKER_MODEL|WRITE_GUARD_LLM_MODEL|COMPACT_GIST_LLM_MODEL" Memory-Palace/.env.docker
 ```
 
-3. 这套注入方式只用于本地联调；上线时仍以客户环境的 `router` 配置为准，缺失模型时按系统 fallback 链路降级。
+3. 这套 `file` 方式只用于本地联调；上线时仍以客户环境的 `router` 配置为准，缺失模型时按系统 fallback 链路降级。若要专门验证“保持 router 策略不变”的场景，再使用 `runtime-env-mode none + --allow-runtime-env-injection`。
 
 ### 调参提示
 

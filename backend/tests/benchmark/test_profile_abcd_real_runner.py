@@ -56,6 +56,58 @@ def test_build_phase6_gate_marks_invalid_when_profile_d_has_invalid_reasons() ->
     assert gate["rows"][1]["valid"] is False
 
 
+def test_build_phase6_gate_api_tolerant_allows_small_invalid_rate() -> None:
+    gate = build_phase6_gate(
+        [
+            {
+                "dataset": "beir_nfcorpus",
+                "dataset_label": "BEIR NFCorpus",
+                "degradation": {
+                    "queries": 500,
+                    "invalid_reasons": ["reranker_request_failed"],
+                    "invalid_count": 2,
+                    "invalid_rate": 0.004,
+                    "request_failed_count": 2,
+                    "request_failed_rate": 0.004,
+                    "invalid_reason_counts": {"reranker_request_failed": 2},
+                    "request_failed_reason_counts": {"reranker_request_failed": 2},
+                },
+            }
+        ],
+        mode="api_tolerant",
+        invalid_rate_threshold=0.05,
+    )
+    assert gate["mode"] == "api_tolerant"
+    assert gate["valid"] is True
+    assert gate["invalid_count"] == 2
+    assert gate["request_failed_count"] == 2
+    assert gate["request_failed_reason_counts"] == {"reranker_request_failed": 2}
+    assert gate["rows"][0]["valid"] is True
+
+
+def test_build_phase6_gate_api_tolerant_marks_invalid_when_rate_exceeds_threshold() -> None:
+    gate = build_phase6_gate(
+        [
+            {
+                "dataset": "beir_nfcorpus",
+                "dataset_label": "BEIR NFCorpus",
+                "degradation": {
+                    "queries": 500,
+                    "invalid_reasons": ["reranker_request_failed"],
+                    "invalid_count": 30,
+                    "invalid_rate": 0.06,
+                    "request_failed_count": 30,
+                    "request_failed_rate": 0.06,
+                },
+            }
+        ],
+        mode="api_tolerant",
+        invalid_rate_threshold=0.05,
+    )
+    assert gate["valid"] is False
+    assert gate["rows"][0]["valid"] is False
+
+
 def test_resolve_real_profile_workdir_respects_env(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
