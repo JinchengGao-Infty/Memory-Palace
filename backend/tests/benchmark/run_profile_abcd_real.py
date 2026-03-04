@@ -10,6 +10,8 @@ from pathlib import Path
 
 from helpers.profile_abcd_real_runner import (
     REAL_PROFILE_CD_MARKDOWN_ARTIFACT,
+    REAL_PROFILE_DEFAULT_CANDIDATE_MULTIPLIER,
+    REAL_PROFILE_DEFAULT_MAX_RESULTS,
     REAL_PROFILE_JSON_ARTIFACT,
     REAL_PROFILE_MARKDOWN_ARTIFACT,
     build_profile_abcd_real_metrics,
@@ -46,6 +48,24 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=200,
         help="Extra non-relevant corpus docs per dataset. Default: 200",
+    )
+    parser.add_argument(
+        "--max-results",
+        type=int,
+        default=REAL_PROFILE_DEFAULT_MAX_RESULTS,
+        help=(
+            "search_advanced max_results passed to each query. "
+            f"Default: {REAL_PROFILE_DEFAULT_MAX_RESULTS}"
+        ),
+    )
+    parser.add_argument(
+        "--candidate-multiplier",
+        type=int,
+        default=REAL_PROFILE_DEFAULT_CANDIDATE_MULTIPLIER,
+        help=(
+            "search_advanced candidate_multiplier passed to each query. "
+            f"Default: {REAL_PROFILE_DEFAULT_CANDIDATE_MULTIPLIER}"
+        ),
     )
     parser.add_argument(
         "--all-relevant",
@@ -119,6 +139,8 @@ async def _run(args: argparse.Namespace) -> None:
         dataset_keys=dataset_keys,
         first_relevant_only=not bool(args.all_relevant),
         extra_distractors=int(args.extra_distractors),
+        max_results=int(args.max_results),
+        candidate_multiplier=int(args.candidate_multiplier),
         workdir=args.workdir,
     )
     artifact_paths = write_profile_abcd_real_artifacts(

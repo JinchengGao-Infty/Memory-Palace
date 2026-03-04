@@ -46,6 +46,9 @@ REAL_PROFILE_MARKDOWN_ARTIFACT = BENCHMARK_DIR / "benchmark_results_profile_abcd
 REAL_PROFILE_CD_MARKDOWN_ARTIFACT = BENCHMARK_DIR / "benchmark_results_profile_cd_real.md"
 REAL_PROFILE_WORKDIR = BENCHMARK_DIR / ".real_profile_cache"
 REAL_PROFILE_WORKDIR_ENV = "BENCHMARK_REAL_PROFILE_WORKDIR"
+REAL_PROFILE_METRIC_TOP_K = 10
+REAL_PROFILE_DEFAULT_MAX_RESULTS = 10
+REAL_PROFILE_DEFAULT_CANDIDATE_MULTIPLIER = 8
 
 PROFILE_D_INVALID_GATE_REASONS = {
     "embedding_fallback_hash",
@@ -714,7 +717,12 @@ async def _evaluate_dataset(
     bundle: DatasetBundle,
     profile_mode: str,
     memory_to_doc: Mapping[int, str],
+    max_results: int,
+    candidate_multiplier: int,
 ) -> Dict[str, Any]:
+    effective_max_results = max(REAL_PROFILE_METRIC_TOP_K, int(max_results))
+    effective_candidate_multiplier = max(1, int(candidate_multiplier))
+
     metric_rows: List[Dict[str, float]] = []
     latencies_ms: List[float] = []
     degrade_count = 0
@@ -730,8 +738,8 @@ async def _evaluate_dataset(
         payload = await client.search_advanced(
             query=case.query,
             mode=profile_mode,
-            max_results=10,
-            candidate_multiplier=4,
+            max_results=effective_max_results,
+            candidate_multiplier=effective_candidate_multiplier,
             filters={"domain": bundle.domain},
         )
         elapsed_ms = (perf_counter() - start) * 1000.0
@@ -769,7 +777,7 @@ async def _evaluate_dataset(
         results = payload.get("results")
         result_rows = results if isinstance(results, list) else []
         retrieved_doc_ids: List[str] = []
-        for item in result_rows[:10]:
+        for item in result_rows[:REAL_PROFILE_METRIC_TOP_K]:
             if not isinstance(item, Mapping):
                 continue
             memory_id = item.get("memory_id")
@@ -787,7 +795,7 @@ async def _evaluate_dataset(
             compute_retrieval_metrics(
                 retrieved_doc_ids=retrieved_doc_ids,
                 relevant_doc_ids=case.relevant_doc_ids,
-                k=10,
+                k=REAL_PROFILE_METRIC_TOP_K,
             )
         )
 
@@ -820,6 +828,11 @@ async def _evaluate_dataset(
         "query_count_raw": bundle.query_count_raw,
         "sample_bucket_size": bundle.sample_bucket_size,
         "corpus_doc_count": len(bundle.docs),
+        "retrieval_depth": {
+            "max_results": int(effective_max_results),
+            "candidate_multiplier": int(effective_candidate_multiplier),
+            "metric_top_k": int(REAL_PROFILE_METRIC_TOP_K),
+        },
         "quality": quality,
         "latency_ms": {
             "p50": _round_metric(compute_percentile(latencies_ms, 0.50)),
@@ -853,6 +866,8 @@ async def _run_profile(
     config: ProfileConfig,
     bundles: Sequence[DatasetBundle],
     db_path: Path,
+    max_results: int,
+    candidate_multiplier: int,
     existing_mapping: Optional[Mapping[str, Mapping[int, str]]] = None,
     populate: bool,
 ) -> tuple[Dict[str, Any], Dict[str, Dict[int, str]]]:
@@ -885,6 +900,8 @@ async def _run_profile(
                         bundle=bundle,
                         profile_mode=config.mode,
                         memory_to_doc=profile_mapping[bundle.key],
+                        max_results=int(max_results),
+                        candidate_multiplier=int(candidate_multiplier),
                     )
                 )
             return (
@@ -905,11 +922,20 @@ async def build_profile_abcd_real_metrics(
     dataset_keys: Sequence[str] = REAL_DATASET_DEFAULTS,
     first_relevant_only: bool = True,
     extra_distractors: int = 200,
+    max_results: int = REAL_PROFILE_DEFAULT_MAX_RESULTS,
+    candidate_multiplier: int = REAL_PROFILE_DEFAULT_CANDIDATE_MULTIPLIER,
     seed: int = REAL_RANDOM_SEED,
     workdir: Optional[Path] = None,
 ) -> Dict[str, Any]:
     if int(sample_size) <= 0:
         raise ValueError("sample_size must be > 0")
+    if int(max_results) <= 0:
+        raise ValueError("max_results must be > 0")
+    if int(candidate_multiplier) <= 0:
+        raise ValueError("candidate_multiplier must be > 0")
+
+    effective_max_results = max(REAL_PROFILE_METRIC_TOP_K, int(max_results))
+    effective_candidate_multiplier = max(1, int(candidate_multiplier))
 
     selected_keys = [key for key in dataset_keys if key in DATASET_LABELS]
     if not selected_keys:
@@ -957,6 +983,8 @@ async def build_profile_abcd_real_metrics(
             config=config,
             bundles=bundles,
             db_path=db_paths[config.key],
+            max_results=effective_max_results,
+            candidate_multiplier=effective_candidate_multiplier,
             existing_mapping=existing_mapping,
             populate=populate,
         )
@@ -980,6 +1008,9 @@ async def build_profile_abcd_real_metrics(
         "real_run_strategy": {
             "first_relevant_only": bool(first_relevant_only),
             "extra_distractors": int(extra_distractors),
+            "max_results": int(effective_max_results),
+            "candidate_multiplier": int(effective_candidate_multiplier),
+            "metric_top_k": int(REAL_PROFILE_METRIC_TOP_K),
             "seed": int(seed),
             "workdir": _sanitize_report_path(real_profile_workdir),
         },
@@ -1031,6 +1062,9 @@ def render_profile_abcd_real_markdown(payload: Mapping[str, Any]) -> str:
         f"- sample_size_requested: {payload.get('sample_size_requested')}",
         f"- first_relevant_only: {payload['real_run_strategy']['first_relevant_only']}",
         f"- extra_distractors: {payload['real_run_strategy']['extra_distractors']}",
+        f"- max_results: {payload['real_run_strategy'].get('max_results')}",
+        f"- candidate_multiplier: {payload['real_run_strategy'].get('candidate_multiplier')}",
+        f"- metric_top_k: {payload['real_run_strategy'].get('metric_top_k')}",
         "",
     ]
 

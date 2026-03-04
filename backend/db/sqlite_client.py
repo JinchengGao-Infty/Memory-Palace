@@ -5064,7 +5064,10 @@ class SQLiteClient:
                     query,
                     degrade_reasons=degrade_reasons,
                 )
-                semantic_pool_limit = min(max(candidate_limit * 8, 64), 3000)
+                semantic_pool_limit = min(
+                    max(candidate_limit * 12, max_results * 64, 128),
+                    5000,
+                )
                 if selected_vector_engine == "vec":
                     if not self._sqlite_vec_knn_ready:
                         self._append_degrade_reason(

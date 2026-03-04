@@ -8,6 +8,9 @@ if str(BENCHMARK_DIR) not in sys.path:
     sys.path.insert(0, str(BENCHMARK_DIR))
 
 from helpers.profile_abcd_real_runner import (  # noqa: E402
+    DatasetBundle,
+    QueryCase,
+    _evaluate_dataset,
     build_phase6_gate,
     compute_percentile,
     compute_retrieval_metrics,
@@ -125,3 +128,78 @@ def test_resolve_real_profile_workdir_prefers_explicit_override(
     )
     explicit = tmp_path / "explicit-cache"
     assert resolve_real_profile_workdir(explicit) == explicit
+
+
+class _ProbeSearchClient:
+    def __init__(self, result_rows):
+        self._result_rows = list(result_rows)
+        self.calls = []
+
+    async def search_advanced(
+        self,
+        *,
+        query: str,
+        mode: str,
+        max_results: int,
+        candidate_multiplier: int,
+        filters,
+    ):
+        self.calls.append(
+            {
+                "query": query,
+                "mode": mode,
+                "max_results": max_results,
+                "candidate_multiplier": candidate_multiplier,
+                "filters": dict(filters),
+            }
+        )
+        return {
+            "results": list(self._result_rows),
+            "degraded": False,
+            "degrade_reasons": [],
+        }
+
+
+@pytest.mark.asyncio
+async def test_evaluate_dataset_passes_depth_params_and_keeps_top10_metrics() -> None:
+    result_rows = [{"memory_id": memory_id} for memory_id in range(1, 13)]
+    client = _ProbeSearchClient(result_rows)
+    bundle = DatasetBundle(
+        key="squad_v2_dev",
+        label="SQuAD v2 Dev",
+        domain="bench_squad_v2_dev",
+        queries=[QueryCase(query_id="q-1", query="alpha", relevant_doc_ids={"doc_12"})],
+        docs=[("doc_1", "doc one")],
+        sample_bucket_size=100,
+        query_count_raw=1,
+    )
+    memory_to_doc = {memory_id: f"doc_{memory_id}" for memory_id in range(1, 13)}
+
+    row = await _evaluate_dataset(
+        client=client,  # type: ignore[arg-type]
+        bundle=bundle,
+        profile_mode="hybrid",
+        memory_to_doc=memory_to_doc,
+        max_results=12,
+        candidate_multiplier=9,
+    )
+
+    assert client.calls == [
+        {
+            "query": "alpha",
+            "mode": "hybrid",
+            "max_results": 12,
+            "candidate_multiplier": 9,
+            "filters": {"domain": "bench_squad_v2_dev"},
+        }
+    ]
+    # Relevant doc is rank 12 in returned list; Top10 metrics must remain 0.
+    assert row["quality"]["hr_at_10"] == pytest.approx(0.0)
+    assert row["quality"]["mrr"] == pytest.approx(0.0)
+    assert row["quality"]["ndcg_at_10"] == pytest.approx(0.0)
+    assert row["quality"]["recall_at_10"] == pytest.approx(0.0)
+    assert row["retrieval_depth"] == {
+        "max_results": 12,
+        "candidate_multiplier": 9,
+        "metric_top_k": 10,
+    }
