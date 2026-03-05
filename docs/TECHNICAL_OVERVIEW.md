@@ -47,7 +47,7 @@ backend/
 
 ### 核心模块说明
 
-- **`main.py`**：FastAPI 应用入口（版本 `v1.0.1`），负责生命周期管理（数据库初始化、legacy 数据库文件兼容恢复）、CORS 配置、路由注册（`review`、`browse`、`maintenance`）和健康检查（含索引状态、write lane 与 index worker 运行时状态报告）。
+- **`main.py`**：FastAPI 应用入口（版本 `v1.0.1`），负责生命周期管理（数据库初始化、legacy 数据库文件兼容恢复）、CORS 配置、路由注册（`review`、`browse`、`maintenance`）和健康检查（含索引状态、write lane 与 index worker 运行时状态报告）。默认 CORS origin 收敛为本地常用列表（`localhost/127.0.0.1` 的 `5173/3000`）；显式配置 wildcard（`*`）时会自动禁用 credentials；legacy sqlite 恢复前会执行 regular-file + quick_check + 核心表存在校验。
 - **`mcp_server.py`**：实现 9 个 MCP 工具，包括 URI 解析（`domain://path` 格式）、快照管理、write guard 决策、会话缓存、异步索引入队等核心逻辑。同时提供系统 URI (`system://boot`、`system://index`、`system://recent`) 资源。
 - **`runtime_state.py`**：管理写入 lane（串行化写操作）、索引 worker（异步队列处理索引重建任务）、vitality 衰减调度、cleanup review 审批流程和 sleep consolidation 调度等运行时状态。
 - **`db/sqlite_client.py`**：SQLite 数据库操作层，包含记忆 CRUD、keyword/semantic/hybrid 三种检索模式、write_guard 逻辑（支持语义匹配 + 关键词匹配 + LLM 决策三级判定）、gist 生成与缓存、vitality 评分与衰减、embedding 获取（支持远程 API 和本地 hash 两种模式）、reranker 集成。
@@ -241,7 +241,7 @@ Docker 端口环境变量：
 - `/maintenance/*`、`/review/*` 所有端点均需 API Key 鉴权。
 - `/browse` 写操作（POST/PUT/DELETE）通过端点级 `Depends(require_maintenance_api_key)` 门控；GET 读取不需要鉴权。
 - `MCP_API_KEY` 为空时默认 **fail-closed**（拒绝请求）。
-- 仅在 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true` **且** loopback 请求（`127.0.0.1` / `::1` / `localhost`）时可本地放行。
+- 仅在 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true` **且** loopback 请求（`127.0.0.1` / `::1` / `localhost`）时可本地放行，且仅限直连 loopback 且无 forwarding headers 的请求。
 - Docker 容器默认以非 root 用户运行：
   - Backend：自定义用户 `app`（UID `10001`，GID `10001`）
   - Frontend：使用 `nginx-unprivileged` 官方非 root 镜像
