@@ -1,17 +1,17 @@
 # A/B/C/D Benchmark Analysis vs 2026-02 Reference
 
-- generated_at_utc: 2026-03-03T10:25:44+00:00
+- generated_at_utc: 2026-03-05T11:16:52+00:00
 - dataset_scope: squad_v2_dev
-- sample_size_requested: 1
+- sample_size_requested: 8
 
 ## Profile Means (dataset-average)
 
 | Profile | HR@10 | MRR | NDCG@10 | Recall@10 | p95(ms) |
 |---|---:|---:|---:|---:|---:|
-| profile_a | 0.000 | 0.000 | 0.000 | 0.000 | 2.2 |
-| profile_b | 1.000 | 1.000 | 1.000 | 1.000 | 5.5 |
-| profile_c | 1.000 | 1.000 | 1.000 | 1.000 | 3167.1 |
-| profile_d | 1.000 | 1.000 | 1.000 | 1.000 | 1732.1 |
+| profile_a | 0.000 | 0.000 | 0.000 | 0.000 | 1.7 |
+| profile_b | 0.625 | 0.302 | 0.383 | 0.625 | 5.4 |
+| profile_c | 1.000 | 1.000 | 1.000 | 1.000 | 537.9 |
+| profile_d | 1.000 | 1.000 | 1.000 | 1.000 | 2898.6 |
 
 ## 2026-02 Reference Ranges (from project docs)
 

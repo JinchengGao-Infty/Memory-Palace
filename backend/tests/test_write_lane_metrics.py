@@ -167,3 +167,44 @@ async def test_write_lane_metrics_count_cancelled_global_wait_as_failure(
     assert status["writes_failed"] == 1
     assert status["failure_rate"] == pytest.approx(1 / 3)
     assert status["last_error"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_write_lane_releases_idle_session_locks_after_write_completion() -> None:
+    coordinator = WriteLaneCoordinator()
+
+    async def _ok() -> str:
+        return "ok"
+
+    assert await coordinator.run_write(
+        session_id="session-a",
+        operation="create_memory",
+        task=_ok,
+    ) == "ok"
+    assert await coordinator.run_write(
+        session_id="session-b",
+        operation="update_memory",
+        task=_ok,
+    ) == "ok"
+
+    assert coordinator._session_waiting == {}
+    assert coordinator._session_locks == {}
+
+
+@pytest.mark.asyncio
+async def test_write_lane_reclaims_idle_session_lock_entries() -> None:
+    coordinator = WriteLaneCoordinator()
+
+    async def _ok() -> str:
+        return "done"
+
+    for idx in range(20):
+        result = await coordinator.run_write(
+            session_id=f"session-{idx}",
+            operation="update_memory",
+            task=_ok,
+        )
+        assert result == "done"
+
+    assert coordinator._session_locks == {}
+    assert coordinator._session_waiting == {}

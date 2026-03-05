@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import clsx from 'clsx';
 import {
   Activity,
@@ -217,6 +217,7 @@ export default function ObservabilityPage() {
   const [activeJobLoading, setActiveJobLoading] = useState(false);
   const [detailJobError, setDetailJobError] = useState(null);
   const [inspectedJobId, setInspectedJobId] = useState(null);
+  const summaryRequestSeqRef = useRef(0);
 
   const [form, setForm] = useState({
     query: 'memory flush queue',
@@ -235,14 +236,19 @@ export default function ObservabilityPage() {
   const summaryTimestamp = summary?.timestamp || '';
 
   const loadSummary = useCallback(async () => {
+    const requestSeq = summaryRequestSeqRef.current + 1;
+    summaryRequestSeqRef.current = requestSeq;
     setSummaryLoading(true);
     setSummaryError(null);
     try {
       const data = await getObservabilitySummary();
+      if (requestSeq !== summaryRequestSeqRef.current) return;
       setSummary(data);
     } catch (err) {
+      if (requestSeq !== summaryRequestSeqRef.current) return;
       setSummaryError(extractApiError(err, 'Failed to load observability summary'));
     } finally {
+      if (requestSeq !== summaryRequestSeqRef.current) return;
       setSummaryLoading(false);
     }
   }, []);

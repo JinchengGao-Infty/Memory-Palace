@@ -49,6 +49,5 @@
 ## 证据入口
 
 - 详细版报告：`docs/improvement/evaluation_old_vs_new_improvement_report_2026-03-05.md`
-- 关键结果文件（旧仓）：`/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/backend/tests/benchmark/`
+- 关键结果文件（旧仓）：`/Users/yangjunjie/Desktop/old/Memory-Palace/backend/tests/benchmark/`
 - 关键结果文件（新仓）：`/Users/yangjunjie/Desktop/clawanti/Memory-Palace/backend/tests/benchmark/`
-

@@ -227,9 +227,61 @@ def test_external_import_execute_and_rollback_restores_snapshot(
     assert after_rollback_counts == before_counts
     assert [item["operation"] for item in write_lane_calls] == [
         "maintenance.import.execute.create_memory",
+        "maintenance.import.rollback.remove_path",
         "maintenance.import.rollback.delete_memory",
     ]
     assert all(item["session_id"] == "session-1" for item in write_lane_calls)
+
+
+def test_external_import_rollback_keeps_reused_memory_aliases(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    client_stub = _ImportClientStub()
+    monkeypatch.setattr(maintenance_api, "get_sqlite_client", lambda: client_stub)
+    monkeypatch.setenv("MCP_API_KEY", "import-secret")
+    monkeypatch.setenv("EXTERNAL_IMPORT_ENABLED", "true")
+    monkeypatch.setenv("EXTERNAL_IMPORT_ALLOWED_ROOTS", str(tmp_path))
+    headers = {"X-MCP-API-Key": "import-secret"}
+
+    file_path = tmp_path / "memo.md"
+    file_path.write_text("Import content v1", encoding="utf-8")
+
+    with _build_client() as client:
+        prepare = client.post(
+            "/maintenance/import/prepare",
+            headers=headers,
+            json=_prepare_payload(file_path),
+        )
+        assert prepare.status_code == 200
+        job_id = str(prepare.json().get("job_id") or "")
+        assert job_id
+
+        execute = client.post(
+            "/maintenance/import/execute",
+            headers=headers,
+            json={"job_id": job_id},
+        )
+        assert execute.status_code == 200
+
+        # Simulate another active alias binding to the same memory_id.
+        client_stub.paths[("notes", "reused-alias")] = 1
+
+        rollback = client.post(
+            f"/maintenance/import/jobs/{job_id}/rollback",
+            headers=headers,
+            json={"reason": "rollback_keep_reused_alias"},
+        )
+        assert rollback.status_code == 200
+        payload = rollback.json()
+        assert payload.get("status") == "rolled_back"
+        summary = payload.get("rollback") or {}
+        assert summary.get("rolled_back_count") == 0
+        assert summary.get("error_count") == 0
+        assert summary.get("skipped_count") == 1
+
+    assert 1 in client_stub.memories
+    assert ("notes", "memo") not in client_stub.paths
+    assert client_stub.paths.get(("notes", "reused-alias")) == 1
 
 
 def test_external_import_job_status_recovers_from_runtime_meta_after_memory_reset(

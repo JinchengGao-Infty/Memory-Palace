@@ -261,6 +261,43 @@ describe('ReviewPage', () => {
     });
   });
 
+  it('tolerates non-array sessions payload without crashing', async () => {
+    api.getSessions.mockResolvedValue({ sessions: [] });
+
+    render(<ReviewPage />);
+
+    await waitFor(() => {
+      expect(api.getSessions).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('Awaiting Input')).toBeInTheDocument();
+    });
+  });
+
+  it('handles invalid session_id, surviving_paths, and snapshot_time without crashing', async () => {
+    const deleteSnapshot = {
+      ...DEFAULT_SNAPSHOT,
+      operation_type: 'delete',
+      snapshot_time: 'not-a-valid-time',
+    };
+    api.getSessions.mockResolvedValue([{ session_id: null }]);
+    api.getSnapshots.mockResolvedValue([deleteSnapshot]);
+    api.getDiff.mockResolvedValue({
+      has_changes: true,
+      snapshot_data: { content: 'old-content' },
+      current_data: {
+        content: 'new-content',
+        surviving_paths: { invalid: true },
+      },
+    });
+
+    render(<ReviewPage />);
+
+    await waitFor(() => {
+      expect(api.getSnapshots).toHaveBeenCalledWith('session-1');
+    });
+    expect(await screen.findByText('Memory Fully Orphaned')).toBeInTheDocument();
+    expect(screen.getByText('Unknown')).toBeInTheDocument();
+  });
+
   it('renders object detail from loadDiff without crashing', async () => {
     api.getDiff.mockRejectedValue({
       response: { data: { detail: { error: 'backend_failed' } } },

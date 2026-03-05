@@ -27,14 +27,11 @@ const normalizeProtectedPath = (pathname) => {
   return pathname;
 };
 
-const isProtectedPath = (pathname, method) => {
+const isProtectedPath = (pathname) => {
   const normalizedPath = normalizeProtectedPath(pathname);
   if (normalizedPath.startsWith('/maintenance/')) return true;
   if (normalizedPath.startsWith('/review/')) return true;
-  if (normalizedPath.startsWith('/browse/')) {
-    const normalizedMethod = String(method || 'get').trim().toLowerCase();
-    return !['get', 'head', 'options'].includes(normalizedMethod);
-  }
+  if (normalizedPath.startsWith('/browse/')) return true;
   return false;
 };
 
@@ -104,6 +101,33 @@ const normalizeMemoryNodePayload = (payload) => {
       : [],
     breadcrumbs: Array.isArray(safe.breadcrumbs) ? safe.breadcrumbs : [],
   };
+};
+
+const normalizeApiErrorCode = (value) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (!/^[a-z0-9][a-z0-9_.-]*$/.test(normalized)) return null;
+  return normalized;
+};
+
+export const extractApiErrorCode = (error) => {
+  const detail = error?.response?.data?.detail;
+  const codes = [];
+  const pushCode = (value) => {
+    const code = normalizeApiErrorCode(value);
+    if (!code || codes.includes(code)) return;
+    codes.push(code);
+  };
+
+  if (typeof detail === 'string') {
+    pushCode(detail);
+  } else if (detail && typeof detail === 'object') {
+    pushCode(detail.code);
+    pushCode(detail.error);
+    pushCode(detail.reason);
+  }
+  return codes[0] || null;
 };
 
 export const extractApiError = (error, fallback = 'Request failed') => {

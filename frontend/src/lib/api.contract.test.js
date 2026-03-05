@@ -34,6 +34,7 @@ import {
   listOrphanMemories,
   getOrphanMemoryDetail,
   deleteOrphanMemory,
+  extractApiErrorCode,
 } from './api';
 
 describe('api contract regression', () => {
@@ -80,6 +81,33 @@ describe('api contract regression', () => {
     expect(result.children[0].gist_quality).toBeNull();
     expect(result.children[0].source_hash).toBeNull();
     expect(result.breadcrumbs).toEqual([]);
+  });
+
+  it('extracts normalized api error code from structured detail', () => {
+    const code = extractApiErrorCode({
+      response: {
+        data: {
+          detail: {
+            error: 'CONFIRMATION_PHRASE_MISMATCH',
+            message: 'phrase mismatch',
+          },
+        },
+      },
+    });
+
+    expect(code).toBe('confirmation_phrase_mismatch');
+  });
+
+  it('returns null when detail does not contain code-like token', () => {
+    const code = extractApiErrorCode({
+      response: {
+        data: {
+          detail: 'job not found',
+        },
+      },
+    });
+
+    expect(code).toBeNull();
   });
 
   it('preserves observability search response contract', async () => {
@@ -151,7 +179,7 @@ describe('api contract regression', () => {
 
     expect(maintenanceConfig.headers.Authorization).toBe('Bearer runtime-key');
     expect(maintenanceConfig.headers['X-MCP-API-Key']).toBeUndefined();
-    expect(browseConfig.headers.Authorization).toBeUndefined();
+    expect(browseConfig.headers.Authorization).toBe('Bearer runtime-key');
     expect(browseConfig.headers['X-MCP-API-Key']).toBeUndefined();
   });
 
@@ -172,7 +200,7 @@ describe('api contract regression', () => {
     expect(config.headers['X-MCP-API-Key']).toBeUndefined();
   });
 
-  it('injects runtime key for review and browse write requests', () => {
+  it('injects runtime key for review and browse read/write requests', () => {
     const interceptor = interceptorRef.current;
     window.__MEMORY_PALACE_RUNTIME__ = {
       maintenanceApiKey: 'runtime-key',
@@ -197,7 +225,7 @@ describe('api contract regression', () => {
 
     expect(reviewConfig.headers['X-MCP-API-Key']).toBe('runtime-key');
     expect(browseWriteConfig.headers['X-MCP-API-Key']).toBe('runtime-key');
-    expect(browseReadConfig.headers['X-MCP-API-Key']).toBeUndefined();
+    expect(browseReadConfig.headers['X-MCP-API-Key']).toBe('runtime-key');
   });
 
   it('merges getMemoryNode params safely with requestConfig', async () => {

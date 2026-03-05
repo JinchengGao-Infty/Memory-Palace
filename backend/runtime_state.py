@@ -118,13 +118,30 @@ class WriteLaneCoordinator:
             self._global_wait_samples.append(max(0, int(global_wait_ms)))
             self._duration_samples.append(max(0, int(duration_ms)))
 
-    async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+    async def _get_session_lock_and_mark_waiting(self, session_id: str) -> asyncio.Lock:
         async with self._guard:
             lock = self._session_locks.get(session_id)
             if lock is None:
                 lock = asyncio.Lock()
                 self._session_locks[session_id] = lock
+            self._session_waiting[session_id] = self._session_waiting.get(session_id, 0) + 1
             return lock
+
+    def _decrement_session_waiting_unlocked(self, lane: str) -> None:
+        current = max(0, int(self._session_waiting.get(lane, 0)))
+        next_value = max(0, current - 1)
+        if next_value <= 0:
+            self._session_waiting.pop(lane, None)
+            return
+        self._session_waiting[lane] = next_value
+
+    async def _maybe_cleanup_session_lane(self, lane: str, lock: asyncio.Lock) -> None:
+        async with self._guard:
+            waiting = max(0, int(self._session_waiting.get(lane, 0)))
+            current_lock = self._session_locks.get(lane)
+            if current_lock is lock and waiting <= 0 and not lock.locked():
+                self._session_locks.pop(lane, None)
+                self._session_waiting.pop(lane, None)
 
     async def run_write(
         self,
@@ -135,86 +152,89 @@ class WriteLaneCoordinator:
     ) -> Any:
         write_start = time.monotonic()
         lane = _normalize_session_id(session_id)
-        session_lock = await self._get_session_lock(lane)
-
         session_wait_start = time.monotonic()
-        async with self._guard:
-            self._session_waiting[lane] = self._session_waiting.get(lane, 0) + 1
+        session_lock = await self._get_session_lock_and_mark_waiting(lane)
+        session_waiting_counted = True
+        try:
+            async with session_lock:
+                waited_session_ms = int((time.monotonic() - session_wait_start) * 1000)
+                async with self._guard:
+                    if session_waiting_counted:
+                        self._decrement_session_waiting_unlocked(lane)
+                        session_waiting_counted = False
 
-        async with session_lock:
-            waited_session_ms = int((time.monotonic() - session_wait_start) * 1000)
-            async with self._guard:
-                self._session_waiting[lane] = max(
-                    0, self._session_waiting.get(lane, 1) - 1
-                )
-
-            waited_global_ms = 0
-            global_wait_start = time.monotonic()
-            global_waiting_counted = True
-            global_acquired = False
-            global_active_counted = False
-
-            async with self._guard:
-                self._global_waiting += 1
-
-            try:
-                await self._global_sem.acquire()
-                global_acquired = True
-                waited_global_ms = int((time.monotonic() - global_wait_start) * 1000)
+                waited_global_ms = 0
+                global_wait_start = time.monotonic()
+                global_waiting_counted = True
+                global_acquired = False
+                global_active_counted = False
 
                 async with self._guard:
-                    if global_waiting_counted:
-                        self._global_waiting = max(0, self._global_waiting - 1)
-                        global_waiting_counted = False
-                    self._global_active += 1
-                    global_active_counted = True
+                    self._global_waiting += 1
 
-                # Keep this as a metric hook, even when no logger is attached yet.
-                _ = operation
-                _ = waited_session_ms
-                _ = waited_global_ms
-                result = await task()
-                duration_ms = int((time.monotonic() - write_start) * 1000)
-                await self._record_write_metrics(
-                    success=True,
-                    session_wait_ms=waited_session_ms,
-                    global_wait_ms=waited_global_ms,
-                    duration_ms=duration_ms,
-                )
-                return result
-            except asyncio.CancelledError:
-                if waited_global_ms <= 0:
+                try:
+                    await self._global_sem.acquire()
+                    global_acquired = True
                     waited_global_ms = int((time.monotonic() - global_wait_start) * 1000)
-                duration_ms = int((time.monotonic() - write_start) * 1000)
-                await self._record_write_metrics(
-                    success=False,
-                    session_wait_ms=waited_session_ms,
-                    global_wait_ms=waited_global_ms,
-                    duration_ms=duration_ms,
-                    error="cancelled",
-                )
-                raise
-            except Exception as exc:
-                duration_ms = int((time.monotonic() - write_start) * 1000)
-                await self._record_write_metrics(
-                    success=False,
-                    session_wait_ms=waited_session_ms,
-                    global_wait_ms=waited_global_ms,
-                    duration_ms=duration_ms,
-                    error=str(exc),
-                )
-                raise
-            finally:
-                if global_waiting_counted:
-                    async with self._guard:
-                        self._global_waiting = max(0, self._global_waiting - 1)
 
-                if global_active_counted:
                     async with self._guard:
-                        self._global_active = max(0, self._global_active - 1)
+                        if global_waiting_counted:
+                            self._global_waiting = max(0, self._global_waiting - 1)
+                            global_waiting_counted = False
+                        self._global_active += 1
+                        global_active_counted = True
 
-                if global_acquired:
-                    self._global_sem.release()
+                    # Keep this as a metric hook, even when no logger is attached yet.
+                    _ = operation
+                    _ = waited_session_ms
+                    _ = waited_global_ms
+                    result = await task()
+                    duration_ms = int((time.monotonic() - write_start) * 1000)
+                    await self._record_write_metrics(
+                        success=True,
+                        session_wait_ms=waited_session_ms,
+                        global_wait_ms=waited_global_ms,
+                        duration_ms=duration_ms,
+                    )
+                    return result
+                except asyncio.CancelledError:
+                    if waited_global_ms <= 0:
+                        waited_global_ms = int((time.monotonic() - global_wait_start) * 1000)
+                    duration_ms = int((time.monotonic() - write_start) * 1000)
+                    await self._record_write_metrics(
+                        success=False,
+                        session_wait_ms=waited_session_ms,
+                        global_wait_ms=waited_global_ms,
+                        duration_ms=duration_ms,
+                        error="cancelled",
+                    )
+                    raise
+                except Exception as exc:
+                    duration_ms = int((time.monotonic() - write_start) * 1000)
+                    await self._record_write_metrics(
+                        success=False,
+                        session_wait_ms=waited_session_ms,
+                        global_wait_ms=waited_global_ms,
+                        duration_ms=duration_ms,
+                        error=str(exc),
+                    )
+                    raise
+                finally:
+                    if global_waiting_counted:
+                        async with self._guard:
+                            self._global_waiting = max(0, self._global_waiting - 1)
+
+                    if global_active_counted:
+                        async with self._guard:
+                            self._global_active = max(0, self._global_active - 1)
+
+                    if global_acquired:
+                        self._global_sem.release()
+        finally:
+            if session_waiting_counted:
+                async with self._guard:
+                    self._decrement_session_waiting_unlocked(lane)
+            await self._maybe_cleanup_session_lane(lane, session_lock)
 
     async def status(self) -> Dict[str, Any]:
         async with self._guard:

@@ -14,6 +14,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$script:PortProbeFallbackWarned = $false
 
 function Test-PortInUse {
     param([int]$Port)
@@ -27,7 +28,10 @@ function Test-PortInUse {
         return ($listeners.Count -gt 0)
     }
     catch {
-        Write-Warning "Port probe fallback engaged for ${Port}: $($_.Exception.Message)"
+        if (-not $script:PortProbeFallbackWarned) {
+            Write-Warning "Port probe fallback engaged: Get-NetTCPConnection unavailable; fail-closed probing is enabled. detail=$($_.Exception.Message)"
+            $script:PortProbeFallbackWarned = $true
+        }
         # Fail-closed to avoid selecting potentially occupied ports when probe is unavailable.
         return $true
     }
@@ -160,12 +164,16 @@ function Set-EnvValueInFile {
 }
 
 function Apply-ProfileRuntimeOverrides {
-    param([string]$EnvFile)
+    param(
+        [string]$EnvFile,
+        [string]$SelectedProfile
+    )
 
     $overrideKeys = @(
         'ROUTER_API_BASE',
         'ROUTER_API_KEY',
         'ROUTER_EMBEDDING_MODEL',
+        'RETRIEVAL_EMBEDDING_BACKEND',
         'RETRIEVAL_EMBEDDING_API_BASE',
         'RETRIEVAL_EMBEDDING_API_KEY',
         'RETRIEVAL_EMBEDDING_MODEL',
@@ -190,6 +198,11 @@ function Apply-ProfileRuntimeOverrides {
             Set-EnvValueInFile -FilePath $EnvFile -Key $key -Value $overrideValue
             Write-Host "[override] $key applied to $EnvFile"
         }
+    }
+
+    if ($SelectedProfile -in @('c', 'd')) {
+        Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_EMBEDDING_BACKEND' -Value 'api'
+        Write-Host "[override] RETRIEVAL_EMBEDDING_BACKEND=api forced for local profile $SelectedProfile runtime injection."
     }
 }
 
@@ -281,15 +294,81 @@ function Assert-ProfileExternalSettingsReady {
 function Invoke-Compose {
     param([string[]]$ComposeArgs)
 
+    $composeOutput = @()
     if ($script:UseComposePlugin) {
-        & docker compose @ComposeArgs
+        $composeOutput = & docker compose @ComposeArgs 2>&1
     }
     else {
-        & docker-compose @ComposeArgs
+        $composeOutput = & docker-compose @ComposeArgs 2>&1
+    }
+
+    if ($composeOutput.Count -gt 0) {
+        $composeOutput | ForEach-Object { Write-Output $_ }
     }
 
     if ($LASTEXITCODE -ne 0) {
-        throw "docker compose command failed: $($ComposeArgs -join ' ')"
+        $detail = ($composeOutput | Out-String).Trim()
+        throw "docker compose command failed: $($ComposeArgs -join ' ')`n$detail"
+    }
+}
+
+function Test-ComposeRetryableError {
+    param([string]$Message)
+
+    if ([string]::IsNullOrWhiteSpace($Message)) {
+        return $false
+    }
+
+    $patterns = @(
+        'No such container',
+        'dependency failed to start',
+        'toomanyrequests',
+        'TLS handshake timeout',
+        'connection reset by peer',
+        'i/o timeout',
+        'context canceled',
+        'EOF'
+    )
+
+    foreach ($pattern in $patterns) {
+        if ($Message -like "*$pattern*") {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Invoke-ComposeWithRetry {
+    param(
+        [string[]]$ComposeArgs,
+        [int]$MaxAttempts = 3
+    )
+
+    $attempt = 0
+    while ($attempt -lt $MaxAttempts) {
+        $attempt += 1
+        try {
+            Invoke-Compose -ComposeArgs $ComposeArgs
+            return
+        }
+        catch {
+            $detail = $_.Exception.Message
+            $retryable = Test-ComposeRetryableError -Message $detail
+            if ($attempt -ge $MaxAttempts -or -not $retryable) {
+                throw
+            }
+
+            $sleepSeconds = 2 * $attempt
+            Write-Warning "[compose-retry] transient compose up failure ($attempt/$MaxAttempts), retrying in ${sleepSeconds}s."
+            Start-Sleep -Seconds $sleepSeconds
+            try {
+                Invoke-Compose -ComposeArgs @('-f', 'docker-compose.yml', 'down', '--remove-orphans')
+            }
+            catch {
+                # Keep retry path best-effort; next attempt will surface a hard failure.
+            }
+        }
     }
 }
 
@@ -351,7 +430,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 if ($AllowRuntimeEnvInjection.IsPresent) {
-    Apply-ProfileRuntimeOverrides -EnvFile $envFile
+    Apply-ProfileRuntimeOverrides -EnvFile $envFile -SelectedProfile $profileLower
 }
 else {
     Write-Host "[override] runtime env injection disabled by default; pass -AllowRuntimeEnvInjection to opt in."
@@ -360,7 +439,12 @@ Assert-ProfileExternalSettingsReady -EnvFile $envFile -SelectedProfile $profileL
 
 Push-Location $projectRoot
 try {
-    Invoke-Compose @('-f', 'docker-compose.yml', 'down', '--remove-orphans')
+    try {
+        Invoke-Compose @('-f', 'docker-compose.yml', 'down', '--remove-orphans')
+    }
+    catch {
+        throw "[compose-down] pre-cleanup failed; aborting to match fail-closed deployment behavior. detail=$($_.Exception.Message)"
+    }
 
     if (-not $NoAutoPort) {
         $resolvedFrontendPort = Resolve-FreePort -StartPort $FrontendPort
@@ -373,7 +457,13 @@ try {
             Write-Host "[port-adjust] backend $BackendPort is occupied, switched to $resolvedBackendPort"
         }
         if ($resolvedFrontendPort -eq $resolvedBackendPort) {
-            $resolvedBackendPort = Resolve-FreePort -StartPort ($resolvedBackendPort + 1)
+            $nextBackendPort = $resolvedBackendPort + 1
+            try {
+                $resolvedBackendPort = Resolve-FreePort -StartPort $nextBackendPort
+            }
+            catch {
+                throw "Failed to auto-resolve free backend port near $nextBackendPort. Try -NoAutoPort with explicit values. detail=$($_.Exception.Message)"
+            }
             Write-Host "[port-adjust] backend reassigned to avoid collision with frontend: $resolvedBackendPort"
         }
 
@@ -389,12 +479,11 @@ try {
     $env:NOCTURNE_BACKEND_PORT = "$BackendPort"
     $env:NOCTURNE_DATA_VOLUME = "$dataVolume"
 
-    if ($NoBuild) {
-        Invoke-Compose @('-f', 'docker-compose.yml', 'up', '-d', '--force-recreate', '--remove-orphans')
+    $composeUpArgs = @('-f', 'docker-compose.yml', 'up', '-d', '--force-recreate', '--remove-orphans')
+    if (-not $NoBuild) {
+        $composeUpArgs = @('-f', 'docker-compose.yml', 'up', '-d', '--build', '--force-recreate', '--remove-orphans')
     }
-    else {
-        Invoke-Compose @('-f', 'docker-compose.yml', 'up', '-d', '--build', '--force-recreate', '--remove-orphans')
-    }
+    Invoke-ComposeWithRetry -ComposeArgs $composeUpArgs -MaxAttempts 3
 }
 finally {
     Pop-Location

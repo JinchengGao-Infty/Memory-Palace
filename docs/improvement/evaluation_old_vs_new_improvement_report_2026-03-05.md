@@ -11,7 +11,7 @@
 
 本次测试要回答一个问题：
 
-- 新仓库（`/Users/yangjunjie/Desktop/clawanti/Memory-Palace`）相比旧仓库（`/Users/yangjunjie/Desktop/clawmemo/nocturne_memory`）是否有实质提升？
+- 新仓库（`/Users/yangjunjie/Desktop/clawanti/Memory-Palace`）相比旧仓库（`/Users/yangjunjie/Desktop/old/Memory-Palace`）是否有实质提升？
 
 重点关注指标：
 
@@ -144,7 +144,7 @@
 ### 9.1 旧仓（公平口径）
 
 ```bash
-cd /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/backend
+cd /Users/yangjunjie/Desktop/old/Memory-Palace/backend
 set -a; source /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env; set +a
 python tests/benchmark/run_profile_abcd_real.py --sample-size 100 --extra-distractors 200 --output-json tests/benchmark/profile_abcd_real_metrics_s100_d200_old_r1.json
 ```
@@ -173,14 +173,13 @@ python tests/benchmark/run_profile_abcd_real.py --sample-size 100 --extra-distra
 
 ## 10. 关键证据文件
 
-- 旧仓 `s8,d10`：[profile_abcd_real_metrics_s8_d10_old_r1.json](/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/backend/tests/benchmark/profile_abcd_real_metrics_s8_d10_old_r1.json)
+- 旧仓 `s8,d10`（同文件内对应场景）：[profile_abcd_real_metrics.json](/Users/yangjunjie/Desktop/old/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics.json)
 - 新仓 `s8,d10,cm4`：[profile_abcd_real_metrics_s8_d10_new_cm4_r1.json](/Users/yangjunjie/Desktop/clawanti/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics_s8_d10_new_cm4_r1.json)
-- 旧仓 `s8,d200`：[profile_abcd_real_metrics_s8_d200_old_r1.json](/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/backend/tests/benchmark/profile_abcd_real_metrics_s8_d200_old_r1.json)
+- 旧仓 `s8,d200`（同文件内对应场景）：[profile_abcd_real_metrics.json](/Users/yangjunjie/Desktop/old/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics.json)
 - 新仓 `s8,d200,cm4`：[profile_abcd_real_metrics_s8_d200_new_cm4_r1.json](/Users/yangjunjie/Desktop/clawanti/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics_s8_d200_new_cm4_r1.json)
-- 旧仓 `s100,d200`：[profile_abcd_real_metrics_s100_d200_old_r1.json](/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/backend/tests/benchmark/profile_abcd_real_metrics_s100_d200_old_r1.json)
+- 旧仓 `s100,d200`（同文件内对应场景）：[profile_abcd_real_metrics.json](/Users/yangjunjie/Desktop/old/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics.json)
 - 新仓 `s100,d200,cm4`：[profile_abcd_real_metrics_s100_d200_new_cm4_r1.json](/Users/yangjunjie/Desktop/clawanti/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics_s100_d200_new_cm4_r1.json)
 - 新仓 `s100,d200,cm8` 三次重复：  
   [r1](/Users/yangjunjie/Desktop/clawanti/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics_s100_d200_cm8_r1.json)  
   [r2](/Users/yangjunjie/Desktop/clawanti/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics_s100_d200_cm8_r2.json)  
   [r3](/Users/yangjunjie/Desktop/clawanti/Memory-Palace/backend/tests/benchmark/profile_abcd_real_metrics_s100_d200_cm8_r3.json)
-

@@ -18,6 +18,14 @@ vi.mock('../../lib/api', () => ({
     if (typeof error?.message === 'string' && error.message.trim()) return error.message;
     return fallback;
   }),
+  extractApiErrorCode: vi.fn((error) => {
+    const detail = error?.response?.data?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+    if (detail && typeof detail === 'object') {
+      return detail.code || detail.error || detail.reason || null;
+    }
+    return null;
+  }),
   listOrphanMemories: vi.fn(),
   getOrphanMemoryDetail: vi.fn(),
   deleteOrphanMemory: vi.fn(),
@@ -101,7 +109,46 @@ describe('MaintenancePage', () => {
     });
   });
 
-  it('keeps prepared review for retry when confirm returns confirmation_phrase_mismatch', async () => {
+  it('handles invalid created_at and migration_target paths without crashing', async () => {
+    const user = userEvent.setup();
+    api.listOrphanMemories.mockResolvedValue([
+      {
+        id: 1,
+        category: 'deprecated',
+        created_at: 'invalid-time',
+        content_snippet: 'legacy orphan',
+        migration_target: {
+          id: 2,
+          paths: { bad: true },
+        },
+      },
+    ]);
+    api.getOrphanMemoryDetail.mockResolvedValue({
+      id: 1,
+      content: 'legacy full content',
+      migration_target: {
+        id: 2,
+        content: 'migrated content',
+        paths: 'not-an-array',
+      },
+    });
+
+    render(<MaintenancePage />);
+
+    expect(await screen.findByText('Unknown')).toBeInTheDocument();
+    expect(screen.getByText('target #2 also has no paths')).toBeInTheDocument();
+
+    await user.click(screen.getByText(/legacy orphan/i));
+    await waitFor(() => {
+      expect(api.getOrphanMemoryDetail).toHaveBeenCalledWith(1);
+    });
+
+    const detailContentNodes = await screen.findAllByText(/legacy full content/i);
+    expect(detailContentNodes.length).toBeGreaterThan(0);
+    expect(screen.getByText(/Diff: #1 → #2/i)).toBeInTheDocument();
+  });
+
+  it('keeps prepared review for retry when confirm returns structured confirmation_phrase_mismatch detail', async () => {
     const user = userEvent.setup();
     api.queryVitalityCleanupCandidates.mockResolvedValue({
       status: 'ok',
@@ -128,9 +175,17 @@ describe('MaintenancePage', () => {
       },
     });
     api.confirmVitalityCleanup.mockRejectedValue({
-      response: { data: { detail: 'confirmation_phrase_mismatch' } },
+      response: {
+        data: {
+          detail: {
+            error: 'confirmation_phrase_mismatch',
+            message: 'confirmation phrase mismatch',
+          },
+        },
+      },
     });
-    api.extractApiError.mockReturnValue('confirmation_phrase_mismatch');
+    api.extractApiError.mockReturnValue('confirmation phrase mismatch');
+    api.extractApiErrorCode.mockReturnValue('confirmation_phrase_mismatch');
     window.prompt.mockReturnValue('CONFIRM DELETE');
 
     render(<MaintenancePage />);
@@ -151,6 +206,7 @@ describe('MaintenancePage', () => {
       });
     });
     expect(screen.getByText(/review_id: review-1/i)).toBeInTheDocument();
-    expect(screen.getByText('confirmation_phrase_mismatch')).toBeInTheDocument();
+    expect(screen.getByText('confirmation phrase mismatch')).toBeInTheDocument();
+    expect(api.queryVitalityCleanupCandidates).toHaveBeenCalledTimes(1);
   });
 });

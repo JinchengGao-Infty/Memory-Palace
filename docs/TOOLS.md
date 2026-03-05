@@ -69,7 +69,7 @@ system://boot             ← 系统内置 URI（只读）
 - 检测是否已有重复内容（避免冗余写入）
 - 建议合并到已有记忆（返回 `UPDATE` / `NOOP` 动作）
 
-Write Guard 的决策方法可能包括 `llm`、`embedding`、`keyword`、`fallback`、`none`，取决于当前配置和服务可用性。
+Write Guard 的决策方法可能包括 `llm`、`embedding`、`keyword`、`fallback`、`none`、`exception`，取决于当前配置和服务可用性。
 
 ---
 
@@ -498,7 +498,7 @@ index_status()
 |---|---|---|
 | `guard_action` | `ADD` / `UPDATE` / `NOOP` / `DELETE` / `BYPASS` | Guard 的决策动作 |
 | `guard_reason` | 字符串 | 决策原因 |
-| `guard_method` | `llm` / `embedding` / `keyword` / `fallback` / `none` | 检测方法 |
+| `guard_method` | `llm` / `embedding` / `keyword` / `fallback` / `none` / `exception` | 检测方法 |
 
 ### 索引入队统计字段
 

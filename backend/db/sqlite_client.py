@@ -42,12 +42,15 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base, relationship
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 from .migration_runner import apply_pending_migrations
 
-# Load environment variables
-_dotenv_path = find_dotenv(usecwd=True)
-if _dotenv_path:
+# Load environment variables from project root only.
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_backend_dir = os.path.dirname(_current_dir)
+_project_root = os.path.dirname(_backend_dir)
+_dotenv_path = os.path.join(_project_root, ".env")
+if os.path.exists(_dotenv_path):
     load_dotenv(_dotenv_path)
 
 Base = declarative_base()

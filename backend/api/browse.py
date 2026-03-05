@@ -16,6 +16,12 @@ from .maintenance import require_maintenance_api_key
 from sqlalchemy import select
 
 router = APIRouter(prefix="/browse", tags=["browse"])
+_VALID_DOMAINS = [
+    d.strip().lower()
+    for d in str(os.getenv("VALID_DOMAINS", "core,writer,game,notes,system")).split(",")
+    if d.strip()
+]
+_READ_ONLY_DOMAINS = {"system"}
 
 
 class NodeUpdate(BaseModel):
@@ -41,6 +47,28 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 ENABLE_WRITE_LANE_QUEUE = _env_bool("RUNTIME_WRITE_LANE_QUEUE", True)
+
+
+def _normalize_domain_or_422(domain: str) -> str:
+    normalized = str(domain or "").strip().lower()
+    if not normalized:
+        normalized = "core"
+    if normalized not in _VALID_DOMAINS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown domain '{normalized}'. Valid domains: {', '.join(_VALID_DOMAINS)}",
+        )
+    return normalized
+
+
+def _ensure_writable_domain_or_422(domain: str, *, operation: str) -> str:
+    normalized = _normalize_domain_or_422(domain)
+    if normalized in _READ_ONLY_DOMAINS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{operation} does not allow writes to '{normalized}://'. system:// is read-only.",
+        )
+    return normalized
 
 
 def _normalize_guard_decision(payload: Any, *, allow_bypass: bool = False) -> dict[str, Any]:
@@ -112,7 +140,8 @@ async def _run_write_lane(operation: str, task):
 @router.get("/node")
 async def get_node(
     path: str = Query("", description="URI path like 'memory-palace' or 'memory-palace/salem'"),
-    domain: str = Query("core")
+    domain: str = Query("core"),
+    _auth: None = Depends(require_maintenance_api_key),
 ):
     """
     Get a node's content and its direct children.
@@ -123,6 +152,7 @@ async def get_node(
     - Breadcrumb trail for navigation
     """
     client = get_sqlite_client()
+    domain = _normalize_domain_or_422(domain)
     
     if not path:
         # Virtual Root Node
@@ -218,7 +248,7 @@ async def create_node(
     """
     client = get_sqlite_client()
     parent_path = body.parent_path.strip().strip("/")
-    domain = body.domain.strip() or "core"
+    domain = _ensure_writable_domain_or_422(body.domain, operation="create_node")
     title = (body.title or "").strip() or None
     try:
         guard_decision = _normalize_guard_decision(
@@ -242,8 +272,9 @@ async def create_node(
     await _record_guard_event("browse.create_node", guard_decision, blocked=blocked)
     if blocked:
         return {
-            "success": True,
+            "success": False,
             "created": False,
+            "reason": "write_guard_blocked",
             "message": (
                 "Skipped: write_guard blocked create_node "
                 f"(action={guard_action}, method={guard_decision.get('method')})."
@@ -285,6 +316,7 @@ async def update_node(
     Update a node's content.
     """
     client = get_sqlite_client()
+    domain = _ensure_writable_domain_or_422(domain, operation="update_node")
     
     # Check exists
     memory = await client.get_memory_by_path(
@@ -336,8 +368,9 @@ async def update_node(
     await _record_guard_event("browse.update_node", guard_decision, blocked=blocked)
     if blocked:
         return {
-            "success": True,
+            "success": False,
             "updated": False,
+            "reason": "write_guard_blocked",
             "message": (
                 "Skipped: write_guard blocked update_node "
                 f"(action={guard_action}, method={guard_decision.get('method')})."
@@ -378,6 +411,7 @@ async def delete_node(
     Delete a single path. If the path has children, this operation is rejected.
     """
     client = get_sqlite_client()
+    domain = _ensure_writable_domain_or_422(domain, operation="delete_node")
 
     async def _write_task():
         return await client.remove_path(path=path, domain=domain)

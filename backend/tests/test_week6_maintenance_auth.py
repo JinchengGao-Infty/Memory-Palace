@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from api import maintenance as maintenance_api
 
@@ -30,9 +31,12 @@ def test_maintenance_auth_rejects_when_api_key_not_configured_by_default(monkeyp
     assert detail.get("reason") == "api_key_not_configured"
 
 
-def test_maintenance_auth_allows_when_explicit_insecure_local_override_is_enabled(monkeypatch) -> None:
+@pytest.mark.parametrize("override_value", ["true", "enabled"])
+def test_maintenance_auth_allows_when_explicit_insecure_local_override_is_enabled(
+    monkeypatch, override_value: str
+) -> None:
     monkeypatch.delenv("MCP_API_KEY", raising=False)
-    monkeypatch.setenv("MCP_API_KEY_ALLOW_INSECURE_LOCAL", "true")
+    monkeypatch.setenv("MCP_API_KEY_ALLOW_INSECURE_LOCAL", override_value)
     with _build_client(monkeypatch, client=("127.0.0.1", 50000)) as client:
         response = client.post("/maintenance/vitality/decay")
     assert response.status_code == 200

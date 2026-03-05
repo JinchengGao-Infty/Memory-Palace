@@ -51,6 +51,16 @@ const buildSummary = ({
   cleanup_query_stats: {},
 });
 
+const createDeferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+
 describe('ObservabilityPage', () => {
   const getJobCardById = async (jobId) => {
     const jobLabel = await screen.findByText(jobId);
@@ -301,6 +311,31 @@ describe('ObservabilityPage', () => {
 
     expect(await screen.findByText(/queue depth:\s*9/i)).toBeInTheDocument();
     expect(screen.getByText(/last worker error:\s*queue_full/i)).toBeInTheDocument();
+  });
+
+  it('keeps latest summary state when refresh requests race', async () => {
+    const user = userEvent.setup();
+    const first = createDeferred();
+    const second = createDeferred();
+    api.getObservabilitySummary
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    render(<ObservabilityPage />);
+
+    await user.click(screen.getByRole('button', { name: 'Rebuild Index' }));
+    await waitFor(() => {
+      expect(api.getObservabilitySummary).toHaveBeenCalledTimes(2);
+    });
+
+    second.resolve(buildSummary({ queueDepth: 2, timestamp: '2026-01-01T00:00:02Z' }));
+    await screen.findByText(/queue depth:\s*2/i);
+
+    first.resolve(buildSummary({ queueDepth: 9, timestamp: '2026-01-01T00:00:01Z' }));
+    await waitFor(() => {
+      expect(screen.getByText(/queue depth:\s*2/i)).toBeInTheDocument();
+      expect(screen.queryByText(/queue depth:\s*9/i)).not.toBeInTheDocument();
+    });
   });
 
   it('blocks diagnostic search when max priority is not an integer', async () => {

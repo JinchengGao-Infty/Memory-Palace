@@ -277,7 +277,7 @@ async def test_phase_d_hold_browse_blocked_update_has_no_access_side_effect(
         domain="core",
         body=browse_api.NodeUpdate(content="replacement content"),
     )
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["updated"] is False
     assert str(payload.get("guard_action")) == "NOOP"
 

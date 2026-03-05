@@ -17,7 +17,7 @@ from mcp_server import mcp, startup as mcp_startup
 _MCP_API_KEY_ENV = "MCP_API_KEY"
 _MCP_API_KEY_HEADER = "X-MCP-API-Key"
 _MCP_API_KEY_ALLOW_INSECURE_LOCAL_ENV = "MCP_API_KEY_ALLOW_INSECURE_LOCAL"
-_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
+_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on", "enabled"}
 _LOOPBACK_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
 

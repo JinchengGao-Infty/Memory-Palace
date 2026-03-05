@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 import run_sse
 from run_sse import apply_mcp_api_key_middleware
@@ -27,9 +28,12 @@ def test_sse_auth_rejects_when_api_key_not_configured_by_default(monkeypatch) ->
     assert payload.get("reason") == "api_key_not_configured"
 
 
-def test_sse_auth_allows_when_explicit_insecure_local_override_is_enabled(monkeypatch) -> None:
+@pytest.mark.parametrize("override_value", ["true", "enabled"])
+def test_sse_auth_allows_when_explicit_insecure_local_override_is_enabled(
+    monkeypatch, override_value: str
+) -> None:
     monkeypatch.delenv("MCP_API_KEY", raising=False)
-    monkeypatch.setenv("MCP_API_KEY_ALLOW_INSECURE_LOCAL", "true")
+    monkeypatch.setenv("MCP_API_KEY_ALLOW_INSECURE_LOCAL", override_value)
     with _build_client(client=("127.0.0.1", 50000)) as client:
         response = client.get("/ping")
     assert response.status_code == 200

@@ -1,0 +1,499 @@
+{
+  "generated_at_utc": "2026-03-04T18:30:29+00:00",
+  "source": "backend/tests/benchmark/helpers/profile_abcd_real_runner.py",
+  "sample_size_requested": 100,
+  "dataset_scope": [
+    "squad_v2_dev",
+    "beir_nfcorpus"
+  ],
+  "dataset_labels": {
+    "squad_v2_dev": "SQuAD v2 Dev",
+    "beir_nfcorpus": "BEIR NFCorpus"
+  },
+  "real_run_strategy": {
+    "first_relevant_only": true,
+    "extra_distractors": 200,
+    "max_results": 10,
+    "candidate_multiplier": 6,
+    "metric_top_k": 10,
+    "seed": 20260219,
+    "workdir": "tests/benchmark/.real_profile_cache"
+  },
+  "profiles": {
+    "profile_a": {
+      "profile": "profile_a",
+      "mode": "keyword",
+      "rows": [
+        {
+          "dataset": "squad_v2_dev",
+          "dataset_label": "SQuAD v2 Dev",
+          "mode": "keyword",
+          "sample_size": 100,
+          "query_count": 100,
+          "query_count_raw": 100,
+          "sample_bucket_size": 100,
+          "corpus_doc_count": 295,
+          "retrieval_depth": {
+            "max_results": 10,
+            "candidate_multiplier": 6,
+            "metric_top_k": 10
+          },
+          "quality": {
+            "hr_at_5": 0.0,
+            "hr_at_10": 0.0,
+            "mrr": 0.0,
+            "ndcg_at_10": 0.0,
+            "recall_at_10": 0.0
+          },
+          "latency_ms": {
+            "p50": 1.863396,
+            "p95": 2.379712,
+            "p99": 2.649579
+          },
+          "degradation": {
+            "queries": 100,
+            "degraded": 0,
+            "degrade_rate": 0.0,
+            "degrade_reasons": [],
+            "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
+            "valid": true
+          }
+        },
+        {
+          "dataset": "beir_nfcorpus",
+          "dataset_label": "BEIR NFCorpus",
+          "mode": "keyword",
+          "sample_size": 100,
+          "query_count": 100,
+          "query_count_raw": 100,
+          "sample_bucket_size": 100,
+          "corpus_doc_count": 293,
+          "retrieval_depth": {
+            "max_results": 10,
+            "candidate_multiplier": 6,
+            "metric_top_k": 10
+          },
+          "quality": {
+            "hr_at_5": 0.11,
+            "hr_at_10": 0.11,
+            "mrr": 0.11,
+            "ndcg_at_10": 0.11,
+            "recall_at_10": 0.11
+          },
+          "latency_ms": {
+            "p50": 2.425021,
+            "p95": 3.098973,
+            "p99": 3.245338
+          },
+          "degradation": {
+            "queries": 100,
+            "degraded": 0,
+            "degrade_rate": 0.0,
+            "degrade_reasons": [],
+            "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
+            "valid": true
+          }
+        }
+      ]
+    },
+    "profile_b": {
+      "profile": "profile_b",
+      "mode": "hybrid",
+      "rows": [
+        {
+          "dataset": "squad_v2_dev",
+          "dataset_label": "SQuAD v2 Dev",
+          "mode": "hybrid",
+          "sample_size": 100,
+          "query_count": 100,
+          "query_count_raw": 100,
+          "sample_bucket_size": 100,
+          "corpus_doc_count": 295,
+          "retrieval_depth": {
+            "max_results": 10,
+            "candidate_multiplier": 6,
+            "metric_top_k": 10
+          },
+          "quality": {
+            "hr_at_5": 0.34,
+            "hr_at_10": 0.41,
+            "mrr": 0.263123,
+            "ndcg_at_10": 0.297919,
+            "recall_at_10": 0.41
+          },
+          "latency_ms": {
+            "p50": 17.291125,
+            "p95": 19.115061,
+            "p99": 20.575306
+          },
+          "degradation": {
+            "queries": 100,
+            "degraded": 0,
+            "degrade_rate": 0.0,
+            "degrade_reasons": [],
+            "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
+            "valid": true
+          }
+        },
+        {
+          "dataset": "beir_nfcorpus",
+          "dataset_label": "BEIR NFCorpus",
+          "mode": "hybrid",
+          "sample_size": 100,
+          "query_count": 100,
+          "query_count_raw": 100,
+          "sample_bucket_size": 100,
+          "corpus_doc_count": 293,
+          "retrieval_depth": {
+            "max_results": 10,
+            "candidate_multiplier": 6,
+            "metric_top_k": 10
+          },
+          "quality": {
+            "hr_at_5": 0.06,
+            "hr_at_10": 0.09,
+            "mrr": 0.035,
+            "ndcg_at_10": 0.048228,
+            "recall_at_10": 0.09
+          },
+          "latency_ms": {
+            "p50": 19.283688,
+            "p95": 20.317861,
+            "p99": 20.574122
+          },
+          "degradation": {
+            "queries": 100,
+            "degraded": 0,
+            "degrade_rate": 0.0,
+            "degrade_reasons": [],
+            "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
+            "valid": true
+          }
+        }
+      ]
+    },
+    "profile_c": {
+      "profile": "profile_c",
+      "mode": "hybrid",
+      "rows": [
+        {
+          "dataset": "squad_v2_dev",
+          "dataset_label": "SQuAD v2 Dev",
+          "mode": "hybrid",
+          "sample_size": 100,
+          "query_count": 100,
+          "query_count_raw": 100,
+          "sample_bucket_size": 100,
+          "corpus_doc_count": 295,
+          "retrieval_depth": {
+            "max_results": 10,
+            "candidate_multiplier": 6,
+            "metric_top_k": 10
+          },
+          "quality": {
+            "hr_at_5": 0.98,
+            "hr_at_10": 0.98,
+            "mrr": 0.93,
+            "ndcg_at_10": 0.942779,
+            "recall_at_10": 0.98
+          },
+          "latency_ms": {
+            "p50": 521.956021,
+            "p95": 925.043918,
+            "p99": 964.799583
+          },
+          "degradation": {
+            "queries": 100,
+            "degraded": 0,
+            "degrade_rate": 0.0,
+            "degrade_reasons": [],
+            "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
+            "valid": true
+          }
+        },
+        {
+          "dataset": "beir_nfcorpus",
+          "dataset_label": "BEIR NFCorpus",
+          "mode": "hybrid",
+          "sample_size": 100,
+          "query_count": 100,
+          "query_count_raw": 100,
+          "sample_bucket_size": 100,
+          "corpus_doc_count": 293,
+          "retrieval_depth": {
+            "max_results": 10,
+            "candidate_multiplier": 6,
+            "metric_top_k": 10
+          },
+          "quality": {
+            "hr_at_5": 0.25,
+            "hr_at_10": 0.28,
+            "mrr": 0.173167,
+            "ndcg_at_10": 0.199199,
+            "recall_at_10": 0.28
+          },
+          "latency_ms": {
+            "p50": 533.811688,
+            "p95": 959.264315,
+            "p99": 2460.454986
+          },
+          "degradation": {
+            "queries": 100,
+            "degraded": 1,
+            "degrade_rate": 0.01,
+            "degrade_reasons": [
+              "embedding_fallback_hash",
+              "embedding_request_failed"
+            ],
+            "invalid_reasons": [
+              "embedding_fallback_hash",
+              "embedding_request_failed"
+            ],
+            "invalid_count": 1,
+            "invalid_rate": 0.01,
+            "invalid_reason_counts": {
+              "embedding_fallback_hash": 1,
+              "embedding_request_failed": 1
+            },
+            "request_failed_count": 1,
+            "request_failed_rate": 0.01,
+            "request_failed_reason_counts": {
+              "embedding_request_failed": 1
+            },
+            "valid": false
+          }
+        }
+      ]
+    },
+    "profile_d": {
+      "profile": "profile_d",
+      "mode": "hybrid",
+      "rows": [
+        {
+          "dataset": "squad_v2_dev",
+          "dataset_label": "SQuAD v2 Dev",
+          "mode": "hybrid",
+          "sample_size": 100,
+          "query_count": 100,
+          "query_count_raw": 100,
+          "sample_bucket_size": 100,
+          "corpus_doc_count": 295,
+          "retrieval_depth": {
+            "max_results": 10,
+            "candidate_multiplier": 6,
+            "metric_top_k": 10
+          },
+          "quality": {
+            "hr_at_5": 0.98,
+            "hr_at_10": 0.99,
+            "mrr": 0.969444,
+            "ndcg_at_10": 0.97432,
+            "recall_at_10": 0.99
+          },
+          "latency_ms": {
+            "p50": 2589.19677,
+            "p95": 3856.300236,
+            "p99": 5384.632002
+          },
+          "degradation": {
+            "queries": 100,
+            "degraded": 0,
+            "degrade_rate": 0.0,
+            "degrade_reasons": [],
+            "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
+            "valid": true
+          }
+        },
+        {
+          "dataset": "beir_nfcorpus",
+          "dataset_label": "BEIR NFCorpus",
+          "mode": "hybrid",
+          "sample_size": 100,
+          "query_count": 100,
+          "query_count_raw": 100,
+          "sample_bucket_size": 100,
+          "corpus_doc_count": 293,
+          "retrieval_depth": {
+            "max_results": 10,
+            "candidate_multiplier": 6,
+            "metric_top_k": 10
+          },
+          "quality": {
+            "hr_at_5": 0.31,
+            "hr_at_10": 0.34,
+            "mrr": 0.235762,
+            "ndcg_at_10": 0.261228,
+            "recall_at_10": 0.34
+          },
+          "latency_ms": {
+            "p50": 2661.163833,
+            "p95": 3677.552731,
+            "p99": 4394.522185
+          },
+          "degradation": {
+            "queries": 100,
+            "degraded": 1,
+            "degrade_rate": 0.01,
+            "degrade_reasons": [
+              "reranker_request_failed"
+            ],
+            "invalid_reasons": [
+              "reranker_request_failed"
+            ],
+            "invalid_count": 1,
+            "invalid_rate": 0.01,
+            "invalid_reason_counts": {
+              "reranker_request_failed": 1
+            },
+            "request_failed_count": 1,
+            "request_failed_rate": 0.01,
+            "request_failed_reason_counts": {
+              "reranker_request_failed": 1
+            },
+            "valid": false
+          }
+        }
+      ]
+    }
+  },
+  "phase6": {
+    "gate": {
+      "mode": "api_tolerant",
+      "invalid_rate_threshold": 0.05,
+      "valid": true,
+      "invalid_reasons": [
+        "reranker_request_failed"
+      ],
+      "invalid_reason_counts": {
+        "reranker_request_failed": 1
+      },
+      "query_count": 200,
+      "invalid_count": 1,
+      "invalid_rate": 0.005,
+      "request_failed_count": 1,
+      "request_failed_rate": 0.005,
+      "request_failed_reason_counts": {
+        "reranker_request_failed": 1
+      },
+      "rows": [
+        {
+          "dataset": "squad_v2_dev",
+          "dataset_label": "SQuAD v2 Dev",
+          "valid": true,
+          "invalid_reasons": [],
+          "query_count": 100,
+          "invalid_count": 0,
+          "invalid_rate": 0.0,
+          "invalid_reason_counts": {},
+          "request_failed_count": 0,
+          "request_failed_rate": 0.0,
+          "request_failed_reason_counts": {}
+        },
+        {
+          "dataset": "beir_nfcorpus",
+          "dataset_label": "BEIR NFCorpus",
+          "valid": true,
+          "invalid_reasons": [
+            "reranker_request_failed"
+          ],
+          "query_count": 100,
+          "invalid_count": 1,
+          "invalid_rate": 0.01,
+          "invalid_reason_counts": {
+            "reranker_request_failed": 1
+          },
+          "request_failed_count": 1,
+          "request_failed_rate": 0.01,
+          "request_failed_reason_counts": {
+            "reranker_request_failed": 1
+          }
+        }
+      ]
+    },
+    "comparison_rows": [
+      {
+        "dataset": "squad_v2_dev",
+        "dataset_label": "SQuAD v2 Dev",
+        "a_hr10": 0.0,
+        "b_hr10": 0.41,
+        "c_hr10": 0.98,
+        "d_hr10": 0.99,
+        "a_ndcg10": 0.0,
+        "b_ndcg10": 0.297919,
+        "c_ndcg10": 0.942779,
+        "d_ndcg10": 0.97432,
+        "a_p95": 2.379712,
+        "b_p95": 19.115061,
+        "c_p95": 925.043918,
+        "d_p95": 3856.300236,
+        "valid": true,
+        "invalid_reasons": []
+      },
+      {
+        "dataset": "beir_nfcorpus",
+        "dataset_label": "BEIR NFCorpus",
+        "a_hr10": 0.11,
+        "b_hr10": 0.09,
+        "c_hr10": 0.28,
+        "d_hr10": 0.34,
+        "a_ndcg10": 0.11,
+        "b_ndcg10": 0.048228,
+        "c_ndcg10": 0.199199,
+        "d_ndcg10": 0.261228,
+        "a_p95": 3.098973,
+        "b_p95": 20.317861,
+        "c_p95": 959.264315,
+        "d_p95": 3677.552731,
+        "valid": false,
+        "invalid_reasons": [
+          "reranker_request_failed"
+        ]
+      }
+    ],
+    "invalid_gate_reasons": [
+      "embedding_fallback_hash",
+      "embedding_request_failed",
+      "reranker_request_failed"
+    ],
+    "gate_config": {
+      "mode": "api_tolerant",
+      "invalid_rate_threshold": 0.05
+    }
+  }
+}

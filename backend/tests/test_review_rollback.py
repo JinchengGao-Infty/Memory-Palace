@@ -233,7 +233,7 @@ class _StubSnapshotManager:
 def test_rollback_endpoint_returns_5xx_when_internal_error_occurs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _boom(_data: dict) -> dict:
+    async def _boom(_data: dict, **_kwargs) -> dict:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(review_api, "get_snapshot_manager", lambda: _StubSnapshotManager())
@@ -278,3 +278,237 @@ def test_snapshot_manager_rejects_traversal_session_id(tmp_path: Path) -> None:
     manager = SnapshotManager(str(tmp_path / "snapshots"))
     with pytest.raises(ValueError):
         manager.clear_session("..")
+
+
+@pytest.mark.asyncio
+async def test_rollback_path_create_alias_routes_writes_through_write_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_calls = []
+
+    class _AliasClient:
+        async def remove_path(self, path: str, domain: str):
+            return {"removed_uri": f"{domain}://{path}"}
+
+    async def _run_write_lane_stub(operation: str, task, *, session_id=None):
+        lane_calls.append({"operation": operation, "session_id": session_id})
+        return await task()
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: _AliasClient())
+    monkeypatch.setattr(review_api, "_run_write_lane", _run_write_lane_stub)
+
+    payload = await review_api._rollback_path(
+        {
+            "operation_type": "create_alias",
+            "domain": "core",
+            "path": "alias-node",
+            "uri": "core://alias-node",
+        },
+        lane_session_id="review.rollback:lane-path",
+    )
+
+    assert payload == {"deleted": True, "alias_removed": True}
+    assert lane_calls == [
+        {
+            "operation": "rollback.remove_alias",
+            "session_id": "review.rollback:lane-path",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rollback_memory_content_routes_writes_through_write_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_calls = []
+
+    class _MemoryContentClient:
+        async def get_memory_version(self, memory_id: int):
+            memory_id = int(memory_id)
+            if memory_id == 123:
+                return {"id": 123, "migrated_to": 999}
+            if memory_id == 999:
+                return {"id": 999, "migrated_to": None}
+            return None
+
+        async def get_memory_by_path(
+            self,
+            path: str,
+            domain: str,
+            reinforce_access: bool = False,
+        ):
+            _ = path, domain, reinforce_access
+            return {"id": 999, "content": "current"}
+
+        async def rollback_to_memory(self, path: str, memory_id: int, domain: str):
+            _ = path, domain
+            return {"restored_memory_id": int(memory_id)}
+
+    async def _run_write_lane_stub(operation: str, task, *, session_id=None):
+        lane_calls.append({"operation": operation, "session_id": session_id})
+        return await task()
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: _MemoryContentClient())
+    monkeypatch.setattr(review_api, "_run_write_lane", _run_write_lane_stub)
+
+    payload = await review_api._rollback_memory_content(
+        {
+            "memory_id": 123,
+            "path": "agent/node",
+            "domain": "core",
+            "uri": "core://agent/node",
+            "all_paths": [],
+        },
+        lane_session_id="review.rollback:lane-memory",
+    )
+
+    assert payload == {"new_version": 123}
+    assert lane_calls == [
+        {
+            "operation": "rollback.rollback_to_memory",
+            "session_id": "review.rollback:lane-memory",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rollback_path_create_returns_409_when_snapshot_memory_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "review-rollback-create-mismatch.db"
+    client = SQLiteClient(_sqlite_url(db_path))
+    await client.init_db()
+
+    original = await client.create_memory(
+        parent_path="",
+        content="original content",
+        priority=1,
+        title="parent",
+        domain="core",
+    )
+    await client.remove_path("parent", "core")
+    replacement = await client.create_memory(
+        parent_path="",
+        content="replacement content",
+        priority=1,
+        title="parent",
+        domain="core",
+    )
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await review_api._rollback_path(
+            {
+                "operation_type": "create",
+                "domain": "core",
+                "path": "parent",
+                "uri": "core://parent",
+                "memory_id": original["id"],
+            }
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "does not match current memory_id" in str(exc_info.value.detail)
+    current = await client.get_memory_by_path("parent", "core", reinforce_access=False)
+    assert current is not None
+    assert current["id"] == replacement["id"]
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_rollback_memory_content_returns_409_for_cross_chain_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _CrossChainClient:
+        async def get_memory_version(self, memory_id: int):
+            versions = {
+                10: {"id": 10, "migrated_to": 11},
+                11: {"id": 11, "migrated_to": None},
+                99: {"id": 99, "migrated_to": None},
+            }
+            return versions.get(int(memory_id))
+
+        async def get_memory_by_path(
+            self,
+            path: str,
+            domain: str,
+            reinforce_access: bool = False,
+        ):
+            _ = path, domain, reinforce_access
+            return {"id": 99, "content": "current"}
+
+        async def rollback_to_memory(self, path: str, memory_id: int, domain: str):
+            _ = path, memory_id, domain
+            raise AssertionError("rollback_to_memory should not run for cross-chain rollback")
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: _CrossChainClient())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await review_api._rollback_memory_content(
+            {
+                "memory_id": 10,
+                "path": "agent/node",
+                "domain": "core",
+                "uri": "core://agent/node",
+                "all_paths": [],
+            }
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "not in the same version chain" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_rollback_legacy_modify_returns_409_for_cross_chain_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _CrossChainLegacyClient:
+        async def get_memory_version(self, memory_id: int):
+            versions = {
+                20: {"id": 20, "migrated_to": 21},
+                21: {"id": 21, "migrated_to": None},
+                88: {"id": 88, "migrated_to": None},
+            }
+            return versions.get(int(memory_id))
+
+        async def get_memory_by_path(
+            self,
+            path: str,
+            domain: str,
+            reinforce_access: bool = False,
+        ):
+            _ = path, domain, reinforce_access
+            return {"id": 88, "priority": 2, "disclosure": "internal"}
+
+        async def rollback_to_memory(self, path: str, memory_id: int, domain: str):
+            _ = path, memory_id, domain
+            raise AssertionError("rollback_to_memory should not run for cross-chain rollback")
+
+        async def update_memory(
+            self,
+            path: str,
+            domain: str,
+            priority: int | None = None,
+            disclosure: str | None = None,
+        ):
+            _ = path, domain, priority, disclosure
+            raise AssertionError("update_memory should not run for cross-chain rollback")
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: _CrossChainLegacyClient())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await review_api._rollback_legacy_modify(
+            {
+                "memory_id": 20,
+                "path": "agent/node",
+                "domain": "core",
+                "uri": "core://agent/node",
+                "priority": 1,
+                "disclosure": "public",
+            }
+        )
+
+    assert exc_info.value.status_code == 409
+    assert "not in the same version chain" in str(exc_info.value.detail)

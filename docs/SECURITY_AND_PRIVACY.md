@@ -41,10 +41,10 @@
 |---|---|---|
 | `/maintenance/*` | 所有请求 | `backend/api/maintenance.py` — `require_maintenance_api_key` 作为路由依赖 |
 | `/review/*` | 所有请求 | `backend/api/review.py` — 导入并依赖同一鉴权函数 |
-| `/browse/*` 写操作 | 仅 `POST`、`PUT`、`DELETE` | `backend/api/browse.py` — 仅写端点挂载 `Depends(require_maintenance_api_key)` |
+| `/browse/*` | 所有请求（含读操作） | `backend/api/browse.py` — 路由统一挂载 `Depends(require_maintenance_api_key)` |
 | SSE 接口 | `/sse` 与 `/messages` | `backend/run_sse.py` — ASGI 中间件 `apply_mcp_api_key_middleware` |
 
-> 📖 `/browse/node` 的 `GET` 请求**无需鉴权**，可自由浏览记忆内容。
+> 📖 `/browse/node` 的 `GET` 请求也在鉴权范围内，请携带 `X-MCP-API-Key` 或 `Authorization: Bearer`。
 
 ### 鉴权方式（二选一）
 
@@ -104,7 +104,7 @@ Authorization: Bearer <MCP_API_KEY>
 
 1. `readRuntimeMaintenanceAuth()` 读取 `window.__MEMORY_PALACE_RUNTIME__`
 2. axios 请求拦截器 `isProtectedApiRequest()` 判断请求是否需要鉴权
-3. 对 `/maintenance/*`、`/review/*` 和 `/browse/*` 写操作自动注入鉴权头
+3. 对 `/maintenance/*`、`/review/*` 和 `/browse/*`（含读写）自动注入鉴权头
 
 > 兼容性：也支持旧字段名 `window.__MCP_RUNTIME_CONFIG__`（同一文件第 14 行 fallback 逻辑）。
 

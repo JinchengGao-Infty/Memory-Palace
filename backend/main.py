@@ -16,6 +16,26 @@ def _utc_iso_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+
+
+def _resolve_cors_config() -> tuple[list[str], bool]:
+    raw_origins = str(os.getenv("CORS_ALLOW_ORIGINS", "*") or "*")
+    origins = [item.strip() for item in raw_origins.split(",") if item.strip()]
+    if not origins:
+        origins = ["*"]
+
+    allow_credentials = _env_bool("CORS_ALLOW_CREDENTIALS", True)
+    if "*" in origins and allow_credentials:
+        # Browsers reject '*' + credentials. Fall back to credential-less CORS.
+        allow_credentials = False
+    return origins, allow_credentials
+
+
 def _extract_sqlite_file_path(database_url: Optional[str]) -> Optional[Path]:
     """Extract local file path from sqlite+aiosqlite URL."""
     if not database_url:
@@ -99,10 +119,11 @@ app = FastAPI(
 )
 
 # CORS设置
+_cors_origins, _cors_allow_credentials = _resolve_cors_config()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 开发环境，生产环境需要限制
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -188,17 +209,19 @@ async def health():
         if index_payload.get("degraded"):
             payload["status"] = "degraded"
 
-    except Exception as e:
+    except Exception as exc:
+        error_type = type(exc).__name__
         payload["status"] = "degraded"
         payload["index"] = {
             "index_available": False,
             "degraded": True,
-            "reason": str(e),
+            "reason": "internal_error",
+            "error_type": error_type,
             "source": "api.health.exception",
         }
         payload["runtime"] = {
-            "write_lanes": {"degraded": True, "reason": str(e)},
-            "index_worker": {"degraded": True, "reason": str(e)},
+            "write_lanes": {"degraded": True, "reason": "internal_error"},
+            "index_worker": {"degraded": True, "reason": "internal_error"},
         }
 
     return payload

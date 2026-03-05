@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import pytest
+from fastapi import HTTPException
 
 import mcp_server
 from api import browse as browse_api
@@ -191,7 +192,7 @@ async def test_create_memory_is_blocked_when_guard_returns_noop(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert fake_client.create_called is False
@@ -241,7 +242,7 @@ async def test_create_memory_is_fail_closed_when_guard_unavailable(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert payload["guard_method"] == "exception"
@@ -274,7 +275,7 @@ async def test_create_memory_invalid_guard_action_is_fail_closed(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert "invalid_guard_action" in str(payload.get("guard_reason") or "")
@@ -301,7 +302,7 @@ async def test_create_memory_missing_guard_action_is_fail_closed(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert "invalid_guard_action:MISSING" in str(payload.get("guard_reason") or "")
@@ -329,7 +330,7 @@ async def test_create_memory_guard_bypass_action_is_fail_closed(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert "invalid_guard_action:BYPASS" in str(payload.get("guard_reason") or "")
@@ -358,7 +359,7 @@ async def test_update_memory_is_blocked_when_guard_returns_noop(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["updated"] is False
     assert payload["guard_action"] == "NOOP"
     assert fake_client.update_called is False
@@ -380,7 +381,7 @@ async def test_update_memory_is_fail_closed_when_guard_unavailable(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["updated"] is False
     assert payload["guard_action"] == "NOOP"
     assert payload["guard_method"] == "exception"
@@ -406,7 +407,7 @@ async def test_update_memory_missing_guard_action_is_fail_closed(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["updated"] is False
     assert payload["guard_action"] == "NOOP"
     assert "invalid_guard_action:MISSING" in str(payload.get("guard_reason") or "")
@@ -433,7 +434,7 @@ async def test_update_memory_guard_update_without_target_is_fail_closed(
     )
     payload = json.loads(raw)
 
-    assert payload["ok"] is True
+    assert payload["ok"] is False
     assert payload["updated"] is False
     assert payload["guard_action"] == "UPDATE"
     assert fake_client.update_called is False
@@ -487,9 +488,34 @@ async def test_browse_create_node_is_blocked_by_write_guard(
         )
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
+    assert fake_client.create_called is False
+
+
+@pytest.mark.asyncio
+async def test_browse_create_node_rejects_unknown_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = _FakeClient(
+        guard_decision={"action": "ADD", "reason": "allow", "method": "keyword"}
+    )
+    monkeypatch.setattr(browse_api, "get_sqlite_client", lambda: fake_client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await browse_api.create_node(
+            browse_api.NodeCreate(
+                parent_path="agent",
+                title="new_note",
+                content="create payload",
+                priority=1,
+                domain="unknown-domain",
+            )
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "Unknown domain" in str(exc_info.value.detail)
     assert fake_client.create_called is False
 
 
@@ -544,7 +570,7 @@ async def test_browse_create_node_is_fail_closed_when_guard_unavailable(
         )
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert payload["guard_method"] == "exception"
@@ -579,7 +605,7 @@ async def test_browse_create_node_invalid_guard_action_is_fail_closed(
         )
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert "invalid_guard_action" in str(payload.get("guard_reason") or "")
@@ -608,7 +634,7 @@ async def test_browse_create_node_missing_guard_action_is_fail_closed(
         )
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert "invalid_guard_action:MISSING" in str(payload.get("guard_reason") or "")
@@ -638,7 +664,7 @@ async def test_browse_create_node_guard_bypass_action_is_fail_closed(
         )
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["created"] is False
     assert payload["guard_action"] == "NOOP"
     assert "invalid_guard_action:BYPASS" in str(payload.get("guard_reason") or "")
@@ -689,7 +715,7 @@ async def test_browse_update_node_blocks_guard_noop(
         body=browse_api.NodeUpdate(content="replace payload"),
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["updated"] is False
     assert payload["guard_action"] == "NOOP"
     assert fake_client.update_called is False
@@ -710,7 +736,7 @@ async def test_browse_update_node_is_fail_closed_when_guard_unavailable(
         body=browse_api.NodeUpdate(content="replace payload"),
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["updated"] is False
     assert payload["guard_action"] == "NOOP"
     assert payload["guard_method"] == "exception"
@@ -735,7 +761,7 @@ async def test_browse_update_node_missing_guard_action_is_fail_closed(
         body=browse_api.NodeUpdate(content="replace payload"),
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["updated"] is False
     assert payload["guard_action"] == "NOOP"
     assert "invalid_guard_action:MISSING" in str(payload.get("guard_reason") or "")
@@ -761,9 +787,30 @@ async def test_browse_update_node_guard_update_without_target_is_fail_closed(
         body=browse_api.NodeUpdate(content="replace payload"),
     )
 
-    assert payload["success"] is True
+    assert payload["success"] is False
     assert payload["updated"] is False
     assert payload["guard_action"] == "UPDATE"
+    assert fake_client.update_called is False
+
+
+@pytest.mark.asyncio
+async def test_browse_update_node_rejects_read_only_domain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = _FakeClient(
+        guard_decision={"action": "ADD", "reason": "allow", "method": "keyword"}
+    )
+    monkeypatch.setattr(browse_api, "get_sqlite_client", lambda: fake_client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await browse_api.update_node(
+            path="agent/current",
+            domain="system",
+            body=browse_api.NodeUpdate(content="replace payload"),
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "read-only" in str(exc_info.value.detail)
     assert fake_client.update_called is False
 
 

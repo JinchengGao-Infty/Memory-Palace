@@ -166,6 +166,19 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 .\scripts\docker_one_click.ps1 -Profile c -AllowRuntimeEnvInjection
 ```
 
+> **C/D 本地联调固定口径（避免重复踩坑）**：
+>
+> - 当本机 `router` 暂时没有 embedding/reranker/llm 时，使用 `/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env` 作为注入源。
+> - 本地联调命令（`profile c/d` 二选一）：
+>
+> ```bash
+> bash new/run_post_change_checks.sh --with-docker --docker-profile c --runtime-env-mode none --allow-runtime-env-injection --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --skip-sse
+> bash new/run_post_change_checks.sh --with-docker --docker-profile d --runtime-env-mode none --allow-runtime-env-injection --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --skip-sse
+> ```
+>
+> - LLM 口径沿用该文件中的配置（当前为 `gpt-5.2`）。
+> - 该口径仅用于本地验证。上线/交付前必须回到 `router` 默认链路复验（`runtime-env-mode none` 且不注入本地 `.env`）；若客户环境 `router` 缺模型，系统仍按既有 fallback 链路降级，避免直接报错。
+
 > 脚本会自动执行以下步骤：
 >
 > 1. 调用 Profile 脚本生成 `.env.docker` 配置文件（macOS/Linux: `apply_profile.sh`；Windows: `apply_profile.ps1`）
@@ -229,10 +242,11 @@ curl -fsS http://localhost:18000/health
 ### 5.2 浏览记忆树
 
 ```bash
-curl -fsS "http://127.0.0.1:8000/browse/node?domain=core&path="
+curl -fsS "http://127.0.0.1:8000/browse/node?domain=core&path=" \
+  -H "X-MCP-API-Key: <YOUR_MCP_API_KEY>"
 ```
 
-> 此端点来自 `api/browse.py` 的 `GET /browse/node`，用于查看指定域下的记忆节点树。`domain` 参数对应 `.env` 中 `VALID_DOMAINS` 配置的域名。
+> 此端点来自 `api/browse.py` 的 `GET /browse/node`，用于查看指定域下的记忆节点树。`domain` 参数对应 `.env` 中 `VALID_DOMAINS` 配置的域名，读取同样需要鉴权头。
 
 ### 5.3 查看 API 文档
 
@@ -316,10 +330,8 @@ Memory Palace 的部分 HTTP 接口受 `MCP_API_KEY` 保护，采用 **fail-clos
 |---|---|---|
 | `/maintenance/*` | 维护接口（孤立节点清理等） | `require_maintenance_api_key` |
 | `/review/*` | 审查接口（内容审核流程） | `require_maintenance_api_key` |
-| `/browse/*`（POST/PUT/DELETE） | 记忆树写操作 | `require_maintenance_api_key` |
+| `/browse/*`（GET/POST/PUT/DELETE） | 记忆树读写操作 | `require_maintenance_api_key` |
 | `run_sse.py` 的 `/sse` | MCP SSE 传输通道 | `apply_mcp_api_key_middleware` |
-
-> **注意**：`GET /browse/node`（读操作）**不需要**鉴权；只有写操作（POST/PUT/DELETE）才需要。
 
 ### 鉴权方式
 

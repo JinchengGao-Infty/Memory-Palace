@@ -22,7 +22,7 @@ import inspect
 import hashlib
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from dotenv import load_dotenv, find_dotenv
+from dotenv import load_dotenv
 
 # Ensure we can import from backend modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -40,11 +40,6 @@ dotenv_path = os.path.join(root_dir, ".env")
 
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path)
-else:
-    # Fallback to find_dotenv
-    _dotenv_path = find_dotenv(usecwd=True)
-    if _dotenv_path:
-        load_dotenv(_dotenv_path)
 
 # Initialize FastMCP server
 mcp = FastMCP("Memory Palace Interface")
@@ -59,6 +54,7 @@ VALID_DOMAINS = [
     for d in os.getenv("VALID_DOMAINS", "core,writer,game,notes,system").split(",")
 ]
 DEFAULT_DOMAIN = "core"
+READ_ONLY_DOMAINS = {"system"}
 
 # =============================================================================
 # Core Memories Configuration
@@ -159,10 +155,81 @@ _IMPORT_LEARN_META_PERSIST_LOCK = asyncio.Lock()
 
 # Session ID for this MCP server instance
 _SESSION_ID = f"mcp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+_SESSION_ID_SAFE_PATTERN = re.compile(r"[^a-zA-Z0-9_-]+")
+
+
+def _safe_context_attr(value: Any, name: str) -> Any:
+    """Read a context attribute without propagating request-scope errors."""
+    try:
+        return getattr(value, name)
+    except Exception:
+        return None
+
+
+def _normalize_session_fragment(
+    value: Any,
+    *,
+    default: str,
+    max_len: int = 24,
+) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return default
+    safe = _SESSION_ID_SAFE_PATTERN.sub("-", text).strip("-")
+    if not safe:
+        return default
+    return safe[:max_len]
+
+
+def _build_context_session_id() -> Optional[str]:
+    """Build a request-aware session id from FastMCP context when available."""
+    try:
+        ctx = mcp.get_context()
+    except Exception:
+        return None
+
+    if ctx is None:
+        return None
+
+    client_id = _safe_context_attr(ctx, "client_id")
+    request_id = _safe_context_attr(ctx, "request_id")
+    session_obj = _safe_context_attr(ctx, "session")
+    request_context = _safe_context_attr(ctx, "request_context")
+    request_obj = None
+    if request_context is not None:
+        if session_obj is None:
+            session_obj = _safe_context_attr(request_context, "session")
+        request_obj = _safe_context_attr(request_context, "request")
+
+    if (
+        not client_id
+        and not request_id
+        and session_obj is None
+        and request_obj is None
+    ):
+        return None
+
+    client_fragment = _normalize_session_fragment(client_id, default="client")
+    session_seed = ""
+    if session_obj is not None:
+        session_seed = f"{type(session_obj).__name__}-{id(session_obj):x}"
+    session_fragment = _normalize_session_fragment(session_seed, default="session")
+    request_seed = request_id
+    if not request_seed and request_obj is not None:
+        request_seed = f"{type(request_obj).__name__}-{id(request_obj):x}"
+    request_fragment = _normalize_session_fragment(
+        request_seed,
+        default="request",
+        max_len=32,
+    )
+    return f"mcp_ctx_{client_fragment}_{session_fragment}_{request_fragment}"
 
 
 def get_session_id() -> str:
     """Get the current session ID for snapshot tracking."""
+    context_session_id = _build_context_session_id()
+    if context_session_id:
+        return context_session_id
     return _SESSION_ID
 
 
@@ -224,6 +291,18 @@ def make_uri(domain: str, path: str) -> str:
         Full URI (e.g., "core://agent")
     """
     return f"{domain}://{path}"
+
+
+def _validate_writable_domain(
+    domain: str, *, operation: str, uri: Optional[str] = None
+) -> None:
+    normalized = str(domain or "").strip().lower()
+    if normalized in READ_ONLY_DOMAINS:
+        target = str(uri or f"{normalized}://").strip()
+        raise ValueError(
+            f"{operation} does not allow writes to '{target}'. "
+            "system:// is read-only and reserved for built-in views."
+        )
 
 
 # =============================================================================
@@ -3119,6 +3198,11 @@ async def create_memory(
 
         # Parse parent URI
         domain, parent_path = parse_uri(parent_uri)
+        _validate_writable_domain(
+            domain,
+            operation="create_memory",
+            uri=parent_uri,
+        )
         try:
             guard_decision = _normalize_guard_decision(
                 await client.write_guard(
@@ -3157,9 +3241,10 @@ async def create_memory(
             if isinstance(target_uri, str) and target_uri:
                 message += f" suggested_target={target_uri}"
             return _tool_response(
-                ok=True,
+                ok=False,
                 message=message,
                 created=False,
+                reason="write_guard_blocked",
                 uri=target_uri,
                 **_guard_fields(guard_decision),
             )
@@ -3303,6 +3388,11 @@ async def update_memory(
         # Parse URI
         domain, path = parse_uri(uri)
         full_uri = make_uri(domain, path)
+        _validate_writable_domain(
+            domain,
+            operation="update_memory",
+            uri=full_uri,
+        )
         current_memory_id: Optional[int] = None
 
         # --- Validate mutually exclusive content-editing modes ---
@@ -3523,12 +3613,13 @@ async def update_memory(
             pass
         if blocked:
             return _tool_response(
-                ok=True,
+                ok=False,
                 message=(
                     "Skipped: write_guard blocked update_memory "
                     f"(action={guard_action}, method={guard_decision.get('method')})."
                 ),
                 updated=False,
+                reason="write_guard_blocked",
                 uri=full_uri,
                 **_guard_fields(guard_decision),
             )
@@ -3657,6 +3748,11 @@ async def delete_memory(uri: str) -> str:
         # Parse URI
         domain, path = parse_uri(uri)
         full_uri = make_uri(domain, path)
+        _validate_writable_domain(
+            domain,
+            operation="delete_memory",
+            uri=full_uri,
+        )
 
         # Check if it exists first
         memory = await client.get_memory_by_path(path, domain)
@@ -3719,6 +3815,16 @@ async def add_alias(
     try:
         new_domain, new_path = parse_uri(new_uri)
         target_domain, target_path = parse_uri(target_uri)
+        _validate_writable_domain(
+            new_domain,
+            operation="add_alias",
+            uri=new_uri,
+        )
+        _validate_writable_domain(
+            target_domain,
+            operation="add_alias",
+            uri=target_uri,
+        )
 
         async def _write_task():
             result = await client.add_path(

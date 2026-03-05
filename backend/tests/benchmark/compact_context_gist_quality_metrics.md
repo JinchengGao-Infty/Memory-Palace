@@ -1,6 +1,6 @@
 # Compact Context Gist Quality Metrics
 
-> generated_at_utc: 2026-03-03T14:31:05+00:00
+> generated_at_utc: 2026-03-05T13:11:39+00:00
 > total_cases: 5
 
 | Metric | Value | Threshold | Pass |

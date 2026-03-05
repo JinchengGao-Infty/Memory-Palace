@@ -1188,8 +1188,11 @@ async def _rollback_import_created_memories(
         or (f"maintenance.rollback:{job_id}" if job_id else "maintenance.rollback")
     )
     attempted_memory_ids: List[int] = []
+    removed_paths: List[str] = []
     rolled_back: List[int] = []
+    skipped: List[Dict[str, Any]] = []
     errors: List[Dict[str, Any]] = []
+    remove_path = getattr(client, "remove_path", None)
     for item in reversed(created_memories):
         if not isinstance(item, dict):
             continue
@@ -1197,11 +1200,54 @@ async def _rollback_import_created_memories(
         if memory_id <= 0:
             continue
         attempted_memory_ids.append(memory_id)
+        item_uri = str(item.get("uri") or "").strip()
+        item_domain = str(item.get("domain") or "").strip().lower()
+        item_path = _normalize_import_parent_path(str(item.get("path") or ""))
+        if item_uri:
+            match = _SCOPE_URI_PATTERN.match(item_uri)
+            if match:
+                if not item_domain:
+                    item_domain = str(match.group(1) or "").strip().lower()
+                if not item_path:
+                    item_path = _normalize_import_parent_path(match.group(2))
+
+        if callable(remove_path) and item_domain and item_path:
+            try:
+                async def _write_task_remove(
+                    _path: str = item_path,
+                    _domain: str = item_domain,
+                ) -> Dict[str, Any]:
+                    return await remove_path(_path, domain=_domain)
+
+                await _run_write_lane(
+                    "maintenance.import.rollback.remove_path",
+                    _write_task_remove,
+                    session_id=write_lane_session_id,
+                )
+                removed_uri = item_uri or f"{item_domain}://{item_path}"
+                removed_paths.append(removed_uri)
+            except ValueError as exc:
+                skipped.append(
+                    {
+                        "memory_id": memory_id,
+                        "uri": item_uri or f"{item_domain}://{item_path}",
+                        "reason": str(exc) or "path_not_found",
+                    }
+                )
+            except Exception as exc:
+                errors.append(
+                    {
+                        "memory_id": memory_id,
+                        "uri": item_uri or f"{item_domain}://{item_path}",
+                        "error": str(exc) or type(exc).__name__,
+                    }
+                )
+
         try:
             async def _write_task(_memory_id: int = memory_id) -> Dict[str, Any]:
                 return await client.permanently_delete_memory(
                     _memory_id,
-                    require_orphan=False,
+                    require_orphan=True,
                 )
 
             await _run_write_lane(
@@ -1210,6 +1256,14 @@ async def _rollback_import_created_memories(
                 session_id=write_lane_session_id,
             )
             rolled_back.append(memory_id)
+        except (PermissionError, ValueError) as exc:
+            skipped.append(
+                {
+                    "memory_id": memory_id,
+                    "uri": item_uri or None,
+                    "reason": str(exc) or type(exc).__name__,
+                }
+            )
         except Exception as exc:
             errors.append(
                 {
@@ -1229,8 +1283,11 @@ async def _rollback_import_created_memories(
 
     return {
         "attempted_memory_ids": attempted_memory_ids,
+        "removed_paths": removed_paths,
         "rolled_back_memory_ids": rolled_back,
         "rolled_back_count": len(rolled_back),
+        "skipped": skipped,
+        "skipped_count": len(skipped),
         "error_count": len(errors),
         "errors": errors,
         "namespace_cleanup": namespace_cleanup,

@@ -1,7 +1,7 @@
 {
-  "generated_at_utc": "2026-03-03T10:25:44+00:00",
+  "generated_at_utc": "2026-03-05T11:16:52+00:00",
   "source": "backend/tests/benchmark/helpers/profile_abcd_real_runner.py",
-  "sample_size_requested": 1,
+  "sample_size_requested": 8,
   "dataset_scope": [
     "squad_v2_dev"
   ],
@@ -10,9 +10,12 @@
   },
   "real_run_strategy": {
     "first_relevant_only": true,
-    "extra_distractors": 20,
+    "extra_distractors": 10,
+    "max_results": 40,
+    "candidate_multiplier": 4,
+    "metric_top_k": 10,
     "seed": 20260219,
-    "workdir": "/tmp/abcd-real-20260303T182320"
+    "workdir": "tests/benchmark/.real_profile_cache"
   },
   "profiles": {
     "profile_a": {
@@ -23,11 +26,16 @@
           "dataset": "squad_v2_dev",
           "dataset_label": "SQuAD v2 Dev",
           "mode": "keyword",
-          "sample_size": 1,
-          "query_count": 1,
-          "query_count_raw": 1,
+          "sample_size": 8,
+          "query_count": 8,
+          "query_count_raw": 8,
           "sample_bucket_size": 100,
-          "corpus_doc_count": 21,
+          "corpus_doc_count": 18,
+          "retrieval_depth": {
+            "max_results": 40,
+            "candidate_multiplier": 4,
+            "metric_top_k": 10
+          },
           "quality": {
             "hr_at_5": 0.0,
             "hr_at_10": 0.0,
@@ -36,16 +44,22 @@
             "recall_at_10": 0.0
           },
           "latency_ms": {
-            "p50": 2.219583,
-            "p95": 2.219583,
-            "p99": 2.219583
+            "p50": 1.015751,
+            "p95": 1.732992,
+            "p99": 2.001932
           },
           "degradation": {
-            "queries": 1,
+            "queries": 8,
             "degraded": 0,
             "degrade_rate": 0.0,
             "degrade_reasons": [],
             "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
             "valid": true
           }
         }
@@ -59,29 +73,40 @@
           "dataset": "squad_v2_dev",
           "dataset_label": "SQuAD v2 Dev",
           "mode": "hybrid",
-          "sample_size": 1,
-          "query_count": 1,
-          "query_count_raw": 1,
+          "sample_size": 8,
+          "query_count": 8,
+          "query_count_raw": 8,
           "sample_bucket_size": 100,
-          "corpus_doc_count": 21,
+          "corpus_doc_count": 18,
+          "retrieval_depth": {
+            "max_results": 40,
+            "candidate_multiplier": 4,
+            "metric_top_k": 10
+          },
           "quality": {
-            "hr_at_5": 1.0,
-            "hr_at_10": 1.0,
-            "mrr": 1.0,
-            "ndcg_at_10": 1.0,
-            "recall_at_10": 1.0
+            "hr_at_5": 0.625,
+            "hr_at_10": 0.625,
+            "mrr": 0.302083,
+            "ndcg_at_10": 0.382701,
+            "recall_at_10": 0.625
           },
           "latency_ms": {
-            "p50": 5.535125,
-            "p95": 5.535125,
-            "p99": 5.535125
+            "p50": 3.952541,
+            "p95": 5.381879,
+            "p99": 5.962342
           },
           "degradation": {
-            "queries": 1,
+            "queries": 8,
             "degraded": 0,
             "degrade_rate": 0.0,
             "degrade_reasons": [],
             "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
             "valid": true
           }
         }
@@ -95,11 +120,16 @@
           "dataset": "squad_v2_dev",
           "dataset_label": "SQuAD v2 Dev",
           "mode": "hybrid",
-          "sample_size": 1,
-          "query_count": 1,
-          "query_count_raw": 1,
+          "sample_size": 8,
+          "query_count": 8,
+          "query_count_raw": 8,
           "sample_bucket_size": 100,
-          "corpus_doc_count": 21,
+          "corpus_doc_count": 18,
+          "retrieval_depth": {
+            "max_results": 40,
+            "candidate_multiplier": 4,
+            "metric_top_k": 10
+          },
           "quality": {
             "hr_at_5": 1.0,
             "hr_at_10": 1.0,
@@ -108,23 +138,23 @@
             "recall_at_10": 1.0
           },
           "latency_ms": {
-            "p50": 3167.08325,
-            "p95": 3167.08325,
-            "p99": 3167.08325
+            "p50": 343.36675,
+            "p95": 537.92125,
+            "p99": 550.157484
           },
           "degradation": {
-            "queries": 1,
-            "degraded": 1,
-            "degrade_rate": 1.0,
-            "degrade_reasons": [
-              "embedding_fallback_hash",
-              "embedding_request_failed"
-            ],
-            "invalid_reasons": [
-              "embedding_fallback_hash",
-              "embedding_request_failed"
-            ],
-            "valid": false
+            "queries": 8,
+            "degraded": 0,
+            "degrade_rate": 0.0,
+            "degrade_reasons": [],
+            "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
+            "valid": true
           }
         }
       ]
@@ -137,11 +167,16 @@
           "dataset": "squad_v2_dev",
           "dataset_label": "SQuAD v2 Dev",
           "mode": "hybrid",
-          "sample_size": 1,
-          "query_count": 1,
-          "query_count_raw": 1,
+          "sample_size": 8,
+          "query_count": 8,
+          "query_count_raw": 8,
           "sample_bucket_size": 100,
-          "corpus_doc_count": 21,
+          "corpus_doc_count": 18,
+          "retrieval_depth": {
+            "max_results": 40,
+            "candidate_multiplier": 4,
+            "metric_top_k": 10
+          },
           "quality": {
             "hr_at_5": 1.0,
             "hr_at_10": 1.0,
@@ -150,16 +185,22 @@
             "recall_at_10": 1.0
           },
           "latency_ms": {
-            "p50": 1732.14725,
-            "p95": 1732.14725,
-            "p99": 1732.14725
+            "p50": 1682.183688,
+            "p95": 2898.617483,
+            "p99": 3193.534763
           },
           "degradation": {
-            "queries": 1,
+            "queries": 8,
             "degraded": 0,
             "degrade_rate": 0.0,
             "degrade_reasons": [],
             "invalid_reasons": [],
+            "invalid_count": 0,
+            "invalid_rate": 0.0,
+            "invalid_reason_counts": {},
+            "request_failed_count": 0,
+            "request_failed_rate": 0.0,
+            "request_failed_reason_counts": {},
             "valid": true
           }
         }
@@ -168,14 +209,30 @@
   },
   "phase6": {
     "gate": {
+      "mode": "strict",
+      "invalid_rate_threshold": 0.05,
       "valid": true,
       "invalid_reasons": [],
+      "invalid_reason_counts": {},
+      "query_count": 8,
+      "invalid_count": 0,
+      "invalid_rate": 0.0,
+      "request_failed_count": 0,
+      "request_failed_rate": 0.0,
+      "request_failed_reason_counts": {},
       "rows": [
         {
           "dataset": "squad_v2_dev",
           "dataset_label": "SQuAD v2 Dev",
           "valid": true,
-          "invalid_reasons": []
+          "invalid_reasons": [],
+          "query_count": 8,
+          "invalid_count": 0,
+          "invalid_rate": 0.0,
+          "invalid_reason_counts": {},
+          "request_failed_count": 0,
+          "request_failed_rate": 0.0,
+          "request_failed_reason_counts": {}
         }
       ]
     },
@@ -184,17 +241,17 @@
         "dataset": "squad_v2_dev",
         "dataset_label": "SQuAD v2 Dev",
         "a_hr10": 0.0,
-        "b_hr10": 1.0,
+        "b_hr10": 0.625,
         "c_hr10": 1.0,
         "d_hr10": 1.0,
         "a_ndcg10": 0.0,
-        "b_ndcg10": 1.0,
+        "b_ndcg10": 0.382701,
         "c_ndcg10": 1.0,
         "d_ndcg10": 1.0,
-        "a_p95": 2.219583,
-        "b_p95": 5.535125,
-        "c_p95": 3167.08325,
-        "d_p95": 1732.14725,
+        "a_p95": 1.732992,
+        "b_p95": 5.381879,
+        "c_p95": 537.92125,
+        "d_p95": 2898.617483,
         "valid": true,
         "invalid_reasons": []
       }
@@ -203,6 +260,10 @@
       "embedding_fallback_hash",
       "embedding_request_failed",
       "reranker_request_failed"
-    ]
+    ],
+    "gate_config": {
+      "mode": "strict",
+      "invalid_rate_threshold": 0.05
+    }
   }
 }

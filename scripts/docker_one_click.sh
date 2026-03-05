@@ -10,6 +10,7 @@ frontend_port="${MEMORY_PALACE_FRONTEND_PORT:-${NOCTURNE_FRONTEND_PORT:-3000}}"
 backend_port="${MEMORY_PALACE_BACKEND_PORT:-${NOCTURNE_BACKEND_PORT:-18000}}"
 auto_port=1
 allow_runtime_env_injection=0
+port_probe_fallback_warned=0
 
 usage() {
   cat <<'USAGE'
@@ -28,7 +29,15 @@ port_in_use() {
     lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
     return $?
   fi
-  (echo >"/dev/tcp/127.0.0.1/${port}") >/dev/null 2>&1
+  if command -v nc >/dev/null 2>&1; then
+    nc -z 127.0.0.1 "${port}" >/dev/null 2>&1
+    return $?
+  fi
+  if [[ "${port_probe_fallback_warned}" -eq 0 ]]; then
+    echo "[port-probe] neither lsof nor nc is available; fail-closed port probing is enabled." >&2
+    port_probe_fallback_warned=1
+  fi
+  return 0
 }
 
 find_free_port() {
@@ -138,10 +147,12 @@ upsert_env_value_in_file() {
 
 apply_profile_runtime_overrides() {
   local env_file="$1"
+  local selected_profile="${2:-}"
   local override_keys=(
     "ROUTER_API_BASE"
     "ROUTER_API_KEY"
     "ROUTER_EMBEDDING_MODEL"
+    "RETRIEVAL_EMBEDDING_BACKEND"
     "RETRIEVAL_EMBEDDING_API_BASE"
     "RETRIEVAL_EMBEDDING_API_KEY"
     "RETRIEVAL_EMBEDDING_MODEL"
@@ -167,6 +178,11 @@ apply_profile_runtime_overrides() {
       echo "[override] ${key} applied to ${env_file}"
     fi
   done
+
+  if [[ "${selected_profile}" == "c" || "${selected_profile}" == "d" ]]; then
+    upsert_env_value_in_file "${env_file}" "RETRIEVAL_EMBEDDING_BACKEND" "api"
+    echo "[override] RETRIEVAL_EMBEDDING_BACKEND=api forced for local profile ${selected_profile} runtime injection."
+  fi
 }
 
 is_truthy() {
@@ -325,7 +341,7 @@ fi
 env_file="${PROJECT_ROOT}/.env.docker"
 bash "${SCRIPT_DIR}/apply_profile.sh" docker "${profile}" "${env_file}"
 if [[ "${allow_runtime_env_injection}" -eq 1 ]]; then
-  apply_profile_runtime_overrides "${env_file}"
+  apply_profile_runtime_overrides "${env_file}" "${profile}"
 else
   echo "[override] runtime env injection disabled by default; pass --allow-runtime-env-injection to opt in."
 fi
@@ -334,7 +350,10 @@ assert_profile_external_settings_ready "${env_file}" "${profile}"
 cd "${PROJECT_ROOT}"
 
 # Force recreate to avoid stale network attachment causing frontend->backend 502.
-"${compose_cmd[@]}" -f docker-compose.yml down --remove-orphans >/dev/null 2>&1 || true
+if ! "${compose_cmd[@]}" -f docker-compose.yml down --remove-orphans >/dev/null 2>&1; then
+  echo "[compose-down] pre-cleanup failed; aborting to match fail-closed deployment behavior." >&2
+  exit 1
+fi
 
 if [[ ${auto_port} -eq 1 ]]; then
   if ! resolved_frontend_port="$(find_free_port "${frontend_port}")"; then
@@ -354,9 +373,9 @@ if [[ ${auto_port} -eq 1 ]]; then
   fi
   if [[ "${resolved_frontend_port}" == "${resolved_backend_port}" ]]; then
     next_backend_port="$((resolved_backend_port + 1))"
-    resolved_backend_port="$(find_free_port "${next_backend_port}")"
+    resolved_backend_port="$(find_free_port "${next_backend_port}" || true)"
     if [[ -z "${resolved_backend_port}" ]]; then
-      echo "Failed to resolve distinct frontend/backend ports." >&2
+      echo "Failed to auto-resolve free backend port near ${next_backend_port}. Try --no-auto-port with explicit values." >&2
       exit 1
     fi
     echo "[port-adjust] backend reassigned to avoid collision with frontend: ${resolved_backend_port}"
