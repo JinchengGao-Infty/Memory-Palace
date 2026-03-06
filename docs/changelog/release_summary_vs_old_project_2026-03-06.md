@@ -2,8 +2,8 @@
 
 > 对比对象：
 >
-> - 旧项目：`/Users/yangjunjie/Desktop/old/Memory-Palace`
-> - 当前项目：`/Users/yangjunjie/Desktop/clawanti/Memory-Palace`
+> - 旧项目：`../old/Memory-Palace`
+> - 当前项目：`Memory-Palace`
 >
 > 说明：
 >
@@ -123,10 +123,10 @@
 - `profile a`：真实 Docker 门禁通过
 - `profile b`：真实 Docker 门禁通过
 - `profile c`：
-  - `file-mode + /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env` 通过
+  - `file-mode + 外部 runtime env 文件` 通过
   - `runtime-env-mode none` 继续按预期 `fail-closed`
 - `profile d`：
-  - `file-mode + /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env` 通过
+  - `file-mode + 外部 runtime env 文件` 通过
   - `runtime-env-mode none` 继续按预期 `fail-closed`
 
 ### 4.3 Windows 口径
@@ -181,4 +181,3 @@
 - review 结构化 500：`Memory-Palace/backend/api/review.py`
 - 旧新评测报告：`Memory-Palace/docs/improvement/evaluation_old_vs_new_improvement_report_2026-03-05.md`
 - 工程事实索引：`llmdoc/reference/phase-status.md`
-

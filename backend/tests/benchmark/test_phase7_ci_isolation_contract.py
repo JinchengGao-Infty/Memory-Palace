@@ -111,3 +111,6 @@ def test_phase7_post_check_exit_trap_is_root_guarded_and_pwsh_temp_json_is_clean
     assert 'HOST_RESULT_JSON="${SCRIPT_DIR}/.tmp-pwsh_docker_real_test_result_${RUN_TOKEN}.json"' in pwsh_text
     assert 'CONTAINER_RESULT_JSON="/work/new/.tmp-pwsh_docker_real_test_result_${RUN_TOKEN}.json"' in pwsh_text
     assert '.tmp-pwsh_docker_real_test_result_' in pwsh_text
+    assert 'if [[ -f "${HOST_RESULT_JSON}" && "${OUTPUT_JSON}" != "${HOST_RESULT_JSON}" ]]; then' in pwsh_text
+    assert 'cp "${HOST_RESULT_JSON}" "${OUTPUT_JSON}" 2>/dev/null || true' in pwsh_text
+    assert 'rm -f "${HOST_RESULT_JSON}" 2>/dev/null || true' in pwsh_text

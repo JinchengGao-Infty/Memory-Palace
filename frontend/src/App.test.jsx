@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import userEvent from '@testing-library/user-event';
 import { render, screen, waitFor } from '@testing-library/react';
 
 import App from './App';
@@ -24,8 +25,16 @@ vi.mock('./components/AgentationLite', () => ({
 }));
 
 describe('App routing', () => {
+  beforeEach(() => {
+    window.localStorage?.removeItem?.('memory-palace.dashboardAuth');
+    delete window.__MEMORY_PALACE_RUNTIME__;
+    vi.spyOn(window, 'prompt').mockReturnValue(null);
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+  });
+
   afterEach(() => {
     window.history.pushState({}, '', '/');
+    vi.restoreAllMocks();
   });
 
   it('redirects root path to memory', async () => {
@@ -44,5 +53,31 @@ describe('App routing', () => {
 
     expect(await screen.findByText('memory-page')).toBeInTheDocument();
     await waitFor(() => expect(window.location.pathname).toBe('/memory'));
+  });
+
+  it('stores API key through header action when runtime config is absent', async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, '', '/memory');
+    window.prompt.mockReturnValue('stored-key');
+
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: /set api key/i }));
+
+    expect(window.localStorage.getItem('memory-palace.dashboardAuth')).toContain('stored-key');
+    expect(await screen.findByRole('button', { name: /update api key/i })).toBeInTheDocument();
+  });
+
+  it('shows runtime status badge when runtime config is present', async () => {
+    window.history.pushState({}, '', '/memory');
+    window.__MEMORY_PALACE_RUNTIME__ = {
+      maintenanceApiKey: 'runtime-key',
+      maintenanceApiKeyMode: 'header',
+    };
+
+    render(<App />);
+
+    expect(await screen.findByText(/runtime key active/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /set api key/i })).not.toBeInTheDocument();
   });
 });

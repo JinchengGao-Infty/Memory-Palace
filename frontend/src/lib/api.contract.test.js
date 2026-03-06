@@ -45,6 +45,7 @@ describe('api contract regression', () => {
     mockApi.delete.mockReset();
     delete window.__MEMORY_PALACE_RUNTIME__;
     delete window.__MCP_RUNTIME_CONFIG__;
+    window.localStorage?.removeItem?.('memory-palace.dashboardAuth');
   });
 
   it('normalizes memory node gist fields from backend payload', async () => {
@@ -181,6 +182,50 @@ describe('api contract regression', () => {
     expect(maintenanceConfig.headers['X-MCP-API-Key']).toBeUndefined();
     expect(browseConfig.headers.Authorization).toBe('Bearer runtime-key');
     expect(browseConfig.headers['X-MCP-API-Key']).toBeUndefined();
+  });
+
+  it('falls back to stored maintenance key when runtime config is absent', () => {
+    const interceptor = interceptorRef.current;
+    window.localStorage.setItem(
+      'memory-palace.dashboardAuth',
+      JSON.stringify({
+        maintenanceApiKey: 'stored-key',
+        maintenanceApiKeyMode: 'header',
+      })
+    );
+
+    const config = interceptor({
+      url: '/maintenance/orphans',
+      headers: {},
+      method: 'get',
+    });
+
+    expect(config.headers['X-MCP-API-Key']).toBe('stored-key');
+    expect(config.headers.Authorization).toBeUndefined();
+  });
+
+  it('prefers runtime maintenance key over stored fallback', () => {
+    const interceptor = interceptorRef.current;
+    window.localStorage.setItem(
+      'memory-palace.dashboardAuth',
+      JSON.stringify({
+        maintenanceApiKey: 'stored-key',
+        maintenanceApiKeyMode: 'header',
+      })
+    );
+    window.__MEMORY_PALACE_RUNTIME__ = {
+      maintenanceApiKey: 'runtime-key',
+      maintenanceApiKeyMode: 'bearer',
+    };
+
+    const config = interceptor({
+      url: '/maintenance/orphans',
+      headers: {},
+      method: 'get',
+    });
+
+    expect(config.headers.Authorization).toBe('Bearer runtime-key');
+    expect(config.headers['X-MCP-API-Key']).toBeUndefined();
   });
 
   it('does not inject key to cross-origin URLs even with protected path', () => {
