@@ -372,6 +372,246 @@ async def test_rollback_memory_content_routes_writes_through_write_lane(
 
 
 @pytest.mark.asyncio
+async def test_rollback_legacy_modify_routes_combined_restore_through_single_write_lane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lane_calls = []
+
+    class _LegacyModifyClient:
+        async def get_memory_version(self, memory_id: int):
+            memory_id = int(memory_id)
+            if memory_id == 123:
+                return {"id": 123, "migrated_to": 999}
+            if memory_id == 999:
+                return {"id": 999, "migrated_to": None}
+            return None
+
+        async def get_memory_by_path(
+            self,
+            path: str,
+            domain: str,
+            reinforce_access: bool = False,
+        ):
+            _ = path, domain, reinforce_access
+            return {"id": 999, "priority": 5, "disclosure": "new"}
+
+        async def rollback_to_memory(
+            self,
+            path: str,
+            memory_id: int,
+            domain: str,
+            *,
+            restore_path_metadata: bool = False,
+            restore_priority: int | None = None,
+            restore_disclosure: str | None = None,
+        ):
+            _ = path, domain
+            assert restore_path_metadata is True
+            assert restore_priority == 1
+            assert restore_disclosure == "old"
+            return {"restored_memory_id": int(memory_id)}
+
+        async def update_memory(self, **_: object):
+            raise AssertionError("update_memory should not run for combined legacy rollback")
+
+    async def _run_write_lane_stub(operation: str, task, *, session_id=None):
+        lane_calls.append({"operation": operation, "session_id": session_id})
+        return await task()
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: _LegacyModifyClient())
+    monkeypatch.setattr(review_api, "_run_write_lane", _run_write_lane_stub)
+
+    payload = await review_api._rollback_legacy_modify(
+        {
+            "memory_id": 123,
+            "path": "agent/node",
+            "domain": "core",
+            "uri": "core://agent/node",
+            "priority": 1,
+            "disclosure": "old",
+        },
+        lane_session_id="review.rollback:legacy-combined",
+    )
+
+    assert payload == {"new_version": 123}
+    assert lane_calls == [
+        {
+            "operation": "rollback.restore_legacy_modify",
+            "session_id": "review.rollback:legacy-combined",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_rollback_legacy_modify_restores_content_and_metadata_atomically(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "review-rollback-legacy-modify-success.db"
+    client = SQLiteClient(_sqlite_url(db_path))
+    await client.init_db()
+
+    created = await client.create_memory(
+        parent_path="",
+        content="original content",
+        priority=1,
+        title="node",
+        domain="core",
+    )
+    await client.update_memory(
+        path="node",
+        domain="core",
+        content="current content",
+        priority=5,
+        disclosure="current disclosure",
+    )
+
+    lane_calls = []
+
+    async def _run_write_lane_stub(operation: str, task, *, session_id=None):
+        lane_calls.append({"operation": operation, "session_id": session_id})
+        return await task()
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: client)
+    monkeypatch.setattr(review_api, "_run_write_lane", _run_write_lane_stub)
+
+    payload = await review_api._rollback_legacy_modify(
+        {
+            "memory_id": created["id"],
+            "path": "node",
+            "domain": "core",
+            "uri": "core://node",
+            "priority": 1,
+            "disclosure": None,
+        },
+        lane_session_id="review.rollback:legacy-success",
+    )
+
+    current = await client.get_memory_by_path("node", "core", reinforce_access=False)
+
+    assert payload == {"new_version": created["id"]}
+    assert current is not None
+    assert current["id"] == created["id"]
+    assert current["content"] == "original content"
+    assert current["priority"] == 1
+    assert current["disclosure"] is None
+    assert lane_calls == [
+        {
+            "operation": "rollback.restore_legacy_modify",
+            "session_id": "review.rollback:legacy-success",
+        }
+    ]
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_rollback_legacy_modify_failure_does_not_leave_partial_commit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "review-rollback-legacy-modify-failure.db"
+    client = SQLiteClient(_sqlite_url(db_path))
+    await client.init_db()
+
+    created = await client.create_memory(
+        parent_path="",
+        content="original content",
+        priority=1,
+        title="node",
+        domain="core",
+    )
+    updated = await client.update_memory(
+        path="node",
+        domain="core",
+        content="current content",
+        priority=5,
+        disclosure="current disclosure",
+    )
+
+    async def _boom_reindex(self, session, memory_id: int):
+        _ = self, session, memory_id
+        raise RuntimeError("reindex failed")
+
+    async def _run_write_lane_stub(_operation: str, task, *, session_id=None):
+        _ = session_id
+        return await task()
+
+    monkeypatch.setattr(SQLiteClient, "_reindex_memory", _boom_reindex)
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: client)
+    monkeypatch.setattr(review_api, "_run_write_lane", _run_write_lane_stub)
+
+    with pytest.raises(RuntimeError, match="reindex failed"):
+        await review_api._rollback_legacy_modify(
+            {
+                "memory_id": created["id"],
+                "path": "node",
+                "domain": "core",
+                "uri": "core://node",
+                "priority": 1,
+                "disclosure": None,
+            },
+            lane_session_id="review.rollback:legacy-failure",
+        )
+
+    current = await client.get_memory_by_path("node", "core", reinforce_access=False)
+
+    assert current is not None
+    assert current["id"] == updated["new_memory_id"]
+    assert current["content"] == "current content"
+    assert current["priority"] == 5
+    assert current["disclosure"] == "current disclosure"
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_rollback_path_modify_meta_can_clear_disclosure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "review-rollback-modify-meta-clear-disclosure.db"
+    client = SQLiteClient(_sqlite_url(db_path))
+    await client.init_db()
+
+    await client.create_memory(
+        parent_path="",
+        content="content",
+        priority=5,
+        title="node",
+        domain="core",
+    )
+    await client.update_memory(
+        path="node",
+        domain="core",
+        priority=8,
+        disclosure="current disclosure",
+    )
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: client)
+
+    payload = await review_api._rollback_path(
+        {
+            "operation_type": "modify_meta",
+            "domain": "core",
+            "path": "node",
+            "uri": "core://node",
+            "priority": 5,
+            "disclosure": None,
+        }
+    )
+
+    current = await client.get_memory_by_path("node", "core", reinforce_access=False)
+
+    assert payload == {"metadata_restored": True}
+    assert current is not None
+    assert current["priority"] == 5
+    assert current["disclosure"] is None
+
+    await client.close()
+
+
+@pytest.mark.asyncio
 async def test_rollback_path_create_returns_409_when_snapshot_memory_mismatch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -512,3 +752,96 @@ async def test_rollback_legacy_modify_returns_409_for_cross_chain_snapshot(
 
     assert exc_info.value.status_code == 409
     assert "not in the same version chain" in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_sqlite_client_rollback_to_memory_restores_path_metadata(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "review-rollback-restore-meta.db"
+    client = SQLiteClient(_sqlite_url(db_path))
+    await client.init_db()
+
+    original = await client.create_memory(
+        parent_path="",
+        content="version 1",
+        priority=1,
+        title="agent",
+        domain="core",
+        disclosure="old disclosure",
+    )
+    await client.update_memory(
+        path="agent",
+        content="version 2",
+        priority=5,
+        disclosure="new disclosure",
+        domain="core",
+    )
+
+    payload = await client.rollback_to_memory(
+        "agent",
+        original["id"],
+        "core",
+        restore_path_metadata=True,
+        restore_priority=1,
+        restore_disclosure="old disclosure",
+    )
+
+    current = await client.get_memory_by_path("agent", "core", reinforce_access=False)
+    assert payload["restored_memory_id"] == original["id"]
+    assert current is not None
+    assert current["id"] == original["id"]
+    assert current["priority"] == 1
+    assert current["disclosure"] == "old disclosure"
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_client_rollback_to_memory_rolls_back_on_reindex_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "review-rollback-atomicity.db"
+    client = SQLiteClient(_sqlite_url(db_path))
+    await client.init_db()
+
+    original = await client.create_memory(
+        parent_path="",
+        content="version 1",
+        priority=1,
+        title="agent",
+        domain="core",
+        disclosure="old disclosure",
+    )
+    update_payload = await client.update_memory(
+        path="agent",
+        content="version 2",
+        priority=5,
+        disclosure="new disclosure",
+        domain="core",
+    )
+    current_id = update_payload["new_memory_id"]
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("reindex boom")
+
+    monkeypatch.setattr(client, "_reindex_memory", _boom)
+
+    with pytest.raises(RuntimeError, match="reindex boom"):
+        await client.rollback_to_memory(
+            "agent",
+            original["id"],
+            "core",
+            restore_path_metadata=True,
+            restore_priority=1,
+            restore_disclosure="old disclosure",
+        )
+
+    current = await client.get_memory_by_path("agent", "core", reinforce_access=False)
+    assert current is not None
+    assert current["id"] == current_id
+    assert current["priority"] == 5
+    assert current["disclosure"] == "new disclosure"
+
+    await client.close()

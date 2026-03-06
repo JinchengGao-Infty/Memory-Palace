@@ -51,6 +51,18 @@ def test_sse_auth_rejects_insecure_local_override_for_non_loopback_client(monkey
     assert payload.get("reason") == "insecure_local_override_requires_loopback"
 
 
+def test_sse_auth_rejects_insecure_local_override_when_forwarded_headers_present(monkeypatch) -> None:
+    monkeypatch.delenv("MCP_API_KEY", raising=False)
+    monkeypatch.setenv("MCP_API_KEY_ALLOW_INSECURE_LOCAL", "true")
+    headers = {"X-Forwarded-For": "198.51.100.8"}
+    with _build_client(client=("127.0.0.1", 50000)) as client:
+        response = client.get("/ping", headers=headers)
+    assert response.status_code == 401
+    payload = response.json()
+    assert payload.get("error") == "mcp_sse_auth_failed"
+    assert payload.get("reason") == "insecure_local_override_requires_loopback"
+
+
 def test_sse_auth_rejects_when_api_key_missing(monkeypatch) -> None:
     monkeypatch.setenv("MCP_API_KEY", "week6-sse-secret")
     with _build_client() as client:

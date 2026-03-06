@@ -12,6 +12,22 @@ auto_port=1
 allow_runtime_env_injection=0
 port_probe_fallback_warned=0
 
+default_compose_project_name() {
+  local project_slug path_checksum
+  project_slug="$(
+    basename "${PROJECT_ROOT}" \
+      | tr '[:upper:]' '[:lower:]' \
+      | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//'
+  )"
+  if [[ -z "${project_slug}" ]]; then
+    project_slug="memory-palace"
+  fi
+  path_checksum="$(
+    printf '%s' "${PROJECT_ROOT}" | cksum | awk '{print $1}'
+  )"
+  echo "${project_slug}-${path_checksum}"
+}
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -351,12 +367,6 @@ assert_profile_external_settings_ready "${env_file}" "${profile}"
 
 cd "${PROJECT_ROOT}"
 
-# Force recreate to avoid stale network attachment causing frontend->backend 502.
-if ! "${compose_cmd[@]}" -f docker-compose.yml down --remove-orphans >/dev/null 2>&1; then
-  echo "[compose-down] pre-cleanup failed; aborting to match fail-closed deployment behavior." >&2
-  exit 1
-fi
-
 if [[ ${auto_port} -eq 1 ]]; then
   if ! resolved_frontend_port="$(find_free_port "${frontend_port}")"; then
     echo "Failed to auto-resolve free frontend port near ${frontend_port}. Try --no-auto-port with explicit values." >&2
@@ -388,8 +398,16 @@ if [[ ${auto_port} -eq 1 ]]; then
 fi
 
 data_volume="$(resolve_data_volume)"
+compose_project_name="${COMPOSE_PROJECT_NAME:-$(default_compose_project_name)}"
+
+# Force recreate to avoid stale network attachment causing frontend->backend 502.
+if ! COMPOSE_PROJECT_NAME="${compose_project_name}" "${compose_cmd[@]}" -f docker-compose.yml down --remove-orphans >/dev/null 2>&1; then
+  echo "[compose-down] pre-cleanup failed; aborting to match fail-closed deployment behavior." >&2
+  exit 1
+fi
 
 if [[ ${no_build} -eq 1 ]]; then
+  COMPOSE_PROJECT_NAME="${compose_project_name}" \
   MEMORY_PALACE_FRONTEND_PORT="${frontend_port}" \
   MEMORY_PALACE_BACKEND_PORT="${backend_port}" \
   MEMORY_PALACE_DATA_VOLUME="${data_volume}" \
@@ -398,6 +416,7 @@ if [[ ${no_build} -eq 1 ]]; then
   NOCTURNE_DATA_VOLUME="${data_volume}" \
   "${compose_cmd[@]}" -f docker-compose.yml up -d --force-recreate --remove-orphans
 else
+  COMPOSE_PROJECT_NAME="${compose_project_name}" \
   MEMORY_PALACE_FRONTEND_PORT="${frontend_port}" \
   MEMORY_PALACE_BACKEND_PORT="${backend_port}" \
   MEMORY_PALACE_DATA_VOLUME="${data_volume}" \
@@ -412,3 +431,4 @@ echo "Memory Palace is starting with docker profile ${profile}."
 echo "Frontend: http://localhost:${frontend_port}"
 echo "Backend API: http://localhost:${backend_port}"
 echo "Health: http://localhost:${backend_port}/health"
+echo "Compose project: ${compose_project_name}"

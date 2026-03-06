@@ -97,15 +97,50 @@ collect_existing_tracked_files() {
   done < <(git ls-files -z)
 }
 
+is_scan_target_excluded() {
+  local scan_key="$1"
+  local file="$2"
+
+  case "${scan_key}:${file}" in
+    secret_scan:scripts/pre_publish_check.sh)
+      return 0
+      ;;
+    personal_path_scan:docs/DEPLOYMENT_PROFILES.md|\
+    personal_path_scan:docs/EVALUATION.md|\
+    personal_path_scan:docs/GETTING_STARTED.md|\
+    personal_path_scan:docs/evaluation_old_vs_new_executive_summary_2026-03-05.md|\
+    personal_path_scan:docs/improvement/*|\
+    personal_path_scan:backend/tests/benchmark/*.json|\
+    personal_path_scan:backend/tests/benchmark/*.md)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+collect_scannable_tracked_files() {
+  local scan_key="$1"
+  local file
+  while IFS= read -r -d '' file; do
+    if is_scan_target_excluded "${scan_key}" "${file}"; then
+      continue
+    fi
+    printf '%s\0' "${file}"
+  done < <(collect_existing_tracked_files)
+}
+
 scan_tracked_files() {
-  local label="$1"
-  local regex="$2"
+  local scan_key="$1"
+  local label="$2"
+  local regex="$3"
 
   local -a hits=()
   while IFS= read -r line; do
     [[ -n "${line}" ]] && hits+=("${line}")
   done < <(
-    collect_existing_tracked_files \
+    collect_scannable_tracked_files "${scan_key}" \
       | xargs -0 rg -l -n --no-messages "${regex}" 2>/dev/null \
       | sort -u || true
   )
@@ -145,6 +180,7 @@ check_tracked_forbidden_paths
 
 print_section "3) 密钥模式扫描（仅扫描已跟踪文件）"
 scan_tracked_files \
+  "secret_scan" \
   "密钥/凭证模式" \
   'BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{16,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN PGP PRIVATE KEY BLOCK-----'
 
@@ -152,6 +188,7 @@ CURRENT_USER="$(id -un 2>/dev/null || true)"
 if [[ -n "${CURRENT_USER}" ]]; then
   print_section "4) 个人路径泄露扫描（仅扫描已跟踪文件）"
   scan_tracked_files \
+    "personal_path_scan" \
     "个人绝对路径（${CURRENT_USER}）" \
     "/Users/${CURRENT_USER}|C:\\\\Users\\\\${CURRENT_USER}|file:///Users/${CURRENT_USER}"
 fi

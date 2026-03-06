@@ -16,6 +16,19 @@ param(
 $ErrorActionPreference = 'Stop'
 $script:PortProbeFallbackWarned = $false
 
+function Get-DefaultComposeProjectName {
+    $projectSlug = (Split-Path -Leaf $projectRoot).ToLower() -replace '[^a-z0-9]+', '-'
+    $projectSlug = $projectSlug.Trim('-')
+    if ([string]::IsNullOrWhiteSpace($projectSlug)) {
+        $projectSlug = 'memory-palace'
+    }
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($projectRoot)
+    $hashBytes = [System.Security.Cryptography.SHA256]::HashData($bytes)
+    $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').Substring(0, 8).ToLower()
+    return "$projectSlug-$hash"
+}
+
 function Test-PortInUse {
     param([int]$Port)
 
@@ -292,14 +305,32 @@ function Assert-ProfileExternalSettingsReady {
 }
 
 function Invoke-Compose {
-    param([string[]]$ComposeArgs)
+    param(
+        [string[]]$ComposeArgs,
+        [string]$ComposeProjectName = ''
+    )
 
     $composeOutput = @()
-    if ($script:UseComposePlugin) {
-        $composeOutput = & docker compose @ComposeArgs 2>&1
+    $previousComposeProjectName = $env:COMPOSE_PROJECT_NAME
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($ComposeProjectName)) {
+            $env:COMPOSE_PROJECT_NAME = $ComposeProjectName
+        }
+
+        if ($script:UseComposePlugin) {
+            $composeOutput = & docker compose @ComposeArgs 2>&1
+        }
+        else {
+            $composeOutput = & docker-compose @ComposeArgs 2>&1
+        }
     }
-    else {
-        $composeOutput = & docker-compose @ComposeArgs 2>&1
+    finally {
+        if ([string]::IsNullOrWhiteSpace($previousComposeProjectName)) {
+            Remove-Item Env:COMPOSE_PROJECT_NAME -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:COMPOSE_PROJECT_NAME = $previousComposeProjectName
+        }
     }
 
     if ($composeOutput.Count -gt 0) {
@@ -342,6 +373,7 @@ function Test-ComposeRetryableError {
 function Invoke-ComposeWithRetry {
     param(
         [string[]]$ComposeArgs,
+        [string]$ComposeProjectName = '',
         [int]$MaxAttempts = 3
     )
 
@@ -349,7 +381,7 @@ function Invoke-ComposeWithRetry {
     while ($attempt -lt $MaxAttempts) {
         $attempt += 1
         try {
-            Invoke-Compose -ComposeArgs $ComposeArgs
+            Invoke-Compose -ComposeArgs $ComposeArgs -ComposeProjectName $ComposeProjectName
             return
         }
         catch {
@@ -363,7 +395,7 @@ function Invoke-ComposeWithRetry {
             Write-Warning "[compose-retry] transient compose up failure ($attempt/$MaxAttempts), retrying in ${sleepSeconds}s."
             Start-Sleep -Seconds $sleepSeconds
             try {
-                Invoke-Compose -ComposeArgs @('-f', 'docker-compose.yml', 'down', '--remove-orphans')
+                Invoke-Compose -ComposeArgs @('-f', 'docker-compose.yml', 'down', '--remove-orphans') -ComposeProjectName $ComposeProjectName
             }
             catch {
                 # Keep retry path best-effort; next attempt will surface a hard failure.
@@ -439,11 +471,9 @@ Assert-ProfileExternalSettingsReady -EnvFile $envFile -SelectedProfile $profileL
 
 Push-Location $projectRoot
 try {
-    try {
-        Invoke-Compose @('-f', 'docker-compose.yml', 'down', '--remove-orphans')
-    }
-    catch {
-        throw "[compose-down] pre-cleanup failed; aborting to match fail-closed deployment behavior. detail=$($_.Exception.Message)"
+    $composeProjectName = [System.Environment]::GetEnvironmentVariable('COMPOSE_PROJECT_NAME')
+    if ([string]::IsNullOrWhiteSpace($composeProjectName)) {
+        $composeProjectName = Get-DefaultComposeProjectName
     }
 
     if (-not $NoAutoPort) {
@@ -479,11 +509,18 @@ try {
     $env:NOCTURNE_BACKEND_PORT = "$BackendPort"
     $env:NOCTURNE_DATA_VOLUME = "$dataVolume"
 
+    try {
+        Invoke-Compose -ComposeArgs @('-f', 'docker-compose.yml', 'down', '--remove-orphans') -ComposeProjectName $composeProjectName
+    }
+    catch {
+        throw "[compose-down] pre-cleanup failed; aborting to match fail-closed deployment behavior. detail=$($_.Exception.Message)"
+    }
+
     $composeUpArgs = @('-f', 'docker-compose.yml', 'up', '-d', '--force-recreate', '--remove-orphans')
     if (-not $NoBuild) {
         $composeUpArgs = @('-f', 'docker-compose.yml', 'up', '-d', '--build', '--force-recreate', '--remove-orphans')
     }
-    Invoke-ComposeWithRetry -ComposeArgs $composeUpArgs -MaxAttempts 3
+    Invoke-ComposeWithRetry -ComposeArgs $composeUpArgs -ComposeProjectName $composeProjectName -MaxAttempts 3
 }
 finally {
     Pop-Location
@@ -494,3 +531,4 @@ Write-Host "Memory Palace is starting with docker profile $profileLower."
 Write-Host "Frontend: http://localhost:$FrontendPort"
 Write-Host "Backend API: http://localhost:$BackendPort"
 Write-Host "Health: http://localhost:$BackendPort/health"
+Write-Host "Compose project: $composeProjectName"

@@ -3689,6 +3689,9 @@ class SQLiteClient:
         target_memory_id: int,
         domain: str = "core",
         index_now: bool = True,
+        restore_path_metadata: bool = False,
+        restore_priority: Optional[int] = None,
+        restore_disclosure: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Rollback a path to point to a specific memory version.
@@ -3704,13 +3707,15 @@ class SQLiteClient:
         async with self.session() as session:
             # 1. Get current memory_id
             result = await session.execute(
-                select(Path.memory_id)
+                select(Path.memory_id, Path)
                 .where(Path.domain == domain)
                 .where(Path.path == path)
             )
-            current_id = result.scalar_one_or_none()
+            row = result.first()
+            current_id = row[0] if row else None
+            path_obj = row[1] if row else None
 
-            if current_id is None:
+            if current_id is None or path_obj is None:
                 raise ValueError(f"Path '{domain}://{path}' not found")
 
             # 2. Verify target memory exists
@@ -3741,6 +3746,12 @@ class SQLiteClient:
                 .values(memory_id=target_memory_id)
             )
 
+            if restore_path_metadata:
+                if restore_priority is not None:
+                    path_obj.priority = restore_priority
+                path_obj.disclosure = restore_disclosure
+                session.add(path_obj)
+
             await self._clear_memory_index(session, current_id)
             if index_now:
                 await self._reindex_memory(session, target_memory_id)
@@ -3753,6 +3764,34 @@ class SQLiteClient:
                 "restored_memory_id": target_memory_id,
                 "index_pending": not index_now,
                 "index_targets": [target_memory_id],
+            }
+
+    async def restore_path_metadata(
+        self,
+        path: str,
+        *,
+        priority: int,
+        disclosure: Optional[str],
+        domain: str = "core",
+    ) -> Dict[str, Any]:
+        async with self.session() as session:
+            result = await session.execute(
+                select(Path).where(Path.domain == domain).where(Path.path == path)
+            )
+            path_obj = result.scalar_one_or_none()
+            if path_obj is None:
+                raise ValueError(f"Path '{domain}://{path}' not found")
+
+            path_obj.priority = priority
+            path_obj.disclosure = disclosure
+            session.add(path_obj)
+
+            return {
+                "domain": domain,
+                "path": path,
+                "uri": f"{domain}://{path}",
+                "priority": path_obj.priority,
+                "disclosure": path_obj.disclosure,
             }
 
     async def reindex_memory(

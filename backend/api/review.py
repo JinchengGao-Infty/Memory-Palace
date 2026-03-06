@@ -759,10 +759,10 @@ async def _rollback_path(data: dict, *, lane_session_id: Optional[str] = None) -
             raise HTTPException(status_code=404, detail=f"'{uri}' no longer exists")
 
         async def _write_task_update_meta() -> Any:
-            return await client.update_memory(
+            return await client.restore_path_metadata(
                 path=path,
                 domain=domain,
-                priority=data.get("priority", data.get("importance")),
+                priority=data.get("priority", data.get("importance", 0)),
                 disclosure=data.get("disclosure"),
             )
 
@@ -901,10 +901,12 @@ async def _rollback_legacy_modify(
         uri=uri,
     )
     
+    snapshot_priority = data.get("priority", data.get("importance"))
+    snapshot_disclosure = data.get("disclosure")
     has_version_change = snapshot_memory_id != current_memory_id
     has_meta_change = (
-        data.get("priority", data.get("importance")) != current.get("priority") or
-        data.get("disclosure") != current.get("disclosure")
+        snapshot_priority != current.get("priority") or
+        snapshot_disclosure != current.get("disclosure")
     )
     
     if not has_version_change and not has_meta_change:
@@ -912,7 +914,24 @@ async def _rollback_legacy_modify(
     
     restored_id = current.get("id")
     
-    if has_version_change:
+    if has_version_change and has_meta_change:
+        async def _write_task_restore_legacy_modify() -> Any:
+            return await client.rollback_to_memory(
+                path,
+                snapshot_memory_id,
+                domain,
+                restore_path_metadata=True,
+                restore_priority=snapshot_priority,
+                restore_disclosure=snapshot_disclosure,
+            )
+
+        result = await _run_write_lane(
+            "rollback.restore_legacy_modify",
+            _write_task_restore_legacy_modify,
+            session_id=lane_session_id,
+        )
+        restored_id = result["restored_memory_id"]
+    elif has_version_change:
         async def _write_task_rollback_to_memory() -> Any:
             return await client.rollback_to_memory(path, snapshot_memory_id, domain)
 
@@ -923,13 +942,13 @@ async def _rollback_legacy_modify(
         )
         restored_id = result["restored_memory_id"]
     
-    if has_meta_change:
+    if has_meta_change and not has_version_change:
         async def _write_task_update_legacy_meta() -> Any:
-            return await client.update_memory(
+            return await client.restore_path_metadata(
                 path=path,
                 domain=domain,
-                priority=data.get("priority", data.get("importance")),
-                disclosure=data.get("disclosure"),
+                priority=snapshot_priority if snapshot_priority is not None else 0,
+                disclosure=snapshot_disclosure,
             )
 
         await _run_write_lane(

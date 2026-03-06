@@ -42,3 +42,12 @@ scripts/backup_memory.ps1
 backend/backend.log
 frontend/frontend.log
 backend/tests/benchmark/.real_profile_cache/
+
+# Generated benchmark outputs (keep local, do not track)
+backend/tests/benchmark/baseline_manifest.md
+backend/tests/benchmark/thresholds_v1.json
+backend/tests/benchmark/benchmark_results_*.md
+backend/tests/benchmark/profile_*.json
+backend/tests/benchmark/profile_*.md
+backend/tests/benchmark/*_metrics.json
+backend/tests/benchmark/*_metrics.md
