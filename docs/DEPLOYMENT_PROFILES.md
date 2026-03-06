@@ -159,8 +159,8 @@ RETRIEVAL_RERANKER_WEIGHT=0.35                     # 远程推荐略高
 RUNTIME_ENV_FILE=/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env
 
 # 1) 可选：本地 C/D API 联调（router 缺 embedding/reranker 时使用）
-bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse --runtime-env-mode none --allow-runtime-env-injection --runtime-env-file "${RUNTIME_ENV_FILE}"
-bash new/run_post_change_checks.sh --with-docker --docker-profile d --skip-sse --runtime-env-mode none --allow-runtime-env-injection --runtime-env-file "${RUNTIME_ENV_FILE}"
+bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse --runtime-env-mode file --runtime-env-file "${RUNTIME_ENV_FILE}" --allow-runtime-env-debug
+bash new/run_post_change_checks.sh --with-docker --docker-profile d --skip-sse --runtime-env-mode file --runtime-env-file "${RUNTIME_ENV_FILE}" --allow-runtime-env-debug
 
 # 2) 必做：确认模板仍为 router 默认（不允许被开发联调改写）
 bash new/run_post_change_checks.sh --skip-frontend --skip-sse
@@ -225,7 +225,7 @@ COMPACT_GIST_LLM_MODEL=
 ```bash
 cd <project-root>
 bash scripts/docker_one_click.sh --profile b
-# 如需把当前 shell 的 API 地址/密钥/模型注入 .env.docker（默认关闭）：
+# 如需把当前 shell 的 API 地址/密钥/模型注入本次运行的 Docker env 文件（默认关闭）：
 bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 ```
 
@@ -234,13 +234,17 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 ```powershell
 cd <project-root>
 .\scripts\docker_one_click.ps1 -Profile b
-# 如需把当前 PowerShell 进程环境注入 .env.docker（默认关闭）：
+# 如需把当前 PowerShell 进程环境注入本次运行的 Docker env 文件（默认关闭）：
 .\scripts\docker_one_click.ps1 -Profile c -AllowRuntimeEnvInjection
 ```
 
 > `apply_profile.ps1` 现已对 **所有重复 env key** 做“保留最后值”的统一去重，不再只处理 `DATABASE_URL`。
 >
 > 原生 Windows / `pwsh` 补验证清单见：`docs/improvement/pwsh_native_validation_checklist_2026-03-06.md`
+>
+> `docker_one_click.sh/.ps1` 默认会为每次运行生成独立的临时 Docker env 文件，并通过 `MEMORY_PALACE_DOCKER_ENV_FILE` 传给 `docker compose`；只有显式设置该环境变量时才会复用指定路径，而不是固定共享 `.env.docker`。
+>
+> 同一 checkout 下的并发一键部署会被 deployment lock 串行化，避免共享 compose project / env 文件互相覆盖。
 
 ### 部署完成后的访问地址
 
@@ -252,11 +256,12 @@ cd <project-root>
 
 ### 一键脚本做了什么
 
-1. 调用 profile 脚本从模板生成 `.env.docker`（macOS/Linux 使用 `apply_profile.sh`，Windows 使用 `apply_profile.ps1`）
+1. 调用 profile 脚本从模板生成本次运行使用的 Docker env 文件（默认是 per-run 临时文件；仅当显式设置 `MEMORY_PALACE_DOCKER_ENV_FILE` 时才复用指定路径）
 2. 默认禁用运行时环境注入，避免隐式覆盖模板；仅在显式开关注入时才覆盖运行参数。对 `profile c/d`，注入模式会额外强制 `RETRIEVAL_EMBEDDING_BACKEND=api` 用于本地联调。
 3. 自动检测端口占用，若默认端口被占用则自动递增寻找空闲端口
 4. 检测是否存在历史数据卷（`memory_palace_data` 或 `nocturne_*` 系列），自动复用以保留历史数据
-5. 使用 `docker compose` 构建并启动前后端容器
+5. 对同一 checkout 的并发部署加 deployment lock，避免多次 `docker_one_click` 互相覆盖
+6. 使用 `docker compose` 构建并启动前后端容器
 
 ### 安全说明
 
@@ -424,10 +429,10 @@ bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse -
 ```
 
 1. 如果日志里仍有 `embedding_request_failed` / `embedding_fallback_hash`，先检查外部 embedding/reranker 服务本身是否可达、API key 是否有效（本地约定优先使用 `nocturne_memory/.env` 中的服务配置）。
-2. 用下面命令确认 `.env.docker` 已注入预期模型（本地约定为 `gpt-5.2`）：
+2. 若显式设置了 `MEMORY_PALACE_DOCKER_ENV_FILE`，可用下面命令确认目标 env 文件已注入预期模型（本地约定为 `gpt-5.2`）；默认临时 env 文件会在脚本退出后自动清理：
 
 ```bash
-rg -n "RETRIEVAL_EMBEDDING_MODEL|RETRIEVAL_RERANKER_MODEL|WRITE_GUARD_LLM_MODEL|COMPACT_GIST_LLM_MODEL" Memory-Palace/.env.docker
+rg -n "RETRIEVAL_EMBEDDING_MODEL|RETRIEVAL_RERANKER_MODEL|WRITE_GUARD_LLM_MODEL|COMPACT_GIST_LLM_MODEL" "${MEMORY_PALACE_DOCKER_ENV_FILE}"
 ```
 
 3. 这套 `file` 方式只用于本地联调；上线时仍以客户环境的 `router` 配置为准，缺失模型时按系统 fallback 链路降级。若要专门验证“保持 router 策略不变”的场景，请使用 `runtime-env-mode none` 且不附加注入参数。
@@ -435,7 +440,8 @@ rg -n "RETRIEVAL_EMBEDDING_MODEL|RETRIEVAL_RERANKER_MODEL|WRITE_GUARD_LLM_MODEL|
 ### PowerShell / Windows 专项验证清单（2026-03-06）
 
 - 本轮已修复 `apply_profile` 只去重 `DATABASE_URL` 的问题；`scripts/apply_profile.sh` 与 `scripts/apply_profile.ps1` 现在都会对重复 env key 做统一去重。
-- 本机无原生 `pwsh` 时，可先参考 `pwsh-in-docker` 等效 smoke；若要形成最终 Windows 交付证据，仍建议在原生 Windows / 原生 `pwsh` 环境补跑一次专项验证。
+- 本机无原生 `pwsh` 时，可先参考 `pwsh-in-docker` 等效 smoke；当前 `arm64` 宿主若无法可靠运行该 helper，应记录为 `SKIP`（等效 smoke 跳过），而不是 `FAIL` 或 native Windows 终验通过。
+- 若要形成最终 Windows 交付证据，仍建议在原生 Windows / 原生 `pwsh` 环境补跑一次专项验证。
 - 详细清单见：`docs/improvement/pwsh_native_validation_checklist_2026-03-06.md`
 
 ### 调参提示

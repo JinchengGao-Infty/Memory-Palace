@@ -161,21 +161,25 @@ bash scripts/docker_one_click.sh --profile b
 # Windows PowerShell
 .\scripts\docker_one_click.ps1 -Profile b
 
-# 若需把当前进程中的运行时 API 密钥/地址注入 .env.docker（例如 profile c/d）
+# 若需把当前进程中的运行时 API 密钥/地址注入本次运行的 Docker env 文件（例如 profile c/d）
 # 需显式开启注入开关（默认关闭）：
 bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 # 或
 .\scripts\docker_one_click.ps1 -Profile c -AllowRuntimeEnvInjection
 ```
 
+> `docker_one_click.sh/.ps1` 默认会为**每次运行**生成独立的临时 Docker env 文件，并通过 `MEMORY_PALACE_DOCKER_ENV_FILE` 传给 `docker compose`；只有显式设置该环境变量时才会复用指定文件，而不是固定共享 `.env.docker`。
+>
+> 同一 checkout 下的并发部署会被 deployment lock 串行化；若已有另一条一键部署在执行，后续进程会直接退出并提示稍后重试。
+
 > **C/D 本地联调固定口径（避免重复踩坑）**：
 >
 > - 当本机 `router` 暂时没有 embedding/reranker/llm 时，使用 `/Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env` 作为注入源。
-> - 本地联调命令（`profile c/d` 二选一）：
+> - 当前推荐的本地联调命令（`profile c/d` 二选一）：
 >
 > ```bash
-> bash new/run_post_change_checks.sh --with-docker --docker-profile c --runtime-env-mode none --allow-runtime-env-injection --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --skip-sse
-> bash new/run_post_change_checks.sh --with-docker --docker-profile d --runtime-env-mode none --allow-runtime-env-injection --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --skip-sse
+> bash new/run_post_change_checks.sh --skip-frontend --skip-sse --with-docker --docker-profile c --runtime-env-mode file --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --allow-runtime-env-debug
+> bash new/run_post_change_checks.sh --skip-frontend --skip-sse --with-docker --docker-profile d --runtime-env-mode file --runtime-env-file /Users/yangjunjie/Desktop/clawmemo/nocturne_memory/.env --allow-runtime-env-debug
 > ```
 >
 > - LLM 口径沿用该文件中的配置（当前为 `gpt-5.2`）。
@@ -183,10 +187,11 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 
 > 脚本会自动执行以下步骤：
 >
-> 1. 调用 Profile 脚本生成 `.env.docker` 配置文件（macOS/Linux: `apply_profile.sh`；Windows: `apply_profile.ps1`）
+> 1. 调用 Profile 脚本生成本次运行使用的 Docker env 文件（默认临时文件；若显式设置 `MEMORY_PALACE_DOCKER_ENV_FILE` 则复用指定路径）
 > 2. 默认不读取当前进程环境变量覆盖模板策略键（避免隐式改档）；仅在显式开启注入开关时注入 API 地址/密钥/模型字段
 > 3. 检测端口占用并自动寻找可用端口
-> 4. 通过 `docker compose` 构建并启动容器
+> 4. 对同一 checkout 的并发部署加锁，避免多次 `docker_one_click` 互相覆盖
+> 5. 通过 `docker compose` 构建并启动容器
 
 默认访问地址：
 
@@ -207,6 +212,8 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 ```bash
 docker compose -f docker-compose.yml down
 ```
+
+> 若当前机器是 `arm64` 且没有原生 Windows / native `pwsh`，`deployment.windows_equivalent_pwsh_docker` 会以 `pwsh-in-docker` 等效 smoke 为准；该检查在不适合当前宿主机时可能记为 `SKIP`，而不是 `FAIL`。
 
 ---
 
