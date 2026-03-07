@@ -12,6 +12,7 @@
 | `codex` | `PASS` | Codex smoke 通过 |
 | `opencode` | `PASS` | OpenCode smoke 通过 |
 | `gemini` | `PASS` | Gemini smoke 通过 |
+| `gemini_live` | `PASS` | Gemini live 写入/更新通过，guard 已安全阻断（未稳定观测到 follow-up） |
 | `cursor` | `PARTIAL` | Cursor runtime 存在，但当前机器缺少登录/鉴权 |
 | `agent` | `PARTIAL` | agent 仅完成 mirror 结构校验 |
 | `antigravity` | `PARTIAL` | Antigravity app-bundled CLI 已发现，global_workflow 已安装；仍需 GUI 手工 smoke |
@@ -82,14 +83,41 @@
 - Summary: Gemini smoke 通过
 
 ```text
-I will activate the `memory-palace` skill to retrieve the repository-specific facts required to answer your questions.
-* The first memory tool call required by the skill is `read_memory("system://boot")`.
-* When `guard_action` is `NOOP`, you must stop the write, inspect the `guard_target_uri` or `guard_target_id`, read the suggested target, and then decide whether to update the target or leave it unchanged.
-* The canonical repository-visible path of the trigger sample set is `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md`.
+[model=gemini-3.1-pro-preview]
+* The first memory tool call required is `read_memory("system://boot")`.
+* When `guard_action` is `NOOP`, you should stop the write, inspect `guard_target_uri` / `guard_target_id`, read the suggested target, then decide whether to update or leave unchanged.
+* The canonical repo-visible path of the trigger sample set is `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md`.
 
-Warning: --allowed-tools cli argument and tools.allowed in settings.json are deprecated and will be removed in 1.0: Migrate to Policy Engine: https://geminicli.com/docs/core/policy-engine/Loaded cached credentials.
+Loaded cached credentials.
 Server 'chrome-devtools' supports tool updates. Listening for changes...
 Server 'grok-search' supports tool updates. Listening for changes...
+```
+
+### gemini_live
+
+- Status: `PASS`
+- Summary: Gemini live 写入/更新通过，guard 已安全阻断（未稳定观测到 follow-up）
+
+```text
+db_path=//Users/yangjunjie/Desktop/clawanti/Memory-Palace/backend/memory.db
+create_model=gemini-3.1-pro-preview
+create_timed_out=False
+create_stdout=SUCCESS notes://gemini_suite_1772865307
+create_verified={"domain": "notes", "path": "gemini_suite_1772865307", "priority": 1, "disclosure": null, "memory_id": 30, "content": "Unique token gemini_suite_1772865307_nonce. This note records one preference only: user prefers concise answers.", "deprecated": 0, "created_at": "2026-03-07 06:35:37.316085"}
+update_model=gemini-3.1-pro-preview
+update_timed_out=False
+update_stdout=SUCCESS notes://gemini_suite_1772865307
+update_verified={"domain": "notes", "path": "gemini_suite_1772865307", "priority": 1, "disclosure": null, "memory_id": 31, "content": "Unique token gemini_suite_1772865307_nonce. This note records one preference only: user prefers concise answers. Updated once.", "deprecated": 0, "created_at": "2026-03-07 06:36:17.801316"}
+guard_model=gemini-3.1-pro-preview
+guard_timed_out=False
+guard_stdout=gemini_suite_1772865307_guard
+BLOCKED notes://gemini_suite_1772865307
+guard_duplicate_created=False
+guard_create_output={"ok": false, "message": "Skipped: write_guard blocked create_memory (action=NOOP, method=embedding). suggested_target=notes://gemini_suite_1772865307", "created": false, "reason": "write_guard_blocked", "uri": "notes://gemini_suite_1772865307", "guard_action": "NOOP", "guard_reason": "semantic similarity 0.972 >= 0.920", "guard_method": "embedding", "guard_target_id": 31, "guard_target_uri": "notes://gemini_suite_1772865307"}
+guard_target_uri=notes://gemini_suite_1772865307
+guard_user_visible_block=True
+guard_followup=False
+guard_resolved_to_existing_target=False
 ```
 
 ### cursor
