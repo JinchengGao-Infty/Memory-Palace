@@ -251,7 +251,15 @@ npm run build              # 构建产物
 
 ---
 
-## 7. 后端测试失败
+## 7. 完整开发仓测试失败（用户仓可跳过）
+
+如果你使用的是公开用户仓，通常**不会附带 `tests/` 目录**。这时不需要卡在 pytest，先做最小运行检查：
+
+```bash
+curl -fsS http://127.0.0.1:8000/health
+```
+
+如果你使用的是完整开发仓，再运行：
 
 ```bash
 cd backend
@@ -263,7 +271,7 @@ pytest tests -q
 
 > **Windows PowerShell 用户**：`source` 命令不可用，使用 `.venv\Scripts\Activate.ps1` 激活虚拟环境。
 
-**快速定位技巧**：优先查看最近改动文件对应的测试集，再扩大全量回归：
+**完整开发仓快速定位技巧**：优先查看最近改动文件对应的测试集，再扩大全量回归：
 
 ```bash
 # 只运行特定测试文件
@@ -306,7 +314,7 @@ pytest tests -k "test_search" -q
    rm -f /path/to/demo.db.migrate.lock
    ```
 
-**对应的测试用例**：`backend/tests/test_migration_runner.py` 包含完整的迁移锁与超时场景测试。
+**维护期验证锚点**：如果你使用的是完整开发仓，`backend/tests/test_migration_runner.py` 覆盖了迁移锁与超时场景。
 
 ---
 
@@ -354,22 +362,30 @@ pytest tests -k "test_search" -q
 
 **现象**：前端请求后端 API 时浏览器报 CORS 错误。
 
-**说明**：开发环境下后端已配置允许所有 Origin（参见 `backend/main.py`）：
+**说明**：当前默认**不是允许所有 Origin**。后端在 `CORS_ALLOW_ORIGINS` 留空时，只放行本地常用来源：
 
 ```python
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+http://localhost:5173
+http://127.0.0.1:5173
+http://localhost:3000
+http://127.0.0.1:3000
 ```
 
 **如果仍然报错**，通常原因是：
 
 - 前端开发服务器的代理未正确配置（检查 `frontend/vite.config.js`）
 - Docker 部署时前端 Nginx 没有正确转发到后端（检查 `deploy/docker/nginx.conf`）
+- 你正在从一个**不在允许列表里的浏览器来源**访问后端
+
+**处理建议**：
+
+- 本地开发：
+  - 保持 `CORS_ALLOW_ORIGINS=` 留空即可
+- 生产浏览器访问：
+  - 把 `CORS_ALLOW_ORIGINS` 显式写成你的前端地址列表
+  - 例如：`CORS_ALLOW_ORIGINS=https://app.example.com,https://admin.example.com`
+- 不建议为了省事直接写 `*`
+  - 尤其是你还需要 credentials / cookie / auth 头的时候
 
 ---
 

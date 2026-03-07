@@ -36,7 +36,7 @@ memory-palace/
 │   │   ├── browse.py     # 记忆树浏览（GET /browse/node）
 │   │   ├── review.py     # 审查接口（/review/*）
 │   │   └── maintenance.py# 维护接口（/maintenance/*）
-│   └── tests/            # 测试与基准测试
+│   └── scripts/          # 启动、部署、仓库自检脚本
 ├── frontend/             # React + Vite + Tailwind Dashboard
 │   ├── package.json      # 版本 1.0.1
 │   └── vite.config.js    # 开发服务器 port 5173，代理到后端 8000
@@ -79,7 +79,7 @@ cp .env.example .env
 > **重要**：复制后必须修改 `.env` 中的 `DATABASE_URL`，将路径改为你的实际绝对路径。例如：
 >
 > ```
-> DATABASE_URL=sqlite+aiosqlite:////Users/yourname/memory-palace/memory_palace.db
+> DATABASE_URL=sqlite+aiosqlite:////absolute/path/to/memory_palace.db
 > ```
 
 也可以使用 Profile 脚本快速生成带有默认配置的 `.env`：
@@ -111,6 +111,8 @@ bash scripts/apply_profile.sh macos b
 | `RETRIEVAL_RERANKER_API_KEY` | Reranker API 密钥 | 空 |
 | `RETRIEVAL_RERANKER_MODEL` | Reranker 模型名 | `Qwen3-Reranker-8B` |
 | `INTENT_LLM_ENABLED` | 实验性意图 LLM 开关 | `false` |
+| `RETRIEVAL_MMR_ENABLED` | hybrid 检索下的去重 / 多样性重排 | `false` |
+| `RETRIEVAL_SQLITE_VEC_ENABLED` | sqlite-vec rollout 开关 | `false` |
 | `MCP_API_KEY` | HTTP/SSE 接口鉴权密钥 | 空（见下方鉴权说明） |
 | `MCP_API_KEY_ALLOW_INSECURE_LOCAL` | 本地调试时允许无 Key 访问（仅对 `127.0.0.1` 生效） | `false` |
 | `CORS_ALLOW_ORIGINS` | 允许跨域访问的来源列表（留空使用本地默认） | 空 |
@@ -120,7 +122,13 @@ bash scripts/apply_profile.sh macos b
 >
 > 配置语义说明：`RETRIEVAL_EMBEDDING_BACKEND` 只作用于 Embedding。Reranker 不存在 `RETRIEVAL_RERANKER_BACKEND` 开关，优先读取 `RETRIEVAL_RERANKER_*`，缺失时才回退 `ROUTER_*`（最后回退 `OPENAI_*` 的 base/key）。
 >
-> 更多高级选项（如 `INTENT_LLM_*`、`RETRIEVAL_MMR_*`、`CORS_ALLOW_*`、运行时观测/睡眠整合开关）已写在 `.env.example`，默认保持保守值，不影响最小启动路径。
+> 更多高级选项（如 `INTENT_LLM_*`、`RETRIEVAL_MMR_*`、`RETRIEVAL_SQLITE_VEC_*`、`CORS_ALLOW_*`、运行时观测/睡眠整合开关）已写在 `.env.example`，默认保持保守值，不影响最小启动路径。
+>
+> 推荐默认值（直接照抄通常没问题）：
+> - `INTENT_LLM_ENABLED=false`：先用内建关键词规则，少一层外部依赖
+> - `RETRIEVAL_MMR_ENABLED=false`：先看原始 hybrid 结果，只有“前几条太像”时再开
+> - `RETRIEVAL_SQLITE_VEC_ENABLED=false`：普通部署先保持 legacy 路径
+> - `CORS_ALLOW_ORIGINS=`：本地开发留空；要开放给浏览器跨域访问时再写明确域名
 >
 > 当前推荐模型：Embedding 使用 `Qwen3-Embedding-8B`，Reranker 使用 `Qwen3-Reranker-8B`；如需启用可选 LLM，推荐使用 `Qwen3.5-35B-A3B`。
 
@@ -204,7 +212,7 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 > ```
 >
 > - 这套命令只用于**本地排障**：你可以先确认 embedding / reranker / llm 哪一段不可达。
-> - 上线前必须回到 `runtime-env-mode none` 且不注入本地文件，再按目标环境复跑一次。
+> - 部署到目标环境前，必须回到 `runtime-env-mode none` 且不注入本地文件，再按目标环境复跑一次。
 >
 > **为什么当前本地建议这样配**：
 >
@@ -259,11 +267,13 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups
 .\scripts\backup_memory.ps1
 ```
 
-> 备份文件默认写入 `backups/`，该目录已加入仓库级 `.gitignore`，不会上传到 GitHub。
+> 备份文件默认写入 `backups/`。它属于运行期目录，通常只在你自己的机器上使用。
+>
+> 💡 如果你只是想做本地试验，建议把 `backups/` 也当成“只放自己机器上”的目录。
 
-### 4.2 哪些本地文件不会上传 GitHub
+### 4.2 哪些文件通常只在你自己的机器上使用
 
-当前仓库已经把以下典型本地产物放入 `Memory-Palace/.gitignore`：
+当前仓库已经把以下典型本地产物放入 `<repo-root>/.gitignore`：
 
 - 运行期数据库：`*.db`、`*.sqlite`、`*.sqlite3`
 - 本地缓存与临时目录：`.tmp/`、`backend/.pytest_cache/`
@@ -271,19 +281,30 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups
 - 日志与快照：`*.log`、`snapshots/`、`backups/`
 - 临时测试草稿：`frontend/src/*.tmp.test.jsx`
 - 维护期内部文档：`docs/improvement/`、`backend/docs/benchmark_*.md`
-- 一次性对照摘要：`docs/evaluation_old_vs_new_executive_summary_2026-03-05.md`
+- 一次性对照摘要：`docs/evaluation_old_vs_new_*.md`
 
-上传前建议执行：
+如果你准备把项目分享给别人、打包交付，或者只是想做一次环境自检，建议执行：
 
 ```bash
 bash scripts/pre_publish_check.sh
 ```
 
-它会检查本地敏感产物、数据库、日志、个人路径和 `.env.example` 占位项，帮助你确认哪些文件不该进入 GitHub。
+它会检查本地敏感产物、数据库、日志、个人路径和 `.env.example` 占位项，帮助你确认哪些内容更适合只留在当前机器上。
+
+如果你额外运行下面这些验证脚本：
+
+```bash
+python scripts/evaluate_memory_palace_skill.py
+backend/.venv/bin/python scripts/evaluate_memory_palace_mcp_e2e.py
+```
+
+脚本会分别在 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 和 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` 本地生成或更新摘要。这两份结果更适合当成你自己机器上的验证记录，而不是主说明文档。
 
 ---
 
 ## 5. 首次验证
+
+> 这里的检查以“先跑通系统”为主；如果你需要额外的本地 Markdown 验证摘要，再运行上面的验证脚本即可。
 
 ### 5.1 健康检查
 
@@ -452,7 +473,7 @@ MCP_API_KEY_ALLOW_INSECURE_LOCAL=true
 | 问题 | 原因与解决 |
 |---|---|
 | 启动后端时 `ModuleNotFoundError` | 未激活虚拟环境或未安装依赖。执行 `source .venv/bin/activate && pip install -r requirements.txt` |
-| `DATABASE_URL` 报错 | 路径必须是绝对路径且使用 `sqlite+aiosqlite:///` 前缀。macOS 示例：`sqlite+aiosqlite:////Users/you/memory_palace.db` |
+| `DATABASE_URL` 报错 | 路径必须是绝对路径且使用 `sqlite+aiosqlite:///` 前缀。示例：`sqlite+aiosqlite:////absolute/path/to/memory_palace.db` |
 | 前端访问 API 返回 `502` 或 `Network Error` | 确认后端已启动且运行在 `8000` 端口。检查 `vite.config.js` 中 proxy 目标与后端端口是否一致 |
 | 受保护接口返回 `401` | 配置 `MCP_API_KEY` 或设置 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true` |
 | Docker 启动端口冲突 | `docker_one_click.sh` 默认会自动寻找空闲端口。也可通过 `--frontend-port` / `--backend-port` 手动指定 |

@@ -54,8 +54,8 @@ Through the unified [MCP (Model Context Protocol)](https://modelcontextprotocol.
 </p>
 
 - **skills + MCP now feel productized**: installation, sync, smoke, and live e2e are all part of the documented path.
-- **Deployment is safer**: the Docker one-click scripts now use deployment locks, runtime env injection is opt-in, and there is a dedicated pre-publish check.
-- **High-noise retrieval is stronger**: compared with the old project, the C/D profiles improve recall in harder `s8,d200` and `s100,d200` style scenarios.
+- **Deployment is safer**: the Docker one-click scripts now use deployment locks, runtime env injection is opt-in, and there is a dedicated repository hygiene check before sharing or publishing your workspace.
+- **High-noise retrieval looks stronger in the current benchmark set**: compared with the old project, the C/D profiles show better recall in harder `s8,d200` and `s100,d200` style scenarios.
 - **Public claims are more conservative**: `macOS + Docker + pwsh-in-docker` equivalent Windows validation is done; native Windows / native `pwsh` is still pending.
 - **Client boundaries are explicit**: `Claude/Codex/OpenCode/Gemini` have documented paths; `Gemini live`, `Cursor`, and `Antigravity` still carry explicit caveats.
 
@@ -145,9 +145,9 @@ A React-powered dashboard with four views: **Memory Browser**, **Review & Rollba
 | Component | Technology | Version | Purpose |
 |---|---|---|---|
 | Web Framework | [FastAPI](https://fastapi.tiangolo.com/) | ≥ 0.109 | Async REST API with auto-generated OpenAPI docs |
-| ORM | [SQLAlchemy](https://www.sqlalchemy.org/) | ≥ 2.0 | Async ORM for SQLite with migration support |
+| ORM | [SQLAlchemy](https://www.sqlalchemy.org/) | ≥ 2.0 | Async ORM and query layer for SQLite; schema changes are handled by the repo migration runner |
 | Database | [SQLite](https://www.sqlite.org/) + aiosqlite | ≥ 0.19 | Zero-config embedded database; single file, portable |
-| MCP Protocol | `mcp.server.fastmcp` | ≥ 0.1 | Exposes 9 standardized tools via stdio / SSE transport |
+| MCP Protocol | `mcp (FastMCP)` | ≥ 0.1 | Exposes 9 standardized tools via stdio / SSE transport |
 | HTTP Client | [httpx](https://www.python-httpx.org/) | ≥ 0.26 | Async HTTP for embedding / reranker API calls |
 | Validation | [Pydantic](https://docs.pydantic.dev/) | ≥ 2.5 | Request/response validation and settings management |
 | Diff Engine | `diff_match_patch` | — | Google's diff algorithm for snapshot comparison |
@@ -161,6 +161,7 @@ A React-powered dashboard with four views: **Memory Browser**, **Review & Rollba
 | Styling | [Tailwind CSS](https://tailwindcss.com/) | 3.x | Utility-first CSS framework |
 | Animation | [Framer Motion](https://www.framer.com/motion/) | 12.x | Smooth page transitions and micro-interactions |
 | Routing | React Router DOM | 6.x | Client-side routing for four dashboard views |
+| API Client | [Axios](https://axios-http.com/) | 1.x | Dashboard API requests and auth header injection |
 | Markdown | react-markdown + remark-gfm | — | Renders memory content with GitHub Flavored Markdown |
 | Icons | [Lucide React](https://lucide.dev/) | — | Consistent icon set across all views |
 
@@ -207,8 +208,7 @@ memory-palace/
 │   ├── db/
 │   │   └── sqlite_client.py    # Schema definition, CRUD, retrieval, Write Guard, Gist
 │   ├── api/                    # REST routers: review, browse, maintenance
-│   └── tests/
-│       └── benchmark/          # 5 benchmark JSON files + test runners + helpers
+│   └── scripts/                # Launch helpers, profile tools, repo hygiene checks
 ├── frontend/
 │   └── src/
 │       ├── App.jsx             # Routing and page scaffold
@@ -274,10 +274,10 @@ Then open `.env` and set `DATABASE_URL` to an absolute path on your system:
 
 ```bash
 # Example for macOS / Linux:
-DATABASE_URL=sqlite+aiosqlite:////Users/yourname/Memory-Palace/demo.db
+DATABASE_URL=sqlite+aiosqlite:////absolute/path/to/demo.db
 
 # Example for Windows:
-DATABASE_URL=sqlite+aiosqlite:///C:/Users/yourname/Memory-Palace/demo.db
+DATABASE_URL=sqlite+aiosqlite:///C:/absolute/path/to/demo.db
 ```
 
 **Method B — Use the profile script (recommended):**
@@ -439,6 +439,12 @@ RETRIEVAL_RERANKER_WEIGHT=0.25
 > - `RETRIEVAL_EMBEDDING_BACKEND` controls only the embedding path.
 > - There is no `RETRIEVAL_RERANKER_BACKEND` switch; reranker activation is controlled by `RETRIEVAL_RERANKER_ENABLED`.
 > - Reranker connection settings are resolved from `RETRIEVAL_RERANKER_API_BASE/API_KEY/MODEL` first, and fall back to `ROUTER_*` only when missing (with base/key then able to fall back to `OPENAI_*`).
+>
+> Advanced switch guidance:
+> - `INTENT_LLM_ENABLED`: experimental; keep `false` unless you are validating a stable chat model and want better intent classification on ambiguous queries
+> - `RETRIEVAL_MMR_ENABLED`: keep `false` by default; turn it on only when hybrid results look too repetitive and you want more diversity in the top results
+> - `CORS_ALLOW_ORIGINS`: leave empty for local development; in production, set an explicit browser allowlist instead of using `*`
+> - `RETRIEVAL_SQLITE_VEC_ENABLED`: keep `false` for normal user deployments; this is still a rollout switch for sqlite-vec validation and fallback testing
 
 ### Optional: LLM-Powered Write Guard & Gist
 
@@ -523,35 +529,35 @@ The MCP tool layer handles **deterministic execution**; the Skills strategy laye
 
 | Client | Integration Method |
 |---|---|
-| Claude Code / Codex CLI / OpenCode | Prefer syncing `Memory-Palace/docs/skills/memory-palace` into the matching skills directory |
+| Claude Code / Codex CLI / OpenCode | Prefer syncing `docs/skills/memory-palace` into the matching skills directory |
 | Gemini CLI | Prefer a user-scope install (`install_skill.py --targets gemini --scope user --force`) |
 | Cursor / Antigravity / Trae | Workspace Rules / Project Instructions |
 
 ### Install The Skill
 
 ```bash
-python Memory-Palace/scripts/sync_memory_palace_skill.py
-python Memory-Palace/scripts/sync_memory_palace_skill.py --check
-python Memory-Palace/scripts/evaluate_memory_palace_skill.py
-Memory-Palace/backend/.venv/bin/python Memory-Palace/scripts/evaluate_memory_palace_mcp_e2e.py
-python Memory-Palace/scripts/install_skill.py --targets claude,codex,opencode,cursor,agent --scope workspace --force
-python Memory-Palace/scripts/install_skill.py --targets gemini --scope user --force
+python scripts/sync_memory_palace_skill.py
+python scripts/sync_memory_palace_skill.py --check
+python scripts/evaluate_memory_palace_skill.py
+backend/.venv/bin/python scripts/evaluate_memory_palace_mcp_e2e.py
+python scripts/install_skill.py --targets claude,codex,opencode,cursor,agent --scope workspace --force
+python scripts/install_skill.py --targets gemini --scope user --force
 ```
 
 For `Gemini CLI`, prefer a **user-scope** install for now:
 
 ```bash
-python Memory-Palace/scripts/install_skill.py --targets gemini --scope user --force
+python scripts/install_skill.py --targets gemini --scope user --force
 ```
 
 Current canonical and bundled mirrors:
 
-- Canonical: `Memory-Palace/docs/skills/memory-palace/`
-- Claude Code: `.claude/skills/memory-palace/`
-- Codex CLI: `.codex/skills/memory-palace/`
-- OpenCode: `.opencode/skills/memory-palace/`
-- Cursor: `.cursor/skills/memory-palace/`
-- Compatible agent CLI: `.agent/skills/memory-palace/`
+- Canonical: `<repo-root>/docs/skills/memory-palace/`
+- Claude Code: `<repo-root>/.claude/skills/memory-palace/`
+- Codex CLI: `<repo-root>/.codex/skills/memory-palace/`
+- OpenCode: `<repo-root>/.opencode/skills/memory-palace/`
+- Cursor: `<repo-root>/.cursor/skills/memory-palace/`
+- Compatible agent CLI: `<repo-root>/.agent/skills/memory-palace/`
 
 The canonical skill is aligned with the current code contract:
 
@@ -560,9 +566,9 @@ The canonical skill is aligned with the current code contract:
 - follow read-before-write discipline and inspect `guard_action` / `guard_reason`
 - check `index_status()` before deciding to run `rebuild_index(wait=true)`
 - when `guard_action=NOOP`, stop writing, inspect the suggested target, and only then decide whether to switch to `update_memory`
-- the trigger sample set lives at `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md`
+- the trigger sample set lives at `<repo-root>/docs/skills/memory-palace/references/trigger-samples.md`
 
-Live MCP end-to-end report: `Memory-Palace/docs/skills/MCP_LIVE_E2E_REPORT.md`
+If you want to re-check the live MCP path on your own machine, run `backend/.venv/bin/python scripts/evaluate_memory_palace_mcp_e2e.py`. It generates `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` locally by default.
 
 Full guide: [MEMORY_PALACE_SKILLS.md](docs/skills/MEMORY_PALACE_SKILLS.md)
 
@@ -570,13 +576,15 @@ Full guide: [MEMORY_PALACE_SKILLS.md](docs/skills/MEMORY_PALACE_SKILLS.md)
 
 ## 📊 Benchmark Results
 
-> This section keeps the **user-facing summary tables**. More detailed benchmark logs, one-off re-baseline notes, and machine-specific artifacts stay local by default and are not treated as public guarantees.
+> This section keeps the **user-facing summary tables** from the current public benchmark suite and local release runs. More detailed benchmark logs, one-off re-baseline notes, and machine-specific artifacts stay local by default and are not treated as public guarantees or universal outcomes.
 >
-> For methodology, caveats, and reproduction commands, see `docs/EVALUATION.md`. For the old-vs-new release delta, see `docs/changelog/release_summary_vs_old_project_2026-03-06.md`.
+> For methodology, caveats, and reproduction commands, see `docs/EVALUATION.md`. For the same-setup old-vs-current summary used in this release note, see `docs/changelog/release_summary_vs_old_project_2026-03-06.md`.
 
 ### Retrieval Quality — A/B/C/D Real Run
 
 Source: `profile_abcd_real_metrics.json` · Sample size = 8 per dataset · 10 distractor documents · Seed = 20260219
+
+> 📌 These numbers summarize one current release run. Hardware, provider, and model differences may change outcomes.
 
 > 📌 How to read these metrics:
 >
@@ -598,7 +606,7 @@ Source: `profile_abcd_real_metrics.json` · Sample size = 8 per dataset · 10 di
 | **D** | **SQuAD v2** | **1.000** | **1.000** | **1.000** | 2078.38 | ✅ PASS |
 | D | NFCorpus | 0.750 | 0.650 | 0.673 | 2364.97 | ✅ PASS |
 
-> 💡 Profiles C/D achieve perfect recall on SQuAD v2 through external Embedding (bge-m3) + Reranker (bge-reranker-v2-m3). The additional latency comes from model inference and network overhead.
+> 💡 In the current SQuAD v2 run, profiles C/D reach perfect recall through external Embedding (bge-m3) + Reranker (bge-reranker-v2-m3). The additional latency comes from model inference and network overhead.
 
 ### Retrieval Quality — A/B Large-Sample Gate
 
@@ -613,9 +621,9 @@ Source: `profile_ab_metrics.json` · Sample size = 100
 | B | BEIR NFCorpus | 1.000 | 0.828 | 0.850 | 4.7 |
 | B | SQuAD v2 | 1.000 | 0.765 | 0.822 | 3.9 |
 
-> ⚠️ The A/B/C/D numbers above are mainly here to help you understand the **profile differences**.
+> ⚠️ The A/B/C/D numbers above are mainly here to help you understand the **profile differences** in the current benchmark set.
 >
-> If you want to see “**how much the current version improved over the old one**”, do not use the old baseline chart. Go straight to:
+> If you want to see the **same-setup old-vs-current comparison** used in this release note, go straight to:
 >
 > - `docs/EVALUATION.md` → `3.5 Old vs Current Version (Same-Setup Summary)`
 > - `docs/changelog/release_summary_vs_old_project_2026-03-06.md`
@@ -624,7 +632,7 @@ Source: `profile_ab_metrics.json` · Sample size = 100
   <img src="docs/images/benchmark_comparison.png" width="900" alt="Old vs Current benchmark comparison" />
 </p>
 
-> 📈 This chart shows the **old vs current** comparison under the same setup. It is not the old A/B/C/D profile baseline chart.
+> 📈 This chart shows one **old vs current** comparison snapshot under the same setup. It is not the old A/B/C/D profile baseline chart, and it should not be read as a blanket guarantee for every environment.
 
 ### Quality Gates Summary
 
@@ -648,22 +656,23 @@ Source: `profile_ab_metrics.json` · Sample size = 100
 > - **Intent Classification** checks whether the system understands what kind of query it is before retrieval
 > - **ROUGE-L** checks whether the compressed gist still keeps the key meaning
 
-### Reproducing Benchmarks
+### Benchmark Reproduction Notes
+
+The user-facing project package does **not** bundle the internal
+`tests/benchmark` harness.
+
+These tables are kept as a **published summary** of project validation runs.
+
+If you are using the user-facing repo, the practical re-check flow is:
 
 ```bash
-cd backend
-source .venv/bin/activate
-
-# Run all benchmarks
-pytest tests/benchmark -q
-
-# Specific gate tests
-pytest tests/benchmark/test_benchmark_public_datasets_profiles.py -q -k small_gate
-pytest tests/benchmark/test_write_guard_quality_metrics.py -q
-pytest tests/benchmark/test_intent_accuracy_metrics.py -q
-pytest tests/benchmark/test_compact_context_gist_quality.py -q
-pytest tests/benchmark/test_search_memory_contract_regression.py -q
+bash scripts/pre_publish_check.sh
+curl -fsS http://127.0.0.1:8000/health
 ```
+
+If you are working in a full development workspace that still includes benchmark
+artifacts and runners are handled there as internal validation material rather
+than part of the public user package.
 
 ---
 

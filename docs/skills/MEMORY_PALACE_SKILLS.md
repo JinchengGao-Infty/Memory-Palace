@@ -5,7 +5,7 @@
 当前单一真源位于：
 
 ```text
-Memory-Palace/docs/skills/memory-palace/
+docs/skills/memory-palace/
 ├── SKILL.md
 ├── references/
 │   ├── mcp-workflow.md
@@ -20,13 +20,13 @@ Memory-Palace/docs/skills/memory-palace/
 分发脚本位于：
 
 ```text
-Memory-Palace/scripts/sync_memory_palace_skill.py
+scripts/sync_memory_palace_skill.py
 ```
 
 安装脚本位于：
 
 ```text
-Memory-Palace/scripts/install_skill.py
+scripts/install_skill.py
 ```
 
 ## 0. 与 Claude Skills 规范的对齐结论（2026-03-07）
@@ -130,7 +130,7 @@ Gemini 端当前有一个已知边界：
 - 让 `description` 优化有固定对照组，而不是凭感觉改
 - 给后续 trigger regression / human review 留下统一输入集
 
-### `Memory-Palace/scripts/sync_memory_palace_skill.py`
+### `scripts/sync_memory_palace_skill.py`
 
 负责：
 
@@ -138,7 +138,7 @@ Gemini 端当前有一个已知边界：
 - 检查 mirrors 是否漂移
 - 当前工作区镜像包括 `.claude`、`.codex`、`.opencode`、`.cursor`、`.agent`
 
-### `Memory-Palace/scripts/install_skill.py`
+### `scripts/install_skill.py`
 
 负责：
 
@@ -226,9 +226,9 @@ search_memory(query="...", include_session=True)
 
 1. 先改 `description`
 2. 再改 `SKILL.md` 正文
-3. 运行 `python Memory-Palace/scripts/sync_memory_palace_skill.py --check`
-4. 再跑 `python Memory-Palace/scripts/evaluate_memory_palace_skill.py`
-5. 再跑 `Memory-Palace/backend/.venv/bin/python Memory-Palace/scripts/evaluate_memory_palace_mcp_e2e.py`
+3. 运行 `python scripts/sync_memory_palace_skill.py --check`
+4. 再跑 `python scripts/evaluate_memory_palace_skill.py`
+5. 再跑 `backend/.venv/bin/python scripts/evaluate_memory_palace_mcp_e2e.py`
 6. 再跑 `bash new/run_post_change_checks.sh`
 7. 只在确实需要时继续扩 `references/`
 
@@ -285,7 +285,7 @@ search_memory(query="...", include_session=True)
 
 因此 canonical `SKILL.md` 现在统一要求：
 
-- 引用参考文件时，优先打开 `Memory-Palace/docs/skills/memory-palace/...`
+- 引用参考文件时，优先打开 `docs/skills/memory-palace/...`
 - 不把 hidden mirror 路径当作默认参考路径
 
 这样做的收益是：

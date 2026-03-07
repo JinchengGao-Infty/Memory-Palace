@@ -25,7 +25,7 @@
 当前 canonical skill 在：
 
 ```text
-Memory-Palace/docs/skills/memory-palace/
+docs/skills/memory-palace/
 ```
 
 这里维护的是：
@@ -49,8 +49,8 @@ Memory-Palace/docs/skills/memory-palace/
 ## 2. 第一步：先同步 repo-local mirrors
 
 ```bash
-python Memory-Palace/scripts/sync_memory_palace_skill.py
-python Memory-Palace/scripts/sync_memory_palace_skill.py --check
+python scripts/sync_memory_palace_skill.py
+python scripts/sync_memory_palace_skill.py --check
 ```
 
 这一步只解决 **skill 自动发现**，还没解决 MCP。
@@ -69,7 +69,7 @@ python Memory-Palace/scripts/sync_memory_palace_skill.py --check
 ### 推荐命令
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope workspace \
   --with-mcp \
@@ -79,7 +79,7 @@ python Memory-Palace/scripts/install_skill.py \
 检查：
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope workspace \
   --with-mcp \
@@ -105,7 +105,7 @@ python Memory-Palace/scripts/install_skill.py \
 如果你想让你自己的 `Codex/OpenCode` 明确连到这个仓库，执行：
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope user \
   --with-mcp \
@@ -115,7 +115,7 @@ python Memory-Palace/scripts/install_skill.py \
 检查：
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope user \
   --with-mcp \
@@ -151,7 +151,7 @@ python Memory-Palace/scripts/install_skill.py \
 
 - **workspace 入口已经就位**
 - 如果你想更稳，或者准备跨仓复用，再补一次 `--scope user --with-mcp`
-- 对外口径仍建议保守：公开 smoke 已通过，但 `gemini_live` 还没有到“完全通过”的程度
+- 写给别人看时仍建议保守：smoke 已通过，但 `gemini_live` 还没有到“完全通过”的程度
 
 ### Codex CLI
 
@@ -184,13 +184,13 @@ python Memory-Palace/scripts/install_skill.py \
 ### 安装链检查
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope workspace \
   --with-mcp \
   --check
 
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope user \
   --with-mcp \
@@ -200,27 +200,29 @@ python Memory-Palace/scripts/install_skill.py \
 ### 触发 smoke
 
 ```bash
-python Memory-Palace/scripts/evaluate_memory_palace_skill.py
+python scripts/evaluate_memory_palace_skill.py
 ```
 
-报告：
+这条命令会在本地生成脱敏 smoke 摘要：
 
 ```text
-Memory-Palace/docs/skills/TRIGGER_SMOKE_REPORT.md
+docs/skills/TRIGGER_SMOKE_REPORT.md
 ```
 
 ### 真实 MCP 调用链
 
 ```bash
-Memory-Palace/backend/.venv/bin/python \
-  Memory-Palace/scripts/evaluate_memory_palace_mcp_e2e.py
+backend/.venv/bin/python \
+  scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
-报告：
+这条命令会在本地生成真实 MCP e2e 摘要：
 
 ```text
-Memory-Palace/docs/skills/MCP_LIVE_E2E_REPORT.md
+docs/skills/MCP_LIVE_E2E_REPORT.md
 ```
+
+这两份报告默认建议留在你自己的机器上，不把它们当成主入口文档。
 
 ---
 
@@ -239,7 +241,7 @@ For this repository's memory-palace skill, answer with exactly three bullets:
 
 - `read_memory("system://boot")`
 - `NOOP = stop + inspect guard_target_uri / guard_target_id`
-- `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md`
+- `docs/skills/memory-palace/references/trigger-samples.md`
 
 反向 prompt：
 
@@ -284,8 +286,8 @@ For this repository's memory-palace skill, answer with exactly three bullets:
 所以统一优先引用 repo-visible 路径：
 
 ```text
-Memory-Palace/docs/skills/memory-palace/references/mcp-workflow.md
-Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md
+docs/skills/memory-palace/references/mcp-workflow.md
+docs/skills/memory-palace/references/trigger-samples.md
 ```
 
 ---
@@ -293,5 +295,5 @@ Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md
 ## 9. 下一份该看什么
 
 - 想看四端口径：`CLI_COMPATIBILITY_GUIDE.md`
-- 想确认现在通没通：`TRIGGER_SMOKE_REPORT.md`
-- 想看真实 MCP e2e：`MCP_LIVE_E2E_REPORT.md`
+- 想本地复核 skill 触发结果：先跑 `python scripts/evaluate_memory_palace_skill.py`
+- 想本地复核真实 MCP e2e：先跑 `backend/.venv/bin/python scripts/evaluate_memory_palace_mcp_e2e.py`

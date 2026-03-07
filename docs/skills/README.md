@@ -27,24 +27,21 @@
 - `CLI_COMPATIBILITY_GUIDE.md`
   - 面向多 CLI 接入场景
   - 重点看 Claude / Gemini / Codex / OpenCode 的差异
-- `CLAUDE_SKILLS_AUDIT.md`
-  - 面向规范对齐与审计
-  - 重点看它和 Claude 官方 skill 规范有哪些对齐点
 
 ---
 
-## 报告类文档怎么理解
+## 本地验证产物怎么理解
 
 - `TRIGGER_SMOKE_REPORT.md`
-  - 看“这轮 smoke 到底过了什么、边界在哪”
+  - 运行 `python scripts/evaluate_memory_palace_skill.py` 后在本地生成
 - `MCP_LIVE_E2E_REPORT.md`
-  - 看“真实 MCP 调用链有没有跑通”
+  - 运行 `backend/.venv/bin/python scripts/evaluate_memory_palace_mcp_e2e.py` 后在本地生成
 
 它们的定位是：
 
-- **报告当前状态**
-- **不替代使用说明**
-- **也不等于所有客户端都已经完全开箱即用**
+- **报告当前机器上的验证结果**
+- **帮助你本地复核**
+- **默认不当成主说明入口文档**
 
 ---
 

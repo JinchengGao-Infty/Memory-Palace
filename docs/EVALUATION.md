@@ -1,6 +1,6 @@
 # Memory Palace 评测结果
 
-本文档汇总 Memory Palace 各档位（A/B/C/D）的检索质量、延迟与语义质量门禁测试结果。公开仓保留**摘要表 + 复现命令**；机器相关的原始 benchmark 日志和阶段性重测草稿默认只保存在本地。
+本文档汇总 Memory Palace 各档位（A/B/C/D）的检索质量、延迟与语义质量门禁测试结果。这里保留**摘要表 + 复核说明**；机器相关的原始 benchmark 日志、`tests/benchmark` 脚手架和阶段性重测草稿默认只在开发阶段或本地使用。
 
 > 状态说明（2026-03）：本页主要保留 2026-02 的公开基线表格，便于用户理解档位差异；当前发布口径请同时参考 `docs/changelog/release_summary_vs_old_project_2026-03-06.md`。
 
@@ -8,13 +8,11 @@
 
 ## 1. 数据来源
 
-| 产物文件 | 说明 |
+| 来源 | 说明 |
 |---|---|
-| `backend/tests/benchmark/profile_ab_metrics.json` | A/B/CD 小样本门禁检索指标 |
-| `backend/tests/benchmark/profile_abcd_real_metrics.json` | A/B/C/D 真实运行检索指标 |
-| `backend/tests/benchmark/write_guard_quality_metrics.json` | Write Guard 准确率 |
-| `backend/tests/benchmark/intent_accuracy_metrics.json` | Intent 分类准确率 |
-| `backend/tests/benchmark/compact_context_gist_quality_metrics.json` | Gist 质量（ROUGE-L） |
+| 本页公开摘要表 | 面向用户保留的 A/B/C/D 关键指标和门禁结果 |
+| 维护期 benchmark 产物 | 用于生成公开摘要；默认不随用户仓分发 |
+| 发布对比摘要 | `docs/changelog/release_summary_vs_old_project_2026-03-06.md` |
 
 > 数据生成时间：`2026-02-19T06:55:30+00:00`（门禁）/ `2026-02-18T21:22:48+00:00`（真实运行）
 
@@ -82,7 +80,7 @@
 
 ## 3.5 旧版 vs 当前版本（同口径摘要）
 
-下面这组数字来自一轮**同口径旧新对照复核**。公开仓只保留摘要，不保留带本机路径的原始对照记录。
+下面这组数字来自一轮**同口径旧新对照复核**。这里保留摘要，不保留带本机路径的原始对照记录。
 
 ![旧版 vs 当前版本检索质量与延迟对比图](images/benchmark_comparison.png)
 
@@ -226,37 +224,18 @@
 
 ---
 
-## 5. 如何复现
+## 5. 如何复核当前公开口径
 
-### 全量基准测试
+当前这份面向用户的项目内容**不附带 `tests/benchmark` 评测脚手架**，因此不能直接从日常使用包里重跑完整 benchmark。
 
-```bash
-cd backend
-source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
-pytest tests/benchmark -q
-```
-
-### 定向门禁测试
+如果你只是想确认当前安装状态，建议使用下面这组最小检查：
 
 ```bash
-# A/B/CD 小样本门禁
-pytest tests/benchmark/test_benchmark_public_datasets_profiles.py -q -k small_gate
-
-# 检索契约回归
-pytest tests/benchmark/test_search_memory_contract_regression.py -q
-
-# 真实 A/B/C/D 运行（需配置 embedding/reranker API）
-pytest tests/benchmark/test_profile_abcd_real_runner.py -q
-
-# Write Guard 质量门禁
-pytest tests/benchmark/test_write_guard_quality_metrics.py -q
-
-# Intent 分类准确率
-pytest tests/benchmark/test_intent_accuracy_metrics.py -q
-
-# Gist 质量门禁
-pytest tests/benchmark/test_compact_context_gist_quality.py -q
+bash scripts/pre_publish_check.sh
+curl -fsS http://127.0.0.1:8000/health
 ```
+
+如果你需要完整 benchmark runners、原始 JSON 产物或更细的门控脚本，那属于维护阶段验证材料，默认只在完整开发工作区里使用，不作为公开用户仓承诺的一部分。
 
 ---
 

@@ -8,7 +8,7 @@
 > 说明：
 >
 > - 本文只写**已落地、已验证**的内容。
-> - 原始 benchmark 日志、阶段性重测草稿和维护笔记默认本地保留；这里保留的是对外可读的结论版。
+> - 原始 benchmark 日志、阶段性重测草稿和维护笔记默认只在维护阶段使用；这里保留的是可直接阅读的结论版。
 > - Windows 口径当前仅完成 `pwsh-in-docker` 等效验证，**未完成原生 Windows / native `pwsh` 终验**。
 
 ---
@@ -67,7 +67,7 @@
   - `s8,d200`：C 的 `HR@10` 从 `0.313` 提到 `0.563`，D 从 `0.375` 提到 `0.625`
   - `s100,d200`：C 的 `HR@10` 从 `0.280` 提到 `0.580`，D 从 `0.295` 提到 `0.615`
 - `s8,d10 / s8,d200 / s100,d200` 里的 `s` 是样本量，`d` 是干扰文档数量；`d` 越大，说明场景越难。
-- 公开仓只保留摘要数字；详细重测工作笔记默认本地保留。
+- 这里只保留摘要数字；详细重测工作笔记默认只在维护阶段使用。
 
 ### 3.2 延迟观察
 
@@ -115,7 +115,7 @@
 ### 3.4 部署与发布
 
 - 旧版更像“能起服务”；新版更强调“能稳定发布”。
-- 发布前现在有 `scripts/pre_publish_check.sh` 做仓库卫生检查。
+- 现在有 `scripts/pre_publish_check.sh` 做分享或发布前的仓库卫生检查。
 - 更大的变更后还可以走 `new/run_post_change_checks.sh` 做统一门禁。
 
 ### 3.5 客户端接入
@@ -174,6 +174,6 @@
 - `skills/MCP` 安装与同步：`scripts/install_skill.py`、`scripts/sync_memory_palace_skill.py`
 - live MCP e2e：`scripts/evaluate_memory_palace_mcp_e2e.py`、`backend/tests/test_mcp_stdio_e2e.py`
 - 部署锁：`scripts/docker_one_click.sh`、`scripts/docker_one_click.ps1`
-- 发布前检查：`scripts/pre_publish_check.sh`
+- 分享或发布前自检：`scripts/pre_publish_check.sh`
 - benchmark 隔离：`backend/tests/benchmark/helpers/profile_abcd_real_runner.py`
 - review 错误语义：`backend/api/review.py`

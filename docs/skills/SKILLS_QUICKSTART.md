@@ -68,7 +68,7 @@
 | `.gemini/skills/memory-palace/SKILL.md` | Gemini 的 repo-local skill 入口 |
 | `.gemini/settings.json` | Gemini 的项目级 MCP 配置 |
 | `.claude/settings.json` | Claude Code 的项目级 allowlist，允许 `memory-palace` 工具免确认调用 |
-| `Memory-Palace/docs/skills/memory-palace/` | canonical skill 真源 |
+| `docs/skills/memory-palace/` | canonical skill 真源 |
 
 所以：
 
@@ -126,7 +126,7 @@ gemini mcp list
 如果你想把这套能力带到**别的仓库**复用，再执行：
 
 ```bash
-python Memory-Palace/scripts/install_skill.py --targets gemini --scope user --force
+python scripts/install_skill.py --targets gemini --scope user --force
 ```
 
 这一步属于“跨仓复用”，不是“当前仓库最小可用”的必需步骤。
@@ -147,7 +147,7 @@ python Memory-Palace/scripts/install_skill.py --targets gemini --scope user --fo
 
 ```bash
 gemini mcp remove memory-palace
-gemini mcp add -s project -e DATABASE_URL=sqlite+aiosqlite:////<repo-root>/Memory-Palace/backend/memory.db memory-palace /bin/zsh -lc 'cd <repo-root>/Memory-Palace/backend && source .venv/bin/activate && RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py'
+gemini mcp add -s project -e DATABASE_URL=sqlite+aiosqlite:////<repo-root>/backend/memory.db memory-palace /bin/zsh -lc 'cd <repo-root>/backend && source .venv/bin/activate && RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py'
 ```
 
 > 把上面的 `<repo-root>` 替换成你的实际仓库根目录。
@@ -170,8 +170,8 @@ gemini mcp add -s project -e DATABASE_URL=sqlite+aiosqlite:////<repo-root>/Memor
 
 ```bash
 codex mcp add memory-palace \
-  --env DATABASE_URL=sqlite+aiosqlite:////ABS/PATH/TO/REPO/Memory-Palace/backend/memory.db \
-  -- /bin/zsh -lc 'cd /ABS/PATH/TO/REPO/Memory-Palace/backend && source .venv/bin/activate && RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py'
+  --env DATABASE_URL=sqlite+aiosqlite:////ABS/PATH/TO/REPO/backend/memory.db \
+  -- /bin/zsh -lc 'cd /ABS/PATH/TO/REPO/backend && source .venv/bin/activate && RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py'
 ```
 
 然后检查：
@@ -212,7 +212,7 @@ type: local / stdio
 command: /bin/zsh
 args:
   - -lc
-  - cd <repo-root>/Memory-Palace/backend && source .venv/bin/activate && DATABASE_URL=sqlite+aiosqlite:///$PWD/memory.db RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py
+  - cd <repo-root>/backend && source .venv/bin/activate && DATABASE_URL=sqlite+aiosqlite:///$PWD/memory.db RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py
 ```
 
 不同版本的 `OpenCode` 交互入口可能长得不一样，但要填的本质就是这几项。
@@ -248,25 +248,27 @@ args:
 先看 skill 镜像有没有漂移：
 
 ```bash
-python Memory-Palace/scripts/sync_memory_palace_skill.py --check
+python scripts/sync_memory_palace_skill.py --check
 ```
 
 再看四端 smoke：
 
 ```bash
-python Memory-Palace/scripts/evaluate_memory_palace_skill.py
+python scripts/evaluate_memory_palace_skill.py
 ```
 
 再看真实 MCP 调用链：
 
 ```bash
-Memory-Palace/backend/.venv/bin/python Memory-Palace/scripts/evaluate_memory_palace_mcp_e2e.py
+backend/.venv/bin/python scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
-对应报告：
+这两条脚本都会在本地生成验证报告：
 
-- `Memory-Palace/docs/skills/TRIGGER_SMOKE_REPORT.md`（脱敏后的 smoke 摘要）
-- `Memory-Palace/docs/skills/MCP_LIVE_E2E_REPORT.md`
+- `docs/skills/TRIGGER_SMOKE_REPORT.md`（脱敏后的 smoke 摘要）
+- `docs/skills/MCP_LIVE_E2E_REPORT.md`
+
+默认建议把它们当成你自己机器上的复核产物，不把它们当成主入口文档。
 
 ---
 
@@ -308,7 +310,7 @@ Gemini 对隐藏目录有时更保守，所以这个仓库才同时补了：
 如果你只想先验证现在是不是通的，就盯住这 3 条命令：
 
 ```bash
-python Memory-Palace/scripts/sync_memory_palace_skill.py --check
-python Memory-Palace/scripts/evaluate_memory_palace_skill.py
-Memory-Palace/backend/.venv/bin/python Memory-Palace/scripts/evaluate_memory_palace_mcp_e2e.py
+python scripts/sync_memory_palace_skill.py --check
+python scripts/evaluate_memory_palace_skill.py
+backend/.venv/bin/python scripts/evaluate_memory_palace_mcp_e2e.py
 ```

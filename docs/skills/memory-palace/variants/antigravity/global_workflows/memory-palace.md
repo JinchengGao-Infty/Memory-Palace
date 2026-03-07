@@ -13,8 +13,8 @@ description: 'Memory Palace durable-memory workflow: boot, recall, inspect, muta
 ## Inputs
 
 - User request: `$ARGUMENTS`
-- Repo-local workflow reference: `Memory-Palace/docs/skills/memory-palace/references/mcp-workflow.md`
-- Repo-local trigger samples: `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md`
+- Repo-local workflow reference: `docs/skills/memory-palace/references/mcp-workflow.md`
+- Repo-local trigger samples: `docs/skills/memory-palace/references/trigger-samples.md`
 
 ## Execution
 
@@ -30,7 +30,7 @@ description: 'Memory Palace durable-memory workflow: boot, recall, inspect, muta
 
 - The answer or action flow mentions `read_memory("system://boot")` when applicable.
 - `NOOP` is treated as stop-and-inspect, not “continue normally”.
-- Trigger sample path is reported as `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md`.
+- Trigger sample path is reported as `docs/skills/memory-palace/references/trigger-samples.md`.
 - Repo-local references are preferred over hidden mirror-relative paths.
 
 ## Output

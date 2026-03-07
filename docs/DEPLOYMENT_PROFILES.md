@@ -155,7 +155,7 @@ RETRIEVAL_RERANKER_WEIGHT=0.35                     # 远程推荐略高
 >
 > **回切提醒**：本地开发阶段若临时改为 `RETRIEVAL_EMBEDDING_BACKEND=api`，在客户部署前需按目标环境恢复（通常恢复为模板中的 `router` 口径），并重新验证 C/D profile 烟测。
 
-上线前回切 `router` 标准 SOP（固定模板）：
+目标环境部署前回切 `router` 标准 SOP（固定模板）：
 
 ```bash
 # 以下命令在仓库根目录（clawanti）执行
@@ -169,16 +169,16 @@ bash new/run_post_change_checks.sh --with-docker --docker-profile d --skip-sse -
 # 2) 必做：确认模板仍为 router 默认（不允许被开发联调改写）
 bash new/run_post_change_checks.sh --skip-frontend --skip-sse
 
-# 3) 必做：发布前回切 router 口径复验（不加载本地 runtime 覆盖/不注入）
+# 3) 必做：目标环境部署前回切 router 口径复验（不加载本地 runtime 覆盖/不注入）
 bash new/run_post_change_checks.sh --with-docker --docker-profile c --skip-sse --runtime-env-mode none
 bash new/run_post_change_checks.sh --with-docker --docker-profile d --skip-sse --runtime-env-mode none
 ```
 
 结果判定口径：
 
-1. 第 1 步通过，只说明“本地 API 联调链路可用”，不代表发布口径通过。
-2. 第 3 步通过，才代表“router 发布口径通过”。
-3. 若第 3 步在占位 endpoint/key 下失败（常见为 `deployment.docker.smoke`），属于预期 fail-closed；上线前必须替换为客户可用 router/key 后重跑通过。
+1. 第 1 步通过，只说明“本地 API 联调链路可用”，不代表目标环境部署口径通过。
+2. 第 3 步通过，才代表“router 目标环境部署口径通过”。
+3. 若第 3 步在占位 endpoint/key 下失败（常见为 `deployment.docker.smoke`），属于预期 fail-closed；在目标环境部署前必须替换为客户可用 router/key 后重跑通过。
 
 ### 推荐模型选型
 
@@ -226,6 +226,20 @@ INTENT_LLM_MODEL=Qwen3.5-35B-A3B
 > **补充说明**：`INTENT_LLM_*` 为实验性能力，关闭或不可用时会直接回退关键词规则，不影响默认检索路径。
 >
 > **完整高级配置**：`CORS_ALLOW_*`、`RETRIEVAL_MMR_*`、`INDEX_LITE_ENABLED`、`AUDIT_VERBOSE`、运行时观测/睡眠整合上限等不在本节逐项展开，统一以 `.env.example` 为准。
+>
+> **开启建议（推荐直接照这个来）**：
+> - `INTENT_LLM_ENABLED=false`
+>   - 适合默认生产 / 默认用户部署
+>   - 只有在你已经有稳定 chat 模型、并且想增强模糊查询意图分类时再试
+> - `RETRIEVAL_MMR_ENABLED=false`
+>   - 默认先关
+>   - 只有当 hybrid 检索前几条结果重复度明显偏高时，再打开看效果
+> - `CORS_ALLOW_ORIGINS=`
+>   - 本地开发建议留空，直接使用内建本地白名单
+>   - 生产浏览器访问请显式写允许域名，不建议直接用 `*`
+> - `RETRIEVAL_SQLITE_VEC_ENABLED=false`
+>   - 当前仍属于 rollout 开关
+>   - 普通用户部署默认不建议开；只有在维护阶段验证扩展路径、readiness 和回退链路时再启用
 
 ---
 
@@ -256,7 +270,7 @@ cd <project-root>
 
 > `apply_profile.ps1` 现已对 **所有重复 env key** 做“保留最后值”的统一去重，不再只处理 `DATABASE_URL`。
 >
-> 原生 Windows / `pwsh` 仍建议在目标环境单独补跑一次，不建议把内部检查清单直接当公开交付文档。
+> 原生 Windows / `pwsh` 仍建议在目标环境单独补跑一次；这些步骤面向部署补验，不建议和新手入口文档混在一起读。
 >
 > `docker_one_click.sh/.ps1` 默认会为每次运行生成独立的临时 Docker env 文件，并通过 `MEMORY_PALACE_DOCKER_ENV_FILE` 传给 `docker compose`；只有显式设置该环境变量时才会复用指定路径，而不是固定共享 `.env.docker`。
 >
@@ -459,7 +473,7 @@ rg -n "RETRIEVAL_EMBEDDING_MODEL|RETRIEVAL_RERANKER_MODEL|WRITE_GUARD_LLM_MODEL|
 - 本轮已修复 `apply_profile` 只去重 `DATABASE_URL` 的问题；`scripts/apply_profile.sh` 与 `scripts/apply_profile.ps1` 现在都会对重复 env key 做统一去重。
 - 本机无原生 `pwsh` 时，可先参考 `pwsh-in-docker` 等效 smoke；当前 `arm64` 宿主若无法可靠运行该 helper，应记录为 `SKIP`（等效 smoke 跳过），而不是 `FAIL` 或 native Windows 终验通过。
 - 若要形成最终 Windows 交付证据，仍建议在原生 Windows / 原生 `pwsh` 环境补跑一次专项验证。
-- 公开仓只保留结论口径；详细逐项检查建议在目标 Windows 环境单独记录。
+- 主文档这里只保留结论口径；详细逐项检查建议在目标 Windows 环境单独记录。
 
 ### 调参提示
 

@@ -42,7 +42,7 @@ backend/
 ├── models/
 │   ├── __init__.py        # 模型导出
 │   └── schemas.py         # Pydantic 数据模型定义
-└── tests/                 # 测试与基准测试（含 benchmark/ 目录）
+└── scripts/               # 启动脚本、profile 应用、一键部署与仓库自检
 ```
 
 ### 核心模块说明
@@ -256,6 +256,9 @@ frontend/src/
 >
 > **配置策略说明**：
 > - 本项目支持两种思路：`1)` 分别直配 embedding / reranker / llm；`2)` 通过 `router` 统一代理这些能力。
+> - `INTENT_LLM_ENABLED` 默认关闭；开启后会优先尝试 LLM 意图分类，失败则回退到现有关键词规则。
+> - `RETRIEVAL_MMR_ENABLED` 默认关闭；只有 `hybrid` 检索下才会做去重 / 多样性重排。
+> - `RETRIEVAL_SQLITE_VEC_ENABLED` 默认关闭；当前仍保留 legacy 向量路径为默认实现，sqlite-vec 走受控 rollout。
 > - 本地开发默认更推荐前者，因为三条链路的故障通常彼此独立，分别配置更容易确认是哪一个模型、哪个端点或哪组密钥出了问题。
 > - `router` 更适合作为生产 / 客户环境的统一入口：便于集中做鉴权、限流、审计、模型切换与 fallback 编排。
 
@@ -282,7 +285,7 @@ Docker 端口环境变量：
 - Nginx 配置：`deploy/docker/nginx.conf`
 - 入口脚本：`deploy/docker/backend-entrypoint.sh`
 - 备份脚本：`scripts/backup_memory.sh`、`scripts/backup_memory.ps1`
-- 上传前检查：`scripts/pre_publish_check.sh`
+- 分享前检查：`scripts/pre_publish_check.sh`
 
 ---
 

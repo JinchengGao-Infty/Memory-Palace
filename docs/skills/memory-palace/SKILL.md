@@ -21,7 +21,7 @@ Use this skill whenever a task involves the Memory Palace memory system itself.
 
 ## Preparation before choosing tools
 
-- Read `Memory-Palace/docs/skills/memory-palace/references/mcp-workflow.md` before choosing tools.
+- Read `docs/skills/memory-palace/references/mcp-workflow.md` before choosing tools.
 - If the user is asking about Memory Palace behavior, workflow, or trigger rules, consult the repo-local references before answering from memory.
 - If the request is ambiguous, map it to the smallest safe workflow instead of chaining tools blindly.
 
@@ -72,7 +72,7 @@ Use this skill whenever a task involves the Memory Palace memory system itself.
 
 ## When to open the reference
 
-Open `Memory-Palace/docs/skills/memory-palace/references/mcp-workflow.md` when you need:
+Open `docs/skills/memory-palace/references/mcp-workflow.md` when you need:
 
 - exact tool selection rules
 - write-guard handling
@@ -80,13 +80,13 @@ Open `Memory-Palace/docs/skills/memory-palace/references/mcp-workflow.md` when y
 - review, snapshot, or maintenance expectations
 - a reminder of all 9 MCP tools and their safest usage order
 
-Open `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md` when you want concrete should-trigger / should-not-trigger prompts for manual review or trigger regression checks.
+Open `docs/skills/memory-palace/references/trigger-samples.md` when you want concrete should-trigger / should-not-trigger prompts for manual review or trigger regression checks.
 
 Prefer these repo-visible canonical paths over hidden mirror-relative paths such as `.gemini/skills/...` or `.codex/skills/...`, because some CLIs can load the skill but still block direct reads from hidden skill directories.
 
 The canonical repo-visible path of the trigger sample set is:
 
-- `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md`
+- `docs/skills/memory-palace/references/trigger-samples.md`
 
 ## Examples
 
@@ -100,4 +100,4 @@ The canonical repo-visible path of the trigger sample set is:
 
 - If a write is blocked by `guard_action=NOOP`, stop, inspect `guard_target_uri` / `guard_target_id`, and read the suggested target before doing anything else.
 - If a clean session, subagent, or retry loses context, reload with `read_memory("system://boot")`, then `search_memory(..., include_session=true)` if the URI is still unknown.
-- If a CLI can load the skill but cannot reliably read hidden skill directories, answer from the repo-visible canonical paths under `Memory-Palace/docs/skills/...`.
+- If a CLI can load the skill but cannot reliably read hidden skill directories, answer from the repo-visible canonical paths under `docs/skills/...`.

@@ -4,8 +4,8 @@ This file is the operational reference for the `memory-palace` skill.
 
 ## Reference path policy
 
-- Canonical visible path for this file: `Memory-Palace/docs/skills/memory-palace/references/mcp-workflow.md`
-- Canonical visible path for trigger samples: `Memory-Palace/docs/skills/memory-palace/references/trigger-samples.md`
+- Canonical visible path for this file: `docs/skills/memory-palace/references/mcp-workflow.md`
+- Canonical visible path for trigger samples: `docs/skills/memory-palace/references/trigger-samples.md`
 - Prefer these repo-visible paths when a CLI can load the skill but cannot directly read hidden mirror directories such as `.gemini/skills/...` or `.cursor/skills/...`
 
 ## Core intent map

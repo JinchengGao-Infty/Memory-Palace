@@ -24,7 +24,7 @@
 所以判断“能不能直接用”，必须同时满足：
 
 - skill 能被当前 CLI 发现
-- MCP 确实指向当前仓库的 `Memory-Palace/scripts/run_memory_palace_mcp_stdio.sh`
+- MCP 确实指向当前仓库的 `scripts/run_memory_palace_mcp_stdio.sh`
 
 ## Current Repo Baseline
 
@@ -44,7 +44,7 @@
 对应的 canonical skill 真源是：
 
 ```text
-Memory-Palace/docs/skills/memory-palace/
+docs/skills/memory-palace/
 ```
 
 ## install_skill.py 现在负责什么
@@ -67,8 +67,8 @@ Memory-Palace/docs/skills/memory-palace/
 ### 1) 先同步 repo-local mirrors
 
 ```bash
-python Memory-Palace/scripts/sync_memory_palace_skill.py
-python Memory-Palace/scripts/sync_memory_palace_skill.py --check
+python scripts/sync_memory_palace_skill.py
+python scripts/sync_memory_palace_skill.py --check
 ```
 
 ### 2) 打通当前仓库的 workspace 直连入口
@@ -79,7 +79,7 @@ python Memory-Palace/scripts/sync_memory_palace_skill.py --check
 - `Gemini CLI` 绑定到 `.gemini/settings.json`
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope workspace \
   --with-mcp \
@@ -89,7 +89,7 @@ python Memory-Palace/scripts/install_skill.py \
 检查：
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope workspace \
   --with-mcp \
@@ -111,7 +111,7 @@ python Memory-Palace/scripts/install_skill.py \
 - 以及需要跨仓复用的 `Claude/Gemini`
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope user \
   --with-mcp \
@@ -121,7 +121,7 @@ python Memory-Palace/scripts/install_skill.py \
 检查：
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope user \
   --with-mcp \
@@ -155,7 +155,7 @@ python Memory-Palace/scripts/install_skill.py \
 
 - **workspace 入口已经就位**
 - 若你想更稳，或准备跨仓复用，仍推荐再补一次 `--scope user --with-mcp`
-- 对外说明时，建议写成“公开 smoke 已通过，但 `gemini_live` 尚未完全通过”
+- 写给别人看时，建议写成“smoke 已通过，但 `gemini_live` 尚未完全通过”
 
 ### Codex CLI
 
@@ -195,13 +195,13 @@ python Memory-Palace/scripts/install_skill.py \
 ### 安装检查
 
 ```bash
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope workspace \
   --with-mcp \
   --check
 
-python Memory-Palace/scripts/install_skill.py \
+python scripts/install_skill.py \
   --targets claude,codex,gemini,opencode \
   --scope user \
   --with-mcp \
@@ -211,27 +211,29 @@ python Memory-Palace/scripts/install_skill.py \
 ### 触发 smoke
 
 ```bash
-python Memory-Palace/scripts/evaluate_memory_palace_skill.py
+python scripts/evaluate_memory_palace_skill.py
 ```
 
-报告输出：
+本地输出：
 
 ```text
-Memory-Palace/docs/skills/TRIGGER_SMOKE_REPORT.md
+docs/skills/TRIGGER_SMOKE_REPORT.md
 ```
 
 ### 真实 MCP e2e
 
 ```bash
-Memory-Palace/backend/.venv/bin/python \
-  Memory-Palace/scripts/evaluate_memory_palace_mcp_e2e.py
+backend/.venv/bin/python \
+  scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
-报告输出：
+本地输出：
 
 ```text
-Memory-Palace/docs/skills/MCP_LIVE_E2E_REPORT.md
+docs/skills/MCP_LIVE_E2E_REPORT.md
 ```
+
+这两份报告默认建议留在你自己的机器上，用来复核当前机器的结果，不作为主入口文档。
 
 ## 正向 / 反向 prompt
 

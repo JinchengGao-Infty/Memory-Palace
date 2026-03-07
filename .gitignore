@@ -48,9 +48,13 @@ scripts/add_user_pref.py
 scripts/mcp_stdio_trace_wrapper.py
 
 # Local-only docs and benchmark notes
+PUSH_CHECKLIST.md
 docs/improvement/
 docs/evaluation_old_vs_new_executive_summary_2026-03-05.md
 docs/changelog/current_code_improvements_vs_legacy_docs.md
+docs/skills/TRIGGER_SMOKE_REPORT.md
+docs/skills/MCP_LIVE_E2E_REPORT.md
+docs/skills/CLAUDE_SKILLS_AUDIT.md
 backend/docs/benchmark_*.md
 backend/tests/benchmark_results.md
 docs/images/IMAGE_PROMPTS_LOCAL.md
