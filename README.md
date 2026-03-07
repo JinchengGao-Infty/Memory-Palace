@@ -581,7 +581,7 @@ The MCP tool layer handles **deterministic execution**; the Skills strategy laye
 | Client | Integration Method |
 |---|---|
 | Claude Code / Codex CLI / OpenCode | Prefer syncing `docs/skills/memory-palace` into the matching skills directory |
-| Gemini CLI | Prefer a user-scope install (`install_skill.py --targets gemini --scope user --force`) |
+| Gemini CLI | Prefer a user-scope install (`install_skill.py --targets gemini --scope user --with-mcp --force`) |
 | Cursor / Antigravity / Trae | Workspace Rules / Project Instructions |
 
 ### Install The Skill
@@ -591,8 +591,8 @@ python scripts/sync_memory_palace_skill.py
 python scripts/sync_memory_palace_skill.py --check
 python scripts/evaluate_memory_palace_skill.py
 cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
-python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope workspace --with-mcp --force
-python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope user --with-mcp --force
+python scripts/install_skill.py --targets claude,codex,opencode --scope workspace --with-mcp --force
+python scripts/install_skill.py --targets gemini --scope user --with-mcp --force
 ```
 
 For `Gemini CLI`, prefer a **user-scope** install for now:
