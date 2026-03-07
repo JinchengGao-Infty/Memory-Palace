@@ -2,10 +2,10 @@
 
 ## Summary
 
-- `Claude Code`：当前仓库已具备 **repo-local skill 自动发现** + **workspace MCP 直连**
-- `Gemini CLI`：当前仓库已具备 **repo-local skill 自动发现** + **workspace MCP 直连**
-- `Codex CLI`：当前仓库已具备 **repo-local skill 自动发现**；`MCP` 仍以 **user-scope 注册** 为主
-- `OpenCode`：当前仓库已具备 **repo-local skill 自动发现**；`MCP` 仍以 **user-scope 注册** 为主
+- `Claude Code`：在当前工作区跑完 `sync/install` 后，可获得 **repo-local skill 自动发现** + **workspace MCP 直连**
+- `Gemini CLI`：在当前工作区跑完 `sync/install` 后，可获得 **repo-local skill 自动发现** + **workspace MCP 直连**
+- `Codex CLI`：在当前工作区跑完 `sync` 后，可获得 **repo-local skill 自动发现**；`MCP` 仍以 **user-scope 注册** 为主
+- `OpenCode`：在当前工作区跑完 `sync` 后，可获得 **repo-local skill 自动发现**；`MCP` 仍以 **user-scope 注册** 为主
 - `Cursor` / `.agent`：当前仍以 mirror 结构兼容为主，未提升为统一直连入口
 - 当前设计已对齐 `Anthropic skill-creator` 的核心要求：`frontmatter`、`trigger description`、`references`、`eval/smoke`
 
@@ -36,7 +36,7 @@
 - `Codex CLI`
   - `.codex/skills/memory-palace/`（本地生成）
 - `OpenCode`
-  - `.opencode/skills/memory-palace/`
+  - `.opencode/skills/memory-palace/`（本地生成）
 - `Gemini CLI`
   - `.gemini/skills/memory-palace/`（本地生成）
   - `.gemini/settings.json`（workspace 安装后生成）
@@ -46,6 +46,8 @@
 ```text
 docs/skills/memory-palace/
 ```
+
+> 注意：`docs/skills/memory-palace/` 是仓库里稳定存在的公开路径；`.claude/.codex/.gemini/.opencode/...`、`.mcp.json` 等隐藏目录/配置默认属于你本地工作区产物，`.gitignore` 已默认排除。
 
 ## install_skill.py 现在负责什么
 
@@ -140,7 +142,7 @@ python scripts/install_skill.py \
 
 结论：
 
-- **打开当前仓库即可直接用**
+- **先在当前工作区跑一次 workspace 安装，再打开当前仓库即可直接用**
 - 如果要带去别的仓库，再补 `--scope user --with-mcp`
 
 ### Gemini CLI
@@ -153,7 +155,7 @@ python scripts/install_skill.py \
 
 结论：
 
-- **workspace 入口已经就位**
+- **跑完 workspace 安装后，workspace 入口就位**
 - 若你想更稳，或准备跨仓复用，仍推荐再补一次 `--scope user --with-mcp`
 - 写给别人看时，建议写成“smoke 已通过，但 `gemini_live` 尚未完全通过”
 
@@ -261,5 +263,5 @@ For this repository's memory-palace skill, answer with exactly three bullets:
 
 ## 一句话口径
 
-- `Claude/Gemini`：当前仓库已经具备 **repo-local 直连**
-- `Codex/OpenCode`：当前仓库已经具备 **repo-local 自动发现**，但要做到“真能用当前仓库 MCP”，仍应补 **user-scope MCP 注册**
+- `Claude/Gemini`：当前工作区跑完 workspace 安装后即可获得 **repo-local 直连**
+- `Codex/OpenCode`：当前工作区跑完 sync 后即可获得 **repo-local 自动发现**，但要做到“真能用当前仓库 MCP”，仍应补 **user-scope MCP 注册**

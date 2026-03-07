@@ -165,7 +165,7 @@ Authorization: Bearer <MCP_API_KEY>
 
    应确保以下文件不在提交中（均已在 `.gitignore` 中配置）：
    - `.env`、`.env.docker`（如果你显式复用了固定 Docker env 文件）
-   - `.venv`、`.mcp.json`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/`
+   - `.venv`、`.mcp.json`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/`（通常由你本地的 sync / install 脚本生成）
    - `*.db`（数据库文件）
    - `backend/backend.log`、`frontend/frontend.log`
    - `snapshots/`、`frontend/dist/`
@@ -210,7 +210,7 @@ Authorization: Bearer <MCP_API_KEY>
 |---|---|
 | `.env`、`.env.docker`（如果你显式复用了固定 Docker env 文件） | 可能包含真实 API Key |
 | `.venv`、`backend/.venv`、`frontend/.venv` | 本地虚拟环境，不应进入仓库 |
-| `.mcp.json`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/` | 本地工具 / MCP 配置目录 |
+| `.mcp.json`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/` | 本地工具 / MCP 配置目录（通常由你本地的 sync / install 脚本生成） |
 | `*.db` | SQLite 数据库文件（如 `demo.db`） |
 | `backend/backend.log` | 后端运行日志 |
 | `frontend/frontend.log` | 前端运行日志 |
