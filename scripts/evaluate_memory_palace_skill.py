@@ -409,7 +409,7 @@ def check_gate_syntax() -> CheckResult:
     if gate_script is None:
         return CheckResult(
             "SKIP",
-            "run_post_change_checks.sh 缺失，跳过该项",
+            "run_post_change_checks.sh 在当前仓库布局中缺失，跳过该项",
             "missing: " + ", ".join(str(path) for path in gate_candidates),
         )
     proc = run_command(["bash", "-n", str(gate_script)], cwd=REPO_ROOT, timeout=30)

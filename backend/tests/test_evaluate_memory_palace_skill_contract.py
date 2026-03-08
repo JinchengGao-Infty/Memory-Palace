@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
 import sys
 
@@ -18,7 +19,9 @@ def _load_harness():
 
 def test_gate_syntax_skips_when_post_check_script_is_absent(monkeypatch, tmp_path: Path) -> None:
     harness = _load_harness()
-    monkeypatch.setattr(harness, "REPO_ROOT", tmp_path)
+    repo_root = tmp_path / "Memory-Palace"
+    repo_root.mkdir()
+    monkeypatch.setattr(harness, "REPO_ROOT", repo_root)
 
     result = harness.check_gate_syntax()
 
@@ -27,13 +30,36 @@ def test_gate_syntax_skips_when_post_check_script_is_absent(monkeypatch, tmp_pat
     assert "run_post_change_checks.sh" in result.details
 
 
-def test_gate_syntax_passes_when_post_check_script_exists(monkeypatch, tmp_path: Path) -> None:
+def test_gate_syntax_passes_when_parent_workspace_post_check_script_exists(
+    monkeypatch, tmp_path: Path
+) -> None:
     harness = _load_harness()
+    repo_root = tmp_path / "Memory-Palace"
+    repo_root.mkdir()
     gate_script = tmp_path / "new" / "run_post_change_checks.sh"
     gate_script.parent.mkdir(parents=True, exist_ok=True)
-    gate_script.write_text("#!/usr/bin/env bash\nset -euo pipefail\necho ok\n", encoding="utf-8")
-    monkeypatch.setattr(harness, "REPO_ROOT", tmp_path)
+    gate_script.write_text("echo ok\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def _fake_run_command(
+        cmd: list[str],
+        *,
+        cwd: Path,
+        input_text=None,
+        timeout: int = 120,
+    ) -> subprocess.CompletedProcess[str]:
+        captured["cmd"] = cmd
+        captured["cwd"] = cwd
+        captured["timeout"] = timeout
+        captured["input_text"] = input_text
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(harness, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(harness, "run_command", _fake_run_command)
 
     result = harness.check_gate_syntax()
 
     assert result.status == "PASS"
+    assert captured["cmd"] == ["bash", "-n", str(gate_script)]
+    assert captured["cwd"] == repo_root
+    assert captured["timeout"] == 30
