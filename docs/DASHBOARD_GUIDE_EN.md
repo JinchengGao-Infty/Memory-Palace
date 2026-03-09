@@ -122,7 +122,7 @@ A filter toolbar sits above the child list:
 
 | Filter | Placeholder Text | Description |
 |--------|-----------------|-------------|
-| **Search box** | `Search path / snippet` | Type keywords to quickly filter matching child memories |
+| **Search box** | `Search path / snippet` | Type keywords to quickly filter matching child memories by path and preview snippet |
 | **Max priority** | `Max priority (optional)` | Enter a number — only shows memories with priority ≤ this value |
 
 - Each child card shows the current priority, path/title, and snippet or gist preview

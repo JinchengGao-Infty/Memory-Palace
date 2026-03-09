@@ -11,7 +11,7 @@
 | [1. 三步上手](#1-三步上手) | 最快了解如何开始 |
 | [2. 档位一览](#2-档位一览) | A/B/C/D 四种配置的区别 |
 | [3. 各档位详细配置](#3-各档位详细配置) | 每种档位的 `.env` 参数说明 |
-| [4. 可选 LLM 参数](#4-可选-llm-参数writeguardcompact_context) | 写入守卫与上下文压缩 |
+| [4. 可选 LLM 参数](#4-可选-llm-参数writeguardcompact_contextintent) | 写入守卫、上下文压缩与意图增强 |
 | [5. Docker 一键部署](#5-docker-一键部署推荐) | 推荐的容器化部署方式 |
 | [6. 手动启动](#6-手动启动) | 不用 Docker 的本地启动方式 |
 | [7. 本地推理服务参考](#7-本地推理服务参考) | Ollama / LM Studio / vLLM / SGLang |
@@ -192,7 +192,7 @@ curl -fsS http://127.0.0.1:18000/browse/node -H "X-MCP-API-Key: <YOUR_MCP_API_KE
 
 ## 4. 可选 LLM 参数（write_guard / compact_context / intent）
 
-这些参数控制两个可选的 LLM 功能：**写入守卫**（质量过滤）和**上下文压缩**（摘要生成）。
+这些参数控制三个可选的 LLM 功能：**写入守卫**（质量过滤）、**上下文压缩**（摘要生成）和**意图增强**（实验性分类增强）。
 
 在 `.env` 中配置：
 

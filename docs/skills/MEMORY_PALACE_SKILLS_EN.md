@@ -13,6 +13,9 @@ docs/skills/memory-palace/
 ├── agents/
 │   └── openai.yaml
 └── variants/
+    ├── antigravity/
+    │   └── global_workflows/
+    │       └── memory-palace.md
     └── gemini/
         └── SKILL.md
 ```
@@ -46,10 +49,15 @@ However, compared to the full `skill-creator` workflow, there is one clear bound
 
 The following validation entries have been organized in the repository:
 
+- `docs/skills/memory-palace/` canonical bundle
+- `scripts/sync_memory_palace_skill.py`
+- `scripts/install_skill.py`
 - trigger smoke
 - mirror drift check
 - live MCP e2e
 - cross-client MCP binding check
+
+Hidden mirrors and workspace configs such as `.claude/.codex/.opencode/.cursor/.agent/.gemini/.mcp.json` are generated only after you run sync/install locally. They are not part of the public GitHub repository by default.
 
 But it hasn't fully implemented the `skill-creator` style of:
 
@@ -86,7 +94,8 @@ For Gemini, there is a known boundary:
 
 Therefore, the current recommendation is two-layered:
 
-- **In the current workspace**: Prioritize workspace installation, then use project-level `.gemini/skills/...` + `.gemini/settings.json`.
+- **More reliable by default**: First run `python scripts/install_skill.py --targets gemini --scope user --with-mcp --force`.
+- **If you also want a project-level entry in the current workspace**: Then add workspace installation to generate `.gemini/skills/...` + `.gemini/settings.json`.
 - **For cross-repo reuse / copying to other workspaces**: Still prioritize `user-scope install`.
 
 Public communication suggestion:
@@ -134,7 +143,7 @@ Responsible for:
 
 - Distributing the canonical bundle to various CLI directories.
 - Checking for drift in mirrors.
-- Current workspace mirrors include `.claude`, `.codex`, `.opencode`, `.cursor`, and `.agent`.
+- Current workspace mirrors include `.claude`, `.codex`, `.opencode`, `.cursor`, `.agent`, and `.gemini`.
 - If `--check` reports drift, run a sync first, then re-run `evaluate_memory_palace_skill.py`.
 - If only `claude(user)` binding fails, prioritize supplementing the project-scoped `mcpServers.memory-palace` in `~/.claude.json` for the current project, rather than modifying project blocks of sibling repos.
 
@@ -144,7 +153,7 @@ Responsible for:
 
 - Installing the canonical bundle to other workspaces or user directories.
 - Supporting `copy` / `symlink`.
-- Ensuring this skill can be used directly without depending on the current repository path.
+- Populating `--with-mcp` CLI configs when needed, while still binding MCP to the **current checkout** via `scripts/run_memory_palace_mcp_stdio.sh`.
 - For Gemini, this is currently the more reliable recommended installation path.
 - When the target is Gemini, it automatically replaces the content with `variants/gemini/SKILL.md`.
 
@@ -198,10 +207,11 @@ Do not ignore these fields:
 - `guard_reason`
 - `guard_method`
 - `guard_target_uri`
+- `guard_target_id`
 
 Recommended rules:
 
-- `NOOP` → Stop writing and check for duplicates first.
+- `NOOP` → Stop writing; inspect `guard_target_uri` / `guard_target_id`, and read the suggested target before deciding whether anything should change.
 - `UPDATE` → Prioritize changing to `update_memory`.
 - `DELETE` → Confirm the old memory should indeed be replaced.
 
@@ -251,7 +261,7 @@ This time, it's not just about making the skill longer, but about completing the
 - "Rewrite the README for me."
 - "Fix the frontend button style."
 - "Help me analyze the benchmark results."
-- "Update the description text in docs/skills."
+- "Update docs/skills text that is unrelated to Memory Palace."
 
 ### Specific Role of Sample Sets
 
@@ -310,7 +320,7 @@ gemini -m gemini-3-flash-preview \
 
 Note: This is a **more stable empirical path from recent validations**, not a universal official guarantee for all Gemini versions.
 
-## 7. Maintenance Boundaries
+## 8. Maintenance Boundaries
 
 When continuing to optimize, maintain this sequence:
 

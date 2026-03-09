@@ -12,8 +12,8 @@ This repository has already organized the `memory-palace` **canonical skill**, s
 
 | Client | Skill Auto-recognized | MCP Connection Status | What You Should Do |
 |---|---|---|---|
-| `Claude Code` | Available after workspace install | Workspace install generates a project-level entry; non-interactive path is verified | Run the commands in this document first, then open in this repo |
-| `Gemini CLI` | Available after workspace install | Workspace install generates `.gemini/settings.json`, but `live MCP` still has edge cases | Run the commands first; perform a user-scope install for better stability |
+| `Claude Code` | Available after `sync` + user-scope install | `--scope user --with-mcp` already has a scripted path; workspace entry is optional | Prefer the unified `python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope user --with-mcp --force`; add workspace install only if you also want a project-level entry in this repo |
+| `Gemini CLI` | Available after `sync` + user-scope install | `--scope user --with-mcp` is more reliable; workspace can generate `.gemini/settings.json`, but `live MCP` still has edge cases | Prefer the unified `python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope user --with-mcp --force`; add workspace install only if you also want a project-level entry in this repo |
 | `Codex CLI` | repo-local skill after sync | User-scope MCP has a scripted installation path | Preferred: `python scripts/install_skill.py --targets codex --scope user --with-mcp --force`; manual `codex mcp add` as fallback |
 | `OpenCode` | repo-local skill after sync | User-scope MCP has a scripted installation path | Preferred: `python scripts/install_skill.py --targets opencode --scope user --with-mcp --force`; manual GUI registration as fallback |
 
@@ -78,9 +78,18 @@ The public repository only contains the canonical bundle by default. After execu
 | `.gemini/settings.json` | Project-level MCP config for Gemini (generated after workspace install) |
 | `.mcp.json` | Project-level MCP config for Claude Code (generated after workspace install) |
 
+If you follow the default `--scope user --with-mcp` path in this document, you will also usually see these home-directory entries:
+
+- `~/.claude/skills/memory-palace/`
+- `~/.codex/config.toml`
+- `~/.gemini/skills/memory-palace/SKILL.md`
+- `~/.gemini/settings.json`
+- `~/.config/opencode/opencode.json`
+
 So:
 
-- `Claude Code` and `Gemini CLI` follow the easiest path **after executing workspace install in the current repo**.
+- The default recommendation is to run one unified `--scope user --with-mcp` install first.
+- For `Claude Code` and `Gemini CLI`, add workspace install only when you also want project-level entries in the current repo.
 - The **skill** for `Codex CLI` and `OpenCode` is already in place.
 - The `Codex` MCP in the recent validation environment has been corrected.
 - For `OpenCode`, it is recommended to manually confirm once with `mcp list`.
@@ -91,14 +100,25 @@ So:
 
 ## 1) `Claude Code`
 
-The most hassle-free.
+The more reliable default recommendation is still:
 
-After executing the workspace install, the local workspace will contain:
+```bash
+python scripts/install_skill.py --targets claude --scope user --with-mcp --force
+```
+
+If you also want the **current repository** to get an extra project-level entry, add a workspace install afterwards.
+
+After that, you will at least have:
+
+- `~/.claude/skills/memory-palace/`
+- a `mcpServers.memory-palace` block for the current repo inside `~/.claude.json`
+
+If you also add workspace install, the local workspace will additionally contain:
 
 - `.claude/skills/memory-palace/`
 - `.mcp.json`
 
-As long as you start `Claude Code` in this repository, it can see both:
+Then, when you start `Claude Code` in this repository, it can see both:
 
 1. The `memory-palace` skill.
 2. The `memory-palace` MCP server.
@@ -117,12 +137,23 @@ In this actual validation, `Claude Code` was already able to create test memorie
 
 ## 2) `Gemini CLI`
 
-After executing the workspace install, the local workspace will be supplemented with:
+The more reliable default recommendation is still:
+
+```bash
+python scripts/install_skill.py --targets gemini --scope user --with-mcp --force
+```
+
+After that, your home directory will at least contain:
+
+- `~/.gemini/skills/memory-palace/SKILL.md`
+- `~/.gemini/settings.json`
+
+If you also want the **current repository** to get an extra project-level entry, add a workspace install afterwards; then the workspace will be supplemented with:
 
 - `.gemini/skills/memory-palace/SKILL.md`
 - `.gemini/settings.json`
 
-In the **current local workspace**, Gemini can directly use the project-level entry.
+In the **current local workspace**, Gemini can then use the project-level entry; for cross-repo reuse, user-scope remains the more stable default.
 
 Recommended check:
 
@@ -130,14 +161,6 @@ Recommended check:
 gemini skills list --all
 gemini mcp list
 ```
-
-If you want to bring this capability to **other repositories** for reuse, execute:
-
-```bash
-python scripts/install_skill.py --targets gemini --scope user --with-mcp --force
-```
-
-This step is for "cross-repo reuse" and is not required for "minimum usability in the current repo."
 
 If you see this prompt:
 
@@ -169,18 +192,17 @@ gemini mcp add -s project memory-palace /bin/zsh -lc 'cd <repo-root> && bash scr
 For `Codex`, consider these separately:
 
 - **skill**: After running `sync/install`, `.codex/skills/memory-palace/` will exist locally.
-- **MCP**: `Codex` currently primarily looks at the user directory `~/.codex/config.toml`.
+- **MCP**: Preferred path is `python scripts/install_skill.py --targets codex --scope user --with-mcp --force`, which writes to the user directory `~/.codex/config.toml`; manual `codex mcp add` is only a fallback.
 
 In plain English:
 
 - In this repo, `Codex` knows there is a `memory-palace` skill.
-- But the first time you use it on your machine, you still need to tell it "how to start the Memory Palace MCP server."
+- But the first time you use it on your machine, you still need to write the MCP startup command into your user-scope config.
 
-Execute once:
+On a new machine, do this first:
 
 ```bash
-codex mcp add memory-palace \
-  -- /bin/zsh -lc 'cd /ABS/PATH/TO/REPO && bash scripts/run_memory_palace_mcp_stdio.sh'
+python scripts/install_skill.py --targets codex --scope user --with-mcp --force
 ```
 
 Then check:
@@ -189,12 +211,19 @@ Then check:
 codex mcp list
 ```
 
+If the scripted check still fails, or you are explicitly doing manual troubleshooting, then use:
+
+```bash
+codex mcp add memory-palace \
+  -- /bin/zsh -lc 'cd /ABS/PATH/TO/REPO && bash scripts/run_memory_palace_mcp_stdio.sh'
+```
+
 Note:
 
 - Replace `/ABS/PATH/TO/REPO` with your actual repository path.
-- This config will be written to `~/.codex/config.toml`.
+- Whether you use the script or the manual fallback, the resulting config ends up in `~/.codex/config.toml`.
 - This is the current product behavior of `Codex CLI`, not a missing file in this repo.
-- If you rewrite this command for another shell or client config, do not accidentally remove `source .venv/bin/activate`. Either activate the project's `.venv` first or use the Python directly inside `.venv`. Otherwise, the MCP process might fail to start with `No module named 'sqlalchemy'`.
+- If you rewrite the fallback command for another shell or client config, do not accidentally remove `source .venv/bin/activate`. Either activate the project's `.venv` first or use the Python directly inside `.venv`. Otherwise, the MCP process might fail to start with `No module named 'sqlalchemy'`.
 
 ---
 
@@ -206,15 +235,16 @@ After you execute `sync/install`, `OpenCode` will usually have:
 
 Since the smoke tests in the recent validation environment passed, this connection method is reliable.
 
-However, if you move to a new machine, the safer sequence is:
+However, on a new machine, the safer default sequence is still to run:
 
 ```bash
+python scripts/install_skill.py --targets opencode --scope user --with-mcp --force
 opencode mcp list
 ```
 
 If you can already see `memory-palace`, you're set.
 
-If not, add a new local stdio server in `OpenCode`'s own MCP management entry with these core parameters:
+If the scripted check still fails, or you are explicitly doing manual troubleshooting, add a new local stdio server in `OpenCode`'s own MCP management entry. That step is fallback-only. The core parameters are:
 
 ```text
 name: memory-palace
@@ -240,7 +270,7 @@ Read from system://boot first, then help me check for recent memories regarding 
 If `memory-palace` is hit, the response or execution will usually show these signals:
 
 - It starts with `read_memory("system://boot")`.
-- It won't hallucinate.
+- It won't write blindly before checking the target.
 - It will mention `search_memory(..., include_session=true)` or an equivalent recall process.
 
 The simplest negative prompt:

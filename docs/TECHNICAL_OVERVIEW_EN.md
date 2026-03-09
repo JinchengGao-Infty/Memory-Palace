@@ -104,7 +104,7 @@ This group of interfaces is more like a "change review area":
 - Then check snapshot / diff
 - Finally decide whether to rollback or integrate
 
-### Maintenance and Observation (`/maintenance`)
+### Maintenance and Observability (`/maintenance`)
 
 Route-level API Key authentication (all endpoints require authentication).
 
@@ -131,7 +131,7 @@ Route-level API Key authentication (all endpoints require authentication).
 | `POST` | `/maintenance/index/rebuild` | Trigger full index rebuild |
 | `POST` | `/maintenance/index/reindex/{memory_id}` | Reindex single item |
 | `POST` | `/maintenance/index/sleep-consolidation` | Trigger sleep consolidation |
-| `POST` | `/maintenance/observability/search` | Observe search (including retrieval statistics) |
+| `POST` | `/maintenance/observability/search` | Observability search (including retrieval statistics) |
 | `GET` | `/maintenance/observability/summary` | Observability overview |
 
 This group of interfaces is large but can be categorized into 5 types:
@@ -140,7 +140,7 @@ This group of interfaces is large but can be categorized into 5 types:
 2. **Orphaned Memory Cleanup**: `orphans*`
 3. **Vitality Governance**: `vitality/*`
 4. **Index Tasks**: `index/*`
-5. **Runtime Observation**: `observability/*`
+5. **Runtime Observability**: `observability/*`
 
 Full API documentation can be accessed via Swagger UI at `http://127.0.0.1:8000/docs` after starting the backend.
 

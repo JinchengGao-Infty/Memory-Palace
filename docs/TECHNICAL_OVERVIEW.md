@@ -134,7 +134,7 @@ backend/
 | `POST` | `/maintenance/observability/search` | 观测搜索（含检索统计） |
 | `GET` | `/maintenance/observability/summary` | 观测概览 |
 
-这组接口比较多，但可以简单分成 4 类：
+这组接口比较多，但可以简单分成 5 类：
 
 1. **导入 / 学习任务**：`import/*`、`learn/*`
 2. **孤儿记忆清理**：`orphans*`

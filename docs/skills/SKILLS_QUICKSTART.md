@@ -12,8 +12,8 @@
 
 | 客户端 | skill 自动识别 | MCP 连接现状 | 你该怎么做 |
 |---|---|---|---|
-| `Claude Code` | 执行 workspace 安装后即可 | workspace 安装后会生成项目级入口；非交互模式路径已有验证 | 先执行本文命令，再在本仓库打开 |
-| `Gemini CLI` | 执行 workspace 安装后即可 | workspace 安装后可生成 `.gemini/settings.json`，但 `live MCP` 仍有个别场景待补验 | 先执行本文命令；需要更稳时再补一次 user-scope 安装 |
+| `Claude Code` | 执行 `sync` + user-scope 安装后即可 | `--scope user --with-mcp` 已有脚本化安装路径；workspace 入口可选 | 首选统一跑 `python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope user --with-mcp --force`；只在想补当前仓库项目级入口时再加 workspace 安装 |
+| `Gemini CLI` | 执行 `sync` + user-scope 安装后即可 | `--scope user --with-mcp` 更稳；workspace 可生成 `.gemini/settings.json`，但 `live MCP` 仍有个别场景待补验 | 首选统一跑 `python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope user --with-mcp --force`；需要当前仓库项目级入口时再补 workspace 安装 |
 | `Codex CLI` | sync 后有 repo-local skill | user-scope MCP 已有脚本化安装路径 | 首选 `python scripts/install_skill.py --targets codex --scope user --with-mcp --force`，手工 `codex mcp add` 只当 fallback |
 | `OpenCode` | sync 后有 repo-local skill | user-scope MCP 已有脚本化安装路径 | 首选 `python scripts/install_skill.py --targets opencode --scope user --with-mcp --force`，手工 GUI 注册只当 fallback |
 
@@ -78,9 +78,18 @@
 | `.gemini/settings.json` | Gemini 的项目级 MCP 配置（workspace 安装后生成） |
 | `.mcp.json` | Claude Code 的项目级 MCP 配置（workspace 安装后生成） |
 
+按本文默认推荐的 `--scope user --with-mcp` 路线，本机 home 目录里通常还会出现：
+
+- `~/.claude/skills/memory-palace/`
+- `~/.codex/config.toml`
+- `~/.gemini/skills/memory-palace/SKILL.md`
+- `~/.gemini/settings.json`
+- `~/.config/opencode/opencode.json`
+
 所以：
 
-- `Claude Code`、`Gemini CLI` 在**当前仓库执行完 workspace 安装后**是最省心的路线
+- 默认推荐先跑一遍统一的 `--scope user --with-mcp`
+- `Claude Code`、`Gemini CLI` 如果还想补当前仓库项目级入口，再额外执行 workspace 安装
 - `Codex CLI` 和 `OpenCode` 的 **skill** 已经就位
 - 最近验证环境里的 `Codex` MCP 已经修正完成
 - `OpenCode` 建议先手动确认一次 `mcp list`
@@ -91,14 +100,25 @@
 
 ## 1) `Claude Code`
 
-最省心。
+默认更稳的推荐还是先跑：
 
-先执行上面的 workspace 安装后，本地工作区里会有：
+```bash
+python scripts/install_skill.py --targets claude --scope user --with-mcp --force
+```
+
+如果你还想让**当前仓库**额外落一个项目级入口，再补一次 workspace 安装。
+
+补完之后，你至少会有：
+
+- `~/.claude/skills/memory-palace/`
+- `~/.claude.json` 里当前仓库的 `mcpServers.memory-palace`
+
+如果你又补了 workspace 安装，本地工作区里还会有：
 
 - `.claude/skills/memory-palace/`
 - `.mcp.json`
 
-你只要在这个仓库里启动 `Claude Code`，它就同时看得到：
+这样在这个仓库里启动 `Claude Code`，它就能同时看得到：
 
 1. `memory-palace` skill
 2. `memory-palace` MCP server
@@ -117,12 +137,23 @@ claude mcp list
 
 ## 2) `Gemini CLI`
 
-先执行上面的 workspace 安装后，本地工作区里会补齐：
+默认更稳的推荐还是先跑：
+
+```bash
+python scripts/install_skill.py --targets gemini --scope user --with-mcp --force
+```
+
+补完之后，home 目录里至少会有：
+
+- `~/.gemini/skills/memory-palace/SKILL.md`
+- `~/.gemini/settings.json`
+
+如果你还想让**当前仓库**额外落一个项目级入口，再补一次 workspace 安装；那时工作区里会补齐：
 
 - `.gemini/skills/memory-palace/SKILL.md`
 - `.gemini/settings.json`
 
-所以在**当前工作区本地**里，Gemini 可以直接走项目级入口。
+所以在**当前工作区本地**里，Gemini 可以走项目级入口；而跨仓复用时，默认还是 user-scope 更稳。
 
 推荐检查：
 
@@ -130,14 +161,6 @@ claude mcp list
 gemini skills list --all
 gemini mcp list
 ```
-
-如果你想把这套能力带到**别的仓库**复用，再执行：
-
-```bash
-python scripts/install_skill.py --targets gemini --scope user --with-mcp --force
-```
-
-这一步属于“跨仓复用”，不是“当前仓库最小可用”的必需步骤。
 
 如果你看到这种提示：
 
@@ -169,18 +192,17 @@ gemini mcp add -s project memory-palace /bin/zsh -lc 'cd <repo-root> && bash scr
 `Codex` 这边要分开看：
 
 - **skill**：执行 `sync/install` 后，本地会有 `.codex/skills/memory-palace/`
-- **MCP**：`Codex` 目前主要走用户目录 `~/.codex/config.toml`
+- **MCP**：首选 `python scripts/install_skill.py --targets codex --scope user --with-mcp --force` 写入用户目录 `~/.codex/config.toml`；手工 `codex mcp add` 只作为 fallback
 
 说人话就是：
 
 - 在这个仓库里，`Codex` 已经知道有 `memory-palace` 这套 skill
-- 但你第一次在自己的机器上用时，还要告诉它“Memory Palace MCP 服务器怎么启动”
+- 但你第一次在自己的机器上用时，仍要把 MCP 启动命令写进自己的用户级配置
 
-第一次执行一次：
+第一次在新机器上，优先执行：
 
 ```bash
-codex mcp add memory-palace \
-  -- /bin/zsh -lc 'cd /ABS/PATH/TO/REPO && bash scripts/run_memory_palace_mcp_stdio.sh'
+python scripts/install_skill.py --targets codex --scope user --with-mcp --force
 ```
 
 然后检查：
@@ -189,12 +211,19 @@ codex mcp add memory-palace \
 codex mcp list
 ```
 
+如果脚本检查仍失败，或者你就是要手工排障，再用：
+
+```bash
+codex mcp add memory-palace \
+  -- /bin/zsh -lc 'cd /ABS/PATH/TO/REPO && bash scripts/run_memory_palace_mcp_stdio.sh'
+```
+
 注意：
 
 - 把上面的 `/ABS/PATH/TO/REPO` 换成你的真实仓库路径
-- 这条配置会写到 `~/.codex/config.toml`
+- 无论走脚本还是手工 fallback，最终都会写到 `~/.codex/config.toml`
 - 这是 `Codex CLI` 当前的产品行为，不是本仓库少了文件
-- 如果你把这条命令改写成别的 shell / 客户端配置，别把 `source .venv/bin/activate` 随手删掉；要么先激活项目自己的 `.venv`，要么直接改成 `.venv` 里的 Python。否则 MCP 进程可能会在启动前就因为解释器不对而报 `No module named 'sqlalchemy'`
+- 如果你把 fallback 命令改写成别的 shell / 客户端配置，别把 `source .venv/bin/activate` 随手删掉；要么先激活项目自己的 `.venv`，要么直接改成 `.venv` 里的 Python。否则 MCP 进程可能会在启动前就因为解释器不对而报 `No module named 'sqlalchemy'`
 
 ---
 
@@ -206,15 +235,16 @@ codex mcp list
 
 并且最近验证环境里的 smoke 已经通过，所以这条接法是可信的。
 
-但如果你换一台新机器，更稳妥的顺序是：
+但如果你换一台新机器，更稳妥的默认顺序仍然是先跑：
 
 ```bash
+python scripts/install_skill.py --targets opencode --scope user --with-mcp --force
 opencode mcp list
 ```
 
 如果已经能看到 `memory-palace`，那就不用折腾。
 
-如果看不到，就在 `OpenCode` 自己的 MCP 管理入口里新增一个本地 stdio server，核心参数就是：
+如果脚本检查仍失败，或者你就是要手工排障，再在 `OpenCode` 自己的 MCP 管理入口里新增一个本地 stdio server，核心参数就是：
 
 ```text
 name: memory-palace

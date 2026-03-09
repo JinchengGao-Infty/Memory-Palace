@@ -26,6 +26,11 @@ One more thing to avoid pitfalls:
 - This wrapper prioritizes reusing the `DATABASE_URL` from the current repository's `.env`.
 - In other words, as long as you don't manually mess up the client commands, the Dashboard / HTTP API / MCP will default to the same database.
 
+Call it **truly configured** only when both checks are true:
+
+1. The current CLI can actually discover the `memory-palace` skill in its repo-local or user-scope location.
+2. The current CLI's MCP binding resolves to this checkout's `scripts/run_memory_palace_mcp_stdio.sh` rather than a stale path from another repository.
+
 ## Current Local Baseline After Sync / Install
 
 After executing `sync_memory_palace_skill.py` / `install_skill.py`, these entry points usually appear:
@@ -79,6 +84,18 @@ There are two behaviors directly related to "avoiding pitfalls":
 - If a JSON configuration is already manually broken, the script will directly report the bad file path and line/column number, making it easy for you to fix the file before rerunning.
 
 ## Recommended Commands
+
+If you want one default install path that works predictably across `Claude / Codex / Gemini / OpenCode`, prefer this first:
+
+```bash
+python scripts/install_skill.py \
+  --targets claude,codex,gemini,opencode \
+  --scope user \
+  --with-mcp \
+  --force
+```
+
+Workspace install remains an optional extra for `Claude/Gemini` when you also want repo-local project-level entries in the current repository.
 
 ### 1) Sync repo-local mirrors first
 
@@ -283,5 +300,5 @@ Expectations:
 
 ## One-Sentence Official Statement
 
-- `Claude/Gemini`: You get **repo-local direct connection** after running the workspace installation.
+- `Claude/Gemini`: Workspace direct-connection surfaces exist, but the default recommended install path is still `--scope user --with-mcp`.
 - `Codex/OpenCode`: You get **repo-local auto-discovery** after running sync, but to "really use the current repository MCP," you should still supplement with **user-scope MCP registration**.

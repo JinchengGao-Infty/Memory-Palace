@@ -11,7 +11,7 @@ This document helps you choose the appropriate Memory Palace configuration profi
 | [1. Three-Step Quick Start](#1-three-step-quick-start) | The fastest way to get started |
 | [2. Profiles Overview](#2-profiles-overview) | Differences between A/B/C/D configurations |
 | [3. Detailed Configuration for Each Profile](#3-detailed-configuration-for-each-profile) | `.env` parameter descriptions for each profile |
-| [4. Optional LLM Parameters (write_guard/compact_context)](#4-optional-llm-parameters-write_guard-compact_context-intent) | Write guards and context compaction |
+| [4. Optional LLM Parameters (write_guard / compact_context / intent)](#4-optional-llm-parameters-write_guard--compact_context--intent) | Write Guard, context compaction, and intent enhancement |
 | [5. Docker One-Click Deployment](#5-docker-one-click-deployment-recommended) | Recommended containerized deployment method |
 | [6. Manual Startup](#6-manual-startup) | Local startup method without Docker |
 | [7. Local Inference Service Reference](#7-local-inference-service-reference) | Ollama / LM Studio / vLLM / SGLang |
@@ -191,7 +191,7 @@ Whether you go through a `router` or a direct API, the project simply passes the
 
 ## 4. Optional LLM Parameters (write_guard / compact_context / intent)
 
-These parameters control two optional LLM features: **Write Guard** (quality filtering) and **Context Compaction** (summary generation).
+These parameters control three optional LLM features: **Write Guard** (quality filtering), **Context Compaction** (summary generation), and **Intent enhancement** (experimental classification support).
 
 Configure these in `.env`:
 

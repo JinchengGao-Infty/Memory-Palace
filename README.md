@@ -33,7 +33,7 @@
 
 **Memory Palace** provides AI agents with persistent context and seamless cross-session continuity. It gives LLMs **persistent, searchable, and auditable** historical context — so your Agent never "starts from scratch" in each conversation.
 
-Through the unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) interface, Memory Palace provides integration paths for **Codex, Claude Code, Gemini CLI, and OpenCode**, with documented caveats for `Cursor` and `Antigravity`. The currently verified scope and known boundaries are documented in `docs/skills/SKILLS_QUICKSTART.md`.
+Through the unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) interface, Memory Palace provides integration paths for **Codex, Claude Code, Gemini CLI, and OpenCode**, with documented caveats for `Cursor` and `Antigravity`. The currently verified scope and known boundaries are documented in `docs/skills/SKILLS_QUICKSTART_EN.md`.
 
 ### Why Memory Palace?
 
@@ -714,8 +714,8 @@ Source: `profile_ab_metrics.json` · Sample size = 100
 >
 > If you want to see the **same-setup old-vs-current comparison** used in this release note, go straight to:
 >
-> - `docs/EVALUATION.md` → `3.5 Old vs Current Version (Same-Setup Summary)`
-> - `docs/changelog/release_summary_vs_old_project_2026-03-06.md`
+> - `docs/EVALUATION_EN.md` → `3.5 Old vs Current Version (Same-Metric Summary)`
+> - `docs/changelog/release_summary_vs_old_project_2026-03-06_EN.md`
 
 <p align="center">
   <img src="docs/images/benchmark_comparison.png" width="900" alt="Old vs Current benchmark comparison" />
