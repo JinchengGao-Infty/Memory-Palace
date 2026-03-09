@@ -860,7 +860,7 @@ For backward compatibility with legacy `nocturne_memory` deployments:
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/image?repos=AGI-is-going-to-arrive/Memory-Palace&type=timeline&legend=top-left)](https://www.star-history.com/?repos=AGI-is-going-to-arrive%2FMemory-Palace&type=timeline&legend=top-left)
+[![Star History Chart](https://api.star-history.com/svg?repos=AGI-is-going-to-arrive/Memory-Palace&type=Date)](https://star-history.com/#AGI-is-going-to-arrive/Memory-Palace&Date)
 
 ---
 
