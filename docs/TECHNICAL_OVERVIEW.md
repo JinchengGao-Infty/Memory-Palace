@@ -32,7 +32,7 @@ backend/
 │   ├── browse.py          # 记忆浏览与写入接口（prefix: /browse）
 │   ├── review.py          # 审查、回滚与集成接口（prefix: /review）
 │   ├── maintenance.py     # 维护、观测与 vitality 清理接口（prefix: /maintenance）
-│   └── utils.py           # Diff 计算工具（基于 diff-match-patch）
+│   └── utils.py           # Diff 计算工具（优先 diff-match-patch，缺失时回退到 difflib.HtmlDiff）
 ├── db/
 │   ├── __init__.py        # 客户端工厂（get_sqlite_client / close_sqlite_client）
 │   ├── sqlite_client.py   # 核心数据库层（CRUD、检索、write_guard、gist、vitality、embedding、rerank）

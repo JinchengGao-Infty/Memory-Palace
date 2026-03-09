@@ -150,7 +150,7 @@ A React-powered dashboard with four views: **Memory Browser**, **Review & Rollba
 | MCP Protocol | `mcp (FastMCP)` | ≥ 0.1 | Exposes 9 standardized tools via stdio / SSE transport |
 | HTTP Client | [httpx](https://www.python-httpx.org/) | ≥ 0.26 | Async HTTP for embedding / reranker API calls |
 | Validation | [Pydantic](https://docs.pydantic.dev/) | ≥ 2.5 | Request/response validation |
-| Diff Engine | `diff_match_patch` | — | Google's diff algorithm for snapshot comparison |
+| Diff Engine | `diff_match_patch` + `difflib` fallback | — | Prefer semantic HTML diff when `diff_match_patch` is installed; fall back to `difflib.HtmlDiff` table output if that optional package is missing |
 
 ### Frontend
 

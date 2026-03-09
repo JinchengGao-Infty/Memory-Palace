@@ -146,7 +146,7 @@
 | MCP 协议 | `mcp (FastMCP)` | ≥ 0.1 | 通过 stdio / SSE 传输暴露 9 个标准化工具 |
 | HTTP 客户端 | [httpx](https://www.python-httpx.org/) | ≥ 0.26 | 异步 HTTP，用于 Embedding / Reranker API 调用 |
 | 数据校验 | [Pydantic](https://docs.pydantic.dev/) | ≥ 2.5 | 请求/响应校验 |
-| 差异引擎 | `diff_match_patch` | — | Google 差异算法，用于快照对比 |
+| 差异引擎 | `diff_match_patch` + `difflib` fallback | — | 优先使用 `diff_match_patch` 生成语义化 diff；如果这个可选包缺失，就自动退回到 `difflib.HtmlDiff` 表格 diff，而不会阻塞后端启动 |
 
 ### 前端
 
