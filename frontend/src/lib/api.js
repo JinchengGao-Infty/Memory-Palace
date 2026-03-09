@@ -1,9 +1,12 @@
 import axios from 'axios';
+import i18n from '../i18n';
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 15000,
 });
+
+const LONG_RUNNING_REQUEST_TIMEOUT_MS = 60000;
 
 const DASHBOARD_AUTH_STORAGE_KEY = 'memory-palace.dashboardAuth';
 
@@ -174,6 +177,40 @@ const normalizeApiErrorCode = (value) => {
   return normalized;
 };
 
+const translateApiErrorCode = (value) => {
+  const code = normalizeApiErrorCode(value);
+  if (!code) return null;
+  const translated = i18n.t(`apiErrors.codes.${code}`);
+  return translated && translated !== `apiErrors.codes.${code}` ? translated : null;
+};
+
+const translateApiErrorMessage = (value) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+  const codeTranslation = translateApiErrorCode(normalized);
+  if (codeTranslation) return codeTranslation;
+  const lowered = normalized.toLowerCase();
+  if (lowered === 'network error') {
+    return i18n.t('apiErrors.networkError');
+  }
+  if (lowered === 'failed to fetch') {
+    return i18n.t('apiErrors.failedToFetch');
+  }
+  const statusCodeMatch = /^request failed with status code (\d{3})$/i.exec(normalized);
+  if (statusCodeMatch) {
+    return i18n.t('apiErrors.statusCode', { status: statusCodeMatch[1] });
+  }
+  const timeoutMatch = /^timeout of (\d+)ms exceeded$/i.exec(normalized);
+  if (timeoutMatch) {
+    return i18n.t('apiErrors.timeoutExceeded', { ms: timeoutMatch[1] });
+  }
+  const translated = i18n.t(`apiErrors.messages.${normalized.toLowerCase()}`);
+  return translated && translated !== `apiErrors.messages.${normalized.toLowerCase()}`
+    ? translated
+    : null;
+};
+
 export const extractApiErrorCode = (error) => {
   const detail = error?.response?.data?.detail;
   const codes = [];
@@ -193,10 +230,13 @@ export const extractApiErrorCode = (error) => {
   return codes[0] || null;
 };
 
-export const extractApiError = (error, fallback = 'Request failed') => {
+export const extractApiError = (
+  error,
+  fallback = i18n.t('apiErrors.requestFailed')
+) => {
   const detail = error?.response?.data?.detail;
   if (typeof detail === 'string' && detail.trim()) {
-    return detail;
+    return translateApiErrorMessage(detail) || detail;
   }
   if (detail && typeof detail === 'object') {
     const parts = [];
@@ -207,12 +247,12 @@ export const extractApiError = (error, fallback = 'Request failed') => {
       parts.push(normalized);
     };
 
-    pushPart(detail.error);
-    pushPart(detail.reason);
+    pushPart(translateApiErrorCode(detail.error) || detail.error);
+    pushPart(translateApiErrorCode(detail.reason) || detail.reason);
     if (typeof detail.operation === 'string' && detail.operation.trim()) {
-      pushPart(`operation=${detail.operation.trim()}`);
+      pushPart(i18n.t('apiErrors.operation', { operation: detail.operation.trim() }));
     }
-    pushPart(detail.message);
+    pushPart(translateApiErrorMessage(detail.message) || detail.message);
     const errorCode = normalizeApiErrorCode(detail.error);
     const reasonCode = normalizeApiErrorCode(detail.reason);
     const isAuthError =
@@ -223,7 +263,7 @@ export const extractApiError = (error, fallback = 'Request failed') => {
       || reasonCode === 'api_key_not_configured'
       || reasonCode === 'insecure_local_override_requires_loopback';
     if (isAuthError) {
-      pushPart('Click "Set API key" in the top-right corner, or configure MCP_API_KEY / MCP_API_KEY_ALLOW_INSECURE_LOCAL first.');
+      pushPart(i18n.t('apiErrors.authHint'));
     }
     if (parts.length > 0) {
       return parts.join(' | ');
@@ -236,7 +276,7 @@ export const extractApiError = (error, fallback = 'Request failed') => {
   }
   const message = error?.message;
   if (typeof message === 'string' && message.trim()) {
-    return message;
+    return translateApiErrorMessage(message) || message;
   }
   return fallback;
 };
@@ -302,13 +342,22 @@ export const retryIndexJob = (jobId, payload = {}) =>
   api.post(`/maintenance/index/job/${encodeId(jobId)}/retry`, payload).then(res => res.data);
 
 export const triggerIndexRebuild = (params = {}) =>
-  api.post('/maintenance/index/rebuild', null, { params }).then(res => res.data);
+  api.post('/maintenance/index/rebuild', null, {
+    params,
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
+  }).then(res => res.data);
 
 export const triggerMemoryReindex = (memoryId, params = {}) =>
-  api.post(`/maintenance/index/reindex/${memoryId}`, null, { params }).then(res => res.data);
+  api.post(`/maintenance/index/reindex/${memoryId}`, null, {
+    params,
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
+  }).then(res => res.data);
 
 export const triggerSleepConsolidation = (params = {}) =>
-  api.post('/maintenance/index/sleep-consolidation', null, { params }).then(res => res.data);
+  api.post('/maintenance/index/sleep-consolidation', null, {
+    params,
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
+  }).then(res => res.data);
 
 // ============ Vitality Cleanup API ============
 

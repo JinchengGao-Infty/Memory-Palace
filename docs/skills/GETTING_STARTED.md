@@ -1,6 +1,8 @@
 # Memory Palace Skills 快速上手
 
 > 如果你只想把当前仓库这条 skill + MCP 链路接通，按这份做就够了。
+>
+> **先补一个边界说明**：当前仓库里的 repo-local MCP wrapper 是 `scripts/run_memory_palace_mcp_stdio.sh`，安装脚本生成的本地 MCP 启动命令也统一走 `bash` / `/bin/zsh`。如果你是原生 Windows 环境，请先准备 **Git Bash** 或 **WSL**；不要把下面这些 shell 示例理解成“PowerShell 直接可用”。
 
 ## 🎯 先记住一句话
 
@@ -35,20 +37,7 @@ docs/skills/memory-palace/
 - `variants/`
 - `agents/openai.yaml`
 
-你运行同步 / 安装命令后，本地工作区里出现的 `.claude/.codex/.gemini/.opencode/...` 都是 **mirror**。
-
-要特别注意：
-
-- 这些 hidden mirror / 配置文件默认被 `.gitignore` 排除
-- 公开 GitHub 仓库里通常只带 `docs/skills/memory-palace/` 这份 canonical bundle
-- 所以 clone 下来后，如果你还没跑下面的命令，看不到 `.claude` / `.codex` / `.gemini` 这些本地镜像，属于正常现象
-
-这套设计已经对齐 `Anthropic skill-creator` 的核心要求：
-
-- 有 `frontmatter`
-- `description` 承担触发契约
-- 细节放在 `references/`
-- 有 `eval / smoke / e2e` 回归入口
+你运行同步 / 安装命令后，`.claude/.codex/.gemini/.opencode/...` 这些镜像目录才会出现在本地。刚 clone 下来、还没执行命令前看不到它们，属于正常现象。
 
 ---
 
@@ -72,6 +61,12 @@ python scripts/sync_memory_palace_skill.py --check
 - `--check`
   - 检查当前安装结果是否与 canonical 和当前仓库绑定一致
 
+补一条很实用的细节：
+
+- 如果脚本准备改写现有配置文件（例如 `.mcp.json`、`.gemini/settings.json`、`~/.codex/config.toml`），现在会先在同目录生成一个 `*.bak` 备份
+  - 例如：`.mcp.json.bak`、`settings.json.bak`、`config.toml.bak`
+- 如果目标 JSON 本身已经坏掉，脚本会直接报出具体文件路径和行列号，不再吐一整屏 Python traceback
+
 ### 推荐命令
 
 ```bash
@@ -92,12 +87,32 @@ python scripts/install_skill.py \
   --check
 ```
 
-这一步会明确做两件事：
+如果你看到的是：
+
+- `workspace --check` 通过
+- 但 `user --check` 失败
+
+先别急着怀疑仓库本身坏了。更常见的情况是你自己 home 目录里还留着旧版 skill / MCP 配置。直接对同一组 target 重跑一次 `--scope user --with-mcp --force` 即可；脚本现在会先在原目录留 `*.bak`，再覆盖当前文件。
+
+这一步会做两件事：
 
 1. 继续保持 repo-local skill mirrors
-2. 给 **你当前工作区本地** 落两个直连入口：
+2. 给当前仓库补两个直连入口：
    - `Claude Code` → `.mcp.json`
    - `Gemini CLI` → `.gemini/settings.json`
+
+这两个入口现在都会统一调用：
+
+```text
+scripts/run_memory_palace_mcp_stdio.sh
+```
+
+它的作用很简单：
+
+- 用项目自己的 `backend/.venv`
+- 优先复用当前仓库 `.env` 里的 `DATABASE_URL`
+
+这样你在 Dashboard / HTTP API 里看到的库，和 MCP 客户端实际读写的库，默认就是同一份。
 
 注意：
 
@@ -135,11 +150,18 @@ python scripts/install_skill.py \
 - `Gemini CLI` → `~/.gemini/settings.json`
 - `OpenCode` → `~/.config/opencode/opencode.json`
 
+这些 user-scope MCP 配置本质上也还是调用同一个 wrapper，所以默认行为和 workspace 入口一致：
+
+- 先读当前仓库 `.env`
+- 再决定实际 `DATABASE_URL`
+
+如果你想换到另一份数据库，优先改这个仓库自己的 `.env`，不要手工在不同客户端里各写一套不同的数据库路径。
+
 ---
 
 ## 5. 四个客户端现在怎么理解
 
-下面这些结论默认你已经在当前工作区跑完了上面的 `sync/install` 命令。刚 clone 下来的公开仓库，不会自动带上这些隐藏目录和本地 MCP 配置。
+下面这些结论默认你已经跑完了上面的 `sync/install` 命令。
 
 ### Claude Code
 
@@ -211,11 +233,16 @@ python scripts/install_skill.py \
 python scripts/evaluate_memory_palace_skill.py
 ```
 
-这条命令会在本地生成脱敏 smoke 摘要：
+这条命令会在本地生成 smoke 摘要：
 
 ```text
 docs/skills/TRIGGER_SMOKE_REPORT.md
 ```
+
+如果你是刚 clone 下来的 GitHub 仓库，这个文件默认可能还不存在；先跑完命令再看，属于正常现象。它属于本地验证产物，分享前建议自己检查是否包含本机路径、客户端配置路径或其他环境痕迹。
+
+这条检查会串行调用多种 CLI；如果你的机器上已经装了 `claude`、`codex`、`opencode`、`gemini`，完整跑完通常要几分钟，不建议看到几十秒无输出就直接当成“挂死”。
+另外它默认还会尝试 `gemini_live`：如果当前 Gemini 配置能反推出真实数据库路径，会对那份库做一轮 `create/update/guard` 验证，并可能留下 `notes://gemini_suite_*` 这类测试记忆；只想做普通 smoke 时，可显式设置 `MEMORY_PALACE_SKIP_GEMINI_LIVE=1`。
 
 ### 真实 MCP 调用链
 
@@ -230,9 +257,10 @@ python ../scripts/evaluate_memory_palace_mcp_e2e.py
 docs/skills/MCP_LIVE_E2E_REPORT.md
 ```
 
-这两份报告默认建议留在你自己的机器上，不把它们当成主入口文档。
+同样地，这份报告默认也是“运行后才会出现”的本地产物；公开 GitHub 仓库里暂时没有，不代表接法有问题。
+它默认使用隔离临时库，不会碰你的正式库；但失败时仍可能把 stderr、日志或临时目录路径写进报告。准备转发给别人前，先自己看一遍内容。
 
-它们默认也被 `.gitignore` 排除，所以你从公开 GitHub 仓库 fresh clone 下来时，看不到这两份文件也属于正常情况。
+这两份报告主要用来复核当前环境的结果，不是主入口文档。
 
 ---
 

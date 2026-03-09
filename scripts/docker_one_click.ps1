@@ -276,6 +276,10 @@ function Apply-ProfileRuntimeOverrides {
         'COMPACT_GIST_LLM_API_BASE',
         'COMPACT_GIST_LLM_API_KEY',
         'COMPACT_GIST_LLM_MODEL',
+        'INTENT_LLM_ENABLED',
+        'INTENT_LLM_API_BASE',
+        'INTENT_LLM_API_KEY',
+        'INTENT_LLM_MODEL',
         'MCP_API_KEY',
         'MCP_API_KEY_ALLOW_INSECURE_LOCAL'
     )
@@ -291,6 +295,36 @@ function Apply-ProfileRuntimeOverrides {
     if ($SelectedProfile -in @('c', 'd')) {
         Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_EMBEDDING_BACKEND' -Value 'api'
         Write-Host "[override] RETRIEVAL_EMBEDDING_BACKEND=api forced for local profile $SelectedProfile runtime injection."
+
+        $routerApiBase = [System.Environment]::GetEnvironmentVariable('ROUTER_API_BASE')
+        $routerApiKey = [System.Environment]::GetEnvironmentVariable('ROUTER_API_KEY')
+        $routerEmbeddingModel = [System.Environment]::GetEnvironmentVariable('ROUTER_EMBEDDING_MODEL')
+        $embeddingApiBase = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_EMBEDDING_API_BASE')
+        $embeddingApiKey = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_EMBEDDING_API_KEY')
+        $embeddingModel = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_EMBEDDING_MODEL')
+        $rerankerApiBase = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_RERANKER_API_BASE')
+        $rerankerApiKey = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_RERANKER_API_KEY')
+
+        if ([string]::IsNullOrWhiteSpace($embeddingApiBase) -and -not [string]::IsNullOrWhiteSpace($routerApiBase)) {
+            Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_EMBEDDING_API_BASE' -Value $routerApiBase
+            Write-Host "[override] RETRIEVAL_EMBEDDING_API_BASE copied from ROUTER_API_BASE for local profile $SelectedProfile runtime injection."
+        }
+        if ([string]::IsNullOrWhiteSpace($embeddingApiKey) -and -not [string]::IsNullOrWhiteSpace($routerApiKey)) {
+            Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_EMBEDDING_API_KEY' -Value $routerApiKey
+            Write-Host "[override] RETRIEVAL_EMBEDDING_API_KEY copied from ROUTER_API_KEY for local profile $SelectedProfile runtime injection."
+        }
+        if ([string]::IsNullOrWhiteSpace($embeddingModel) -and -not [string]::IsNullOrWhiteSpace($routerEmbeddingModel)) {
+            Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_EMBEDDING_MODEL' -Value $routerEmbeddingModel
+            Write-Host "[override] RETRIEVAL_EMBEDDING_MODEL copied from ROUTER_EMBEDDING_MODEL for local profile $SelectedProfile runtime injection."
+        }
+        if ([string]::IsNullOrWhiteSpace($rerankerApiBase) -and -not [string]::IsNullOrWhiteSpace($routerApiBase)) {
+            Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_RERANKER_API_BASE' -Value $routerApiBase
+            Write-Host "[override] RETRIEVAL_RERANKER_API_BASE copied from ROUTER_API_BASE for local profile $SelectedProfile runtime injection."
+        }
+        if ([string]::IsNullOrWhiteSpace($rerankerApiKey) -and -not [string]::IsNullOrWhiteSpace($routerApiKey)) {
+            Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_RERANKER_API_KEY' -Value $routerApiKey
+            Write-Host "[override] RETRIEVAL_RERANKER_API_KEY copied from ROUTER_API_KEY for local profile $SelectedProfile runtime injection."
+        }
     }
 }
 
@@ -486,6 +520,42 @@ function Invoke-ComposeWithRetry {
     }
 }
 
+function Get-HttpStatusCode {
+    param([string]$Url)
+
+    try {
+        $code = & curl.exe -sS -o NUL -w '%{http_code}' $Url 2>$null
+        if ([string]::IsNullOrWhiteSpace($code)) {
+            return 0
+        }
+        return [int]$code
+    }
+    catch {
+        return 0
+    }
+}
+
+function Wait-DeploymentReady {
+    param(
+        [int]$FrontendPort,
+        [int]$BackendPort,
+        [int]$Attempts = 30,
+        [int]$SleepSeconds = 2
+    )
+
+    for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+        $backendCode = Get-HttpStatusCode -Url "http://127.0.0.1:$BackendPort/health"
+        $frontendCode = Get-HttpStatusCode -Url "http://127.0.0.1:$FrontendPort/"
+        $sseCode = Get-HttpStatusCode -Url "http://127.0.0.1:$FrontendPort/sse"
+        if ($backendCode -eq 200 -and $frontendCode -eq 200 -and @('200', '401') -contains "$sseCode") {
+            return $true
+        }
+        Start-Sleep -Seconds $SleepSeconds
+    }
+
+    return $false
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 $profileLower = $Profile.ToLower()
@@ -591,6 +661,14 @@ try {
 
     $dataVolume = Resolve-DataVolume
     $snapshotsVolume = Resolve-SnapshotsVolume
+    Set-EnvValueInFile -FilePath $envFile -Key 'MEMORY_PALACE_FRONTEND_PORT' -Value "$FrontendPort"
+    Set-EnvValueInFile -FilePath $envFile -Key 'MEMORY_PALACE_BACKEND_PORT' -Value "$BackendPort"
+    Set-EnvValueInFile -FilePath $envFile -Key 'MEMORY_PALACE_DATA_VOLUME' -Value "$dataVolume"
+    Set-EnvValueInFile -FilePath $envFile -Key 'MEMORY_PALACE_SNAPSHOTS_VOLUME' -Value "$snapshotsVolume"
+    Set-EnvValueInFile -FilePath $envFile -Key 'NOCTURNE_FRONTEND_PORT' -Value "$FrontendPort"
+    Set-EnvValueInFile -FilePath $envFile -Key 'NOCTURNE_BACKEND_PORT' -Value "$BackendPort"
+    Set-EnvValueInFile -FilePath $envFile -Key 'NOCTURNE_DATA_VOLUME' -Value "$dataVolume"
+    Set-EnvValueInFile -FilePath $envFile -Key 'NOCTURNE_SNAPSHOTS_VOLUME' -Value "$snapshotsVolume"
     $env:MEMORY_PALACE_FRONTEND_PORT = "$FrontendPort"
     $env:MEMORY_PALACE_BACKEND_PORT = "$BackendPort"
     $env:MEMORY_PALACE_DATA_VOLUME = "$dataVolume"
@@ -607,11 +685,20 @@ try {
         throw "[compose-down] pre-cleanup failed; aborting to match fail-closed deployment behavior. detail=$($_.Exception.Message)"
     }
 
-    $composeUpArgs = @('-f', 'docker-compose.yml', 'up', '-d', '--force-recreate', '--remove-orphans')
+    $composeUpArgs = @('-f', 'docker-compose.yml', 'up', '-d', '--wait', '--wait-timeout', '120', '--force-recreate', '--remove-orphans')
     if (-not $NoBuild) {
-        $composeUpArgs = @('-f', 'docker-compose.yml', 'up', '-d', '--build', '--force-recreate', '--remove-orphans')
+        $composeUpArgs = @('-f', 'docker-compose.yml', 'up', '-d', '--build', '--wait', '--wait-timeout', '120', '--force-recreate', '--remove-orphans')
     }
-    Invoke-ComposeWithRetry -ComposeArgs $composeUpArgs -ComposeProjectName $composeProjectName -MaxAttempts 3 -EnvFile $envFile
+    try {
+        Invoke-ComposeWithRetry -ComposeArgs $composeUpArgs -ComposeProjectName $composeProjectName -MaxAttempts 3 -EnvFile $envFile
+    }
+    catch {
+        Write-Warning "[compose-up] docker compose returned non-zero; probing backend/frontend/sse readiness..."
+        if (-not (Wait-DeploymentReady -FrontendPort $FrontendPort -BackendPort $BackendPort)) {
+            throw
+        }
+        Write-Warning "[compose-up] services became ready after compose reported failure; continuing."
+    }
 }
 finally {
     Release-PathLock -LockDir $script:DeploymentLockDir

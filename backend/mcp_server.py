@@ -43,24 +43,42 @@ if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path)
 
 
-def _resolve_mcp_host() -> str:
-    return str(os.getenv("HOST") or "0.0.0.0").strip() or "0.0.0.0"
+def _read_mcp_host() -> str:
+    raw = os.getenv("HOST", "127.0.0.1").strip()
+    return raw or "127.0.0.1"
 
 
-def _resolve_transport_security(host: str) -> TransportSecuritySettings | None:
-    normalized = host.strip().lower()
-    if normalized in {"127.0.0.1", "localhost", "::1"}:
-        return None
+def _read_mcp_port() -> int:
+    raw = os.getenv("PORT", "8000").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return 8000
+    return value if value > 0 else 8000
+
+
+def _build_transport_security(host: str) -> TransportSecuritySettings:
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=["127.0.0.1:*", "localhost:*", "[::1]:*"],
+            allowed_origins=[
+                "http://127.0.0.1:*",
+                "http://localhost:*",
+                "http://[::1]:*",
+            ],
+        )
     return TransportSecuritySettings(enable_dns_rebinding_protection=False)
 
 
-_MCP_HOST = _resolve_mcp_host()
-
 # Initialize FastMCP server
+MCP_HOST = _read_mcp_host()
+MCP_PORT = _read_mcp_port()
 mcp = FastMCP(
     "Memory Palace Interface",
-    host=_MCP_HOST,
-    transport_security=_resolve_transport_security(_MCP_HOST),
+    host=MCP_HOST,
+    port=MCP_PORT,
+    transport_security=_build_transport_security(MCP_HOST),
 )
 
 # =============================================================================

@@ -52,6 +52,7 @@
 - **skills + MCP 更像产品了**：现在不只是“有工具”，而是补齐了安装、同步、smoke 和 live e2e。
 - **部署更稳了**：Docker 一键脚本补了 deployment lock，运行时环境注入默认关闭，分享或正式发布前也有自检脚本兜底。
 - **高干扰检索在当前基准集里表现更稳**：对照旧版本时，`s8,d200` 与 `s100,d200` 这类更容易被干扰的场景，C/D 档位显示出更好的召回。
+- **前端语言切换更直接了**：当前前端默认英文，右上角新增中英切换按钮，浏览器会记住你的选择。
 - **公开口径更保守了**：文档只写已验证的路径；你自己的 Windows / 远程部署环境仍建议按目标环境再复核一次。
 - **客户端边界写清楚了**：`Claude/Codex/OpenCode/Gemini` 已有明确接法；`Gemini live`、`Cursor`、`Antigravity` 仍保留边界说明，不再写成“全部无条件开箱即用”。
 
@@ -86,6 +87,10 @@
 ### 📊 内置可观测性仪表盘
 
 基于 React 的四视图仪表盘：**记忆浏览器**、**审查与回滚**、**维护管理**、**可观测性监控**。
+
+当前前端默认英文，点右上角语言按钮即可切到中文或切回英文。浏览器会记住你的选择，常见界面文案、日期/数字格式和一部分错误提示会跟随切换。
+
+如果你想看一份按页面拆开的使用说明，可以直接打开 [中文仪表盘使用指南](docs/DASHBOARD_GUIDE_CN.md)。
 
 ---
 
@@ -127,7 +132,7 @@
                 └───────┬───────┘
                         │
                 ┌───────▼────────┐
-                │ �️ SQLite 数据库│
+                │ 🗄️ SQLite 数据库│
                 │ (单文件存储)    │
                 └────────────────┘
 ```
@@ -158,7 +163,7 @@
 | 动画 | [Framer Motion](https://www.framer.com/motion/) | 12.x | 流畅页面转场和微交互 |
 | 路由 | React Router DOM | 6.x | 客户端路由，支撑四大视图 |
 | API 客户端 | [Axios](https://axios-http.com/) | 1.x | 仪表盘 API 请求与鉴权头注入 |
-| Markdown | react-markdown + remark-gfm | — | 渲染记忆内容，支持 GitHub 风格 Markdown |
+| Markdown | react-markdown + remark-gfm | — | 预留给可选的 Markdown 渲染链路；当前仪表盘里的记忆正文仍以纯文本方式展示 |
 | 图标 | [Lucide React](https://lucide.dev/) | — | 统一图标体系 |
 
 ### 各层实现详解
@@ -282,9 +287,9 @@ DATABASE_URL=sqlite+aiosqlite:////absolute/path/to/demo.db
 DATABASE_URL=sqlite+aiosqlite:///C:/absolute/path/to/demo.db
 ```
 
-如果你想立刻在本地使用 Dashboard，或者直接调用 `/browse` / `/review` / `/maintenance`，请在启动后端前二选一：
+如果你想立刻在本地使用 Dashboard，或者直接调用 `/browse` / `/review` / `/maintenance`，请先把下面二选一写进 `.env`，再启动后端：
 
-```bash
+```dotenv
 # 方式 A：设置一把本地 API Key（推荐）
 MCP_API_KEY=change-this-local-key
 
@@ -295,7 +300,7 @@ MCP_API_KEY_ALLOW_INSECURE_LOCAL=true
 **方法 B — 使用档位脚本（推荐）：**
 
 ```bash
-# macOS / Linux
+# macOS / Linux（这里仍然使用 `macos` 这个模板值）
 bash scripts/apply_profile.sh macos b
 
 # Windows PowerShell
@@ -401,6 +406,8 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 >
 > 上面这条 `python mcp_server.py` 默认你还在使用刚才安装依赖的那个 `backend/.venv`。如果你换了一个新终端，或者是在 Claude Code / Codex / OpenCode 这类客户端里配置本地 MCP，优先直接指向项目自己的 `.venv`。否则很容易因为解释器不对，在启动前就报 `ModuleNotFoundError: No module named 'sqlalchemy'`。
 >
+> 如果你要把 MCP 接到客户端配置里，更推荐直接用 `scripts/run_memory_palace_mcp_stdio.sh`。这个 wrapper 会优先复用当前仓库的 `.env` / `DATABASE_URL`，避免 MCP 客户端和 Dashboard/API 不小心各自写到两份 SQLite 库里。
+>
 > 上面这个 `HOST=127.0.0.1` 是**只给本机访问**的写法。真要给远程客户端访问，请改成 `HOST=0.0.0.0`（或你的实际绑定地址）。这一步只是把监听范围放开，**不等于**跳过安全控制；API Key、防火墙、反向代理和传输安全仍然要自己补齐。
 
 详细的客户端配置请参阅 [多客户端集成](#-多客户端集成)。
@@ -428,7 +435,9 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 > - Backend API：`http://127.0.0.1:18000`
 > - SSE：`http://127.0.0.1:3000/sse`
 >
-> 如果 Docker env 文件里的 `MCP_API_KEY` 为空，脚本会自动生成一把本地 key。前端会在代理层自动带上这把 key，所以默认不需要手动点 `Set API key`。
+> 如果 Docker env 文件里的 `MCP_API_KEY` 为空，脚本会自动生成一把本地 key。前端会在代理层自动带上这把 key，所以按推荐的一键脚本路径启动时，通常不需要再手动点 `Set API key` 才能访问受保护页面；如果你不是按这条路径启动，或者手动改了 env / 代理配置，页面里仍可能看到这个按钮。
+>
+> 现在 Docker 前端会等 **backend 和 SSE 各自的 `/health`** 都通过，才算真正 ready。容器刚起来时如果页面还没完全可用，先多等几秒，再按控制台打印出的地址重试即可。
 >
 > Docker 默认还会分别持久化两类运行期数据：`memory_palace_data` 用于数据库（容器内 `/app/data`），`memory_palace_snapshots` 用于 Review snapshots（容器内 `/app/snapshots`）。如果你执行 `docker compose down -v` 或手动删除这两个卷，这两部分都会一起清空。
 
@@ -478,13 +487,13 @@ Memory Palace 提供四种部署档位以匹配你的硬件和需求：
 RETRIEVAL_EMBEDDING_BACKEND=api
 RETRIEVAL_EMBEDDING_API_BASE=http://localhost:11434/v1   # 例如 Ollama
 RETRIEVAL_EMBEDDING_API_KEY=your-api-key
-RETRIEVAL_EMBEDDING_MODEL=Qwen3-Embedding-8B
+RETRIEVAL_EMBEDDING_MODEL=<your-embedding-model-id>
 
 # ── Reranker 模型 ───────────────────────────────────────────
 RETRIEVAL_RERANKER_ENABLED=true
 RETRIEVAL_RERANKER_API_BASE=http://localhost:11434/v1
 RETRIEVAL_RERANKER_API_KEY=your-api-key
-RETRIEVAL_RERANKER_MODEL=Qwen3-Reranker-8B
+RETRIEVAL_RERANKER_MODEL=<your-reranker-model-id>
 
 # ── 调参旋钮（推荐 0.20 ~ 0.40）────────────────────────────
 RETRIEVAL_RERANKER_WEIGHT=0.25
@@ -494,6 +503,8 @@ RETRIEVAL_RERANKER_WEIGHT=0.25
 > - `RETRIEVAL_EMBEDDING_BACKEND` 只控制 Embedding 链路。
 > - Reranker 没有 `RETRIEVAL_RERANKER_BACKEND` 开关，启用与否由 `RETRIEVAL_RERANKER_ENABLED` 控制。
 > - Reranker 连接参数优先读取 `RETRIEVAL_RERANKER_API_BASE/API_KEY/MODEL`；缺失时才回退 `ROUTER_*`（其中 base/key 还可继续回退 `OPENAI_*`）。
+>
+> 如果你的 provider 对 Embedding / Reranker 使用的是带命名空间的 model id（例如 `Qwen/...`），请填写你自己的 provider 实际 model id，不要把示例值原样照抄到别的环境。
 >
 > **推荐口径（重要）**：
 > - **本地开发 / 调试**：优先直接分别配置 `RETRIEVAL_EMBEDDING_*`、`RETRIEVAL_RERANKER_*`、`WRITE_GUARD_LLM_*` / `COMPACT_GIST_LLM_*`。
@@ -513,16 +524,18 @@ RETRIEVAL_RERANKER_WEIGHT=0.25
 WRITE_GUARD_LLM_ENABLED=true
 WRITE_GUARD_LLM_API_BASE=http://localhost:11434/v1
 WRITE_GUARD_LLM_API_KEY=your-api-key
-WRITE_GUARD_LLM_MODEL=Qwen3.5-35B-A3B
+WRITE_GUARD_LLM_MODEL=your-chat-model-id
 
 # ── Compact Gist LLM（留空则回退至 Write Guard 配置）───────
 COMPACT_GIST_LLM_ENABLED=true
 COMPACT_GIST_LLM_API_BASE=
 COMPACT_GIST_LLM_API_KEY=
-COMPACT_GIST_LLM_MODEL=Qwen3.5-35B-A3B
+COMPACT_GIST_LLM_MODEL=your-chat-model-id
 ```
 
-> 当前推荐模型：Embedding 使用 `Qwen3-Embedding-8B`，Reranker 使用 `Qwen3-Reranker-8B`，LLM 使用 `Qwen3.5-35B-A3B`。如需调整 Intent LLM、CORS、自定义 MMR、sqlite-vec rollout 或运行时审计上限，请直接参考 `.env.example`；README 只保留最常用主配置。
+> 上面这些模型名只是占位示例，不是项目硬依赖。Memory Palace 不绑定某个固定 provider 或模型家族；请直接填写你自己的 OpenAI-compatible 服务里实际可用的 embedding / reranker / chat model id。如需调整 Intent LLM、CORS、自定义 MMR、sqlite-vec rollout 或运行时审计上限，请直接参考 `.env.example`；README 只保留最常用主配置。
+>
+> 如果你在本地用 `--allow-runtime-env-injection` 调试 `profile c/d`，脚本会把这次运行切到显式 API 模式；当 `RETRIEVAL_EMBEDDING_API_*` / `RETRIEVAL_RERANKER_API_*` 没填时，会把 `ROUTER_API_BASE/ROUTER_API_KEY` 作为 embedding / reranker API base+key 的兜底来源，同时也会透传可选的 `INTENT_LLM_*`。
 
 档位模板位于：`deploy/profiles/{macos,windows,docker}/profile-{a,b,c,d}.env`
 
@@ -628,7 +641,7 @@ cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
 python scripts/install_skill.py --targets gemini,codex,opencode --scope user --with-mcp --force
 ```
 
-上面这两条验证命令更适合当成**当前机器上的诊断命令**，不要把它们理解成“所有检查都必须无条件 PASS 才算安装成功”。它们会把本地报告写到 `docs/skills/` 下；如果你当前机器缺少某个 CLI 的登录态、user-scope MCP 绑定，或者更大的工作区级验证辅助脚本，也可能看到 `PARTIAL` / `FAIL`。
+上面这两条更适合作为补充验证，不需要把它们理解成新手第一次安装时的必做步骤。
 
 canonical 真源，以及你执行同步/安装命令后在本地会看到的路径：
 
@@ -639,7 +652,7 @@ canonical 真源，以及你执行同步/安装命令后在本地会看到的路
 - Cursor：`<repo-root>/.cursor/skills/memory-palace/`
 - 兼容 agent CLI：`<repo-root>/.agent/skills/memory-palace/`
 
-这些隐藏目录都属于**本地生成的 mirror**，不是公开仓库里的源文件。它们已被 git 忽略，所以你从 GitHub 新 clone 下来的仓库里，通常只会先看到 `docs/skills/memory-palace/` 这份 canonical bundle；需要先运行上面的同步/安装命令，才会在你自己的机器上生成对应镜像。
+这些隐藏目录都是安装后生成的本地镜像目录。刚 clone 下来时，通常只会先看到 `docs/skills/memory-palace/` 这份 canonical bundle。
 
 这套 skill 已按当前真实代码口径收敛：
 
@@ -650,7 +663,7 @@ canonical 真源，以及你执行同步/安装命令后在本地会看到的路
 - `guard_action=NOOP` 时不要继续写入；先检查建议目标，再决定是否切换为 `update_memory`
 - 触发样例集固定在 `<repo-root>/docs/skills/memory-palace/references/trigger-samples.md`
 
-如果你想在自己的机器上复核本地 skill smoke 或真实 MCP 端到端链路，运行 `python scripts/evaluate_memory_palace_skill.py` 和 `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py`。这两条脚本默认会在本地生成 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 与 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md`。这两份报告默认只建议留在本机，已被 `.gitignore` 排除，所以公开 GitHub 仓库里看不到也属于正常情况。
+如果你想额外复核 skill smoke 或真实 MCP 端到端链路，运行 `python scripts/evaluate_memory_palace_skill.py` 和 `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py`。它们会在 `docs/skills/` 下生成本地报告。
 
 完整指南见：[MEMORY_PALACE_SKILLS.md](docs/skills/MEMORY_PALACE_SKILLS.md)
 
@@ -658,11 +671,11 @@ canonical 真源，以及你执行同步/安装命令后在本地会看到的路
 
 ## 📊 评测结果
 
-> 这里保留**对用户有用的摘要表**，来源于当前项目验证运行。更细的 benchmark 原始日志、一次性重测草稿和机器相关产物默认只在维护阶段使用，也不代表所有环境下的结果。
+> 这里保留**对用户有用的摘要表**，用于说明当前版本的大致表现。
 >
 > 想看方法、边界和复现命令，直接看 `docs/EVALUATION.md`；想看这次发布里采用的同口径旧版 vs 当前版本摘要，直接看 `docs/changelog/release_summary_vs_old_project_2026-03-06.md`。
 >
-> 这些表格背后的 `*_metrics.json` 原始文件默认只留在本地，并被 `.gitignore` 排除，所以公开 GitHub 仓库里可能看不到。
+> 下面这些数字是发布摘要，不代表所有硬件、provider 或网络条件下都会完全一致。
 
 ### 检索质量 — A/B/C/D 真实运行
 
@@ -762,13 +775,14 @@ curl -fsS http://127.0.0.1:8000/health
 > 📌 下面这些图主要用来帮助你快速认识功能区。
 >
 > - 它们展示的是**已经进入 Dashboard 后**的典型页面状态
+> - 当前前端默认英文；下面这组图展示的是切到中文后的界面
 > - 当前版本顶部统一提供鉴权入口（`Set API key` / `Update API key` / `Clear key`；若运行时已注入则显示 `Runtime key active`）
 > - 如果还没配置鉴权，页面外壳仍然会打开，但受保护的数据请求会先显示授权提示、空态或 `401`，而不是直接显示完整数据
 
 <details>
 <summary>📂 记忆 — 树形浏览器与编辑器</summary>
 
-<img src="docs/images/memory-palace-memory-page.png" width="900" alt="Memory Palace — 记忆浏览器页面" />
+<img src="docs/images/memory-zh.png" width="900" alt="Memory Palace — 记忆浏览器页面（中文模式）" />
 
 树形结构的记忆浏览器，支持内联编辑和 Gist 视图。按 域名 → 路径 层级导航。
 </details>
@@ -776,7 +790,7 @@ curl -fsS http://127.0.0.1:8000/health
 <details>
 <summary>📋 审查 — 差异对比与回滚</summary>
 
-<img src="docs/images/memory-palace-review-page.png" width="900" alt="Memory Palace — 审查页面" />
+<img src="docs/images/review-zh.png" width="900" alt="Memory Palace — 审查页面（中文模式）" />
 
 快照的并排差异对比，支持一键回滚和整合操作。当前版本在这页上还补了更细的错误提示和会话处理细节。
 </details>
@@ -784,7 +798,7 @@ curl -fsS http://127.0.0.1:8000/health
 <details>
 <summary>🔧 维护 — 活力治理</summary>
 
-<img src="docs/images/memory-palace-maintenance-page.png" width="900" alt="Memory Palace — 维护页面" />
+<img src="docs/images/maintenance-zh.png" width="900" alt="Memory Palace — 维护页面（中文模式）" />
 
 监控记忆活力值、触发清理任务、管理衰减参数。当前版本还补了 domain / path_prefix 等过滤项，以及更完整的人工确认流程。
 </details>
@@ -792,7 +806,7 @@ curl -fsS http://127.0.0.1:8000/health
 <details>
 <summary>📊 可观测性 — 搜索与任务监控</summary>
 
-<img src="docs/images/memory-palace-observability-page.png" width="900" alt="Memory Palace — 可观测性页面" />
+<img src="docs/images/observability-zh.png" width="900" alt="Memory Palace — 可观测性页面（中文模式）" />
 
 实时搜索查询监控、检索质量洞察和任务队列状态。当前版本还补了 `scope hint`、运行时快照和索引任务队列等信息。
 </details>

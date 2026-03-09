@@ -19,6 +19,8 @@ from pathlib import Path as FilePath
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Tuple, Sequence, Mapping
 from contextlib import asynccontextmanager
+from urllib.parse import unquote
+from filelock import AsyncFileLock
 
 from sqlalchemy import (
     Column,
@@ -78,6 +80,32 @@ _register_sqlite_adapters()
 def _utc_now() -> datetime:
     """Timezone-aware UTC now."""
     return datetime.now(timezone.utc)
+
+
+def _extract_sqlite_file_path(database_url: str) -> Optional[FilePath]:
+    prefix = "sqlite+aiosqlite:///"
+    if not isinstance(database_url, str) or not database_url.startswith(prefix):
+        return None
+    raw_path = database_url[len(prefix):]
+    raw_path = raw_path.split("?", 1)[0].split("#", 1)[0]
+    raw_path = unquote(raw_path)
+    if not raw_path:
+        return None
+    if raw_path == ":memory:" or raw_path.startswith("file::memory:"):
+        return None
+    if raw_path.startswith("/") or (
+        len(raw_path) >= 3 and raw_path[1] == ":" and raw_path[2] == "/"
+    ):
+        return FilePath(raw_path)
+    return FilePath(raw_path)
+
+
+def _resolve_init_lock_path(database_file: Optional[FilePath]) -> Optional[FilePath]:
+    if database_file is None:
+        return None
+    if database_file.suffix:
+        return database_file.with_suffix(f"{database_file.suffix}.init.lock")
+    return FilePath(f"{database_file}.init.lock")
 
 
 def _utc_now_naive() -> datetime:
@@ -277,6 +305,11 @@ class SQLiteClient:
                          "sqlite+aiosqlite:///memory_palace.db"
         """
         self.database_url = database_url
+        self._database_file = _extract_sqlite_file_path(database_url)
+        self._init_lock_path = _resolve_init_lock_path(self._database_file)
+        self._init_lock_timeout_seconds = max(
+            0.0, float(os.getenv("DB_INIT_LOCK_TIMEOUT_SEC", "30") or "30")
+        )
         self.engine = create_async_engine(database_url, echo=False)
         self._runtime_write_wal_enabled = self._env_bool("RUNTIME_WRITE_WAL_ENABLED", False)
         self._runtime_write_journal_mode_requested = (
@@ -844,8 +877,8 @@ class SQLiteClient:
             candidates.append(fallback_backend)
         return candidates
 
-    async def init_db(self):
-        """Create tables if they don't exist, and run migrations for schema changes."""
+    async def _run_init_db_unlocked(self):
+        """Run the full database bootstrap without any process-level lock."""
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             # Migration: add migrated_to column if not present (for existing DBs)
@@ -863,6 +896,19 @@ class SQLiteClient:
             await conn.run_sync(self._sync_set_vector_engine_meta)
             await conn.run_sync(self._sync_set_write_lane_wal_meta)
         await self._bootstrap_indexes()
+
+    async def init_db(self):
+        """Create tables, run migrations, and serialize startup across processes."""
+        if self._init_lock_path is None:
+            await self._run_init_db_unlocked()
+            return
+
+        self._init_lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock = AsyncFileLock(
+            str(self._init_lock_path), timeout=self._init_lock_timeout_seconds
+        )
+        async with lock:
+            await self._run_init_db_unlocked()
 
     @staticmethod
     def _migrate_add_migrated_to(connection):

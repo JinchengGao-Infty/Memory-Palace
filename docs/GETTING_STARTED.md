@@ -89,6 +89,7 @@ cp .env.example .env
 
 ```bash
 # macOS / Linux —— 参数：平台 档位 [目标文件]
+# 当前脚本接受的模板值是 macos|windows|docker；Linux 本地也使用 macos 这套模板。
 bash scripts/apply_profile.sh macos b
 
 # Windows PowerShell
@@ -110,11 +111,11 @@ bash scripts/apply_profile.sh macos b
 | `DATABASE_URL` | SQLite 数据库路径（**建议使用绝对路径**） | `sqlite+aiosqlite:////absolute/path/to/memory_palace/demo.db` |
 | `SEARCH_DEFAULT_MODE` | 检索模式：`keyword` / `semantic` / `hybrid` | `keyword` |
 | `RETRIEVAL_EMBEDDING_BACKEND` | 嵌入后端：`none` / `hash` / `router` / `api` / `openai` | `none` |
-| `RETRIEVAL_EMBEDDING_MODEL` | Embedding 模型名 | `Qwen3-Embedding-8B` |
+| `RETRIEVAL_EMBEDDING_MODEL` | Embedding 模型名 | `your-embedding-model-id` |
 | `RETRIEVAL_RERANKER_ENABLED` | 是否启用 Reranker | `false` |
 | `RETRIEVAL_RERANKER_API_BASE` | Reranker API 地址 | 空 |
 | `RETRIEVAL_RERANKER_API_KEY` | Reranker API 密钥 | 空 |
-| `RETRIEVAL_RERANKER_MODEL` | Reranker 模型名 | `Qwen3-Reranker-8B` |
+| `RETRIEVAL_RERANKER_MODEL` | Reranker 模型名 | `your-reranker-model-id` |
 | `INTENT_LLM_ENABLED` | 实验性意图 LLM 开关 | `false` |
 | `RETRIEVAL_MMR_ENABLED` | hybrid 检索下的去重 / 多样性重排 | `false` |
 | `RETRIEVAL_SQLITE_VEC_ENABLED` | sqlite-vec rollout 开关 | `false` |
@@ -139,9 +140,9 @@ bash scripts/apply_profile.sh macos b
 > - `RETRIEVAL_SQLITE_VEC_ENABLED=false`：普通部署先保持 legacy 路径
 > - `CORS_ALLOW_ORIGINS=`：本地开发留空；要开放给浏览器跨域访问时再写明确域名
 >
-> 当前推荐模型：Embedding 使用 `Qwen3-Embedding-8B`，Reranker 使用 `Qwen3-Reranker-8B`；如需启用可选 LLM，推荐使用 `Qwen3.5-35B-A3B`。
+> 上面这些模型名只是占位示例，不是项目硬依赖。Memory Palace 不绑定某个固定 provider 或模型家族；请直接改成你自己的 OpenAI-compatible 服务里实际可用的 embedding / reranker / chat model id。
 >
-> 如果你接下来就要在本地打开 Dashboard，或者直接用 `curl` 调 `/browse` / `/review` / `/maintenance`，建议再补一项鉴权配置（二选一）：
+> 如果你接下来就要在本地打开 Dashboard，或者直接用 `curl` 调 `/browse` / `/review` / `/maintenance`，建议在 `.env` 里再补一项鉴权配置（二选一）：
 >
 > - `MCP_API_KEY=change-this-local-key`
 > - `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`（只建议你自己机器上的回环调试时使用）
@@ -180,6 +181,8 @@ npm install
 npm run dev
 ```
 
+> 前端的 i18n 依赖已经写在 `frontend/package.json` 和 `frontend/package-lock.json` 里。正常执行一次 `npm install` 即可，不需要再单独安装 `i18next`、`react-i18next` 或 `i18next-browser-languagedetector`。
+
 预期输出：
 
 ```
@@ -189,12 +192,22 @@ VITE v7.x.x  ready in xxx ms
 
 打开浏览器访问 `http://127.0.0.1:5173`，即可看到 Memory Palace Dashboard。
 
+如果你希望按页面逐项看 Dashboard 的按钮、字段和典型操作流程，可继续看：
+
+- `docs/DASHBOARD_GUIDE_CN.md`
+
 > 如果你在本地手动启动时看到右上角的 `Set API key`，这是正常现象：页面已经打开，但 `/browse/*`、`/review/*`、`/maintenance/*` 等受保护接口还没授权。第 5 节会继续说明本地验证方式。
 
 > 如果你配置了 `MCP_API_KEY`，打开页面后请点右上角 `Set API key`，输入同一把 key。
 > 如果你启用了 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`，本机回环地址上的直连请求可直接访问这些受保护数据接口。
 
+> 当前前端默认英文；如果你更习惯中文，直接点右上角语言按钮即可切换，浏览器会记住你的选择。
+
 > 前端开发服务器通过 `vite.config.js` 中配置的 proxy 将 `/api` 路径代理到后端 `http://127.0.0.1:8000`，因此前后端无需手动配置 CORS。
+
+<p align="center">
+  <img src="images/memory-zh.png" width="900" alt="Memory Palace 中文界面示例" />
+</p>
 
 ---
 
@@ -207,18 +220,22 @@ bash scripts/docker_one_click.sh --profile b
 # Windows PowerShell
 .\scripts\docker_one_click.ps1 -Profile b
 
-# 若需把当前进程中的运行时 API 密钥/地址注入本次运行的 Docker env 文件（例如 profile c/d）
+# 若需把当前进程中的运行时 API 地址/密钥注入本次运行的 Docker env 文件（例如 profile c/d）
 # 需显式开启注入开关（默认关闭）：
 bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 # 或
 .\scripts\docker_one_click.ps1 -Profile c -AllowRuntimeEnvInjection
 ```
 
+> 如果你在 `profile c/d` 下开启这类本地联调注入，脚本会把这次运行切到显式 API 模式，并额外强制 `RETRIEVAL_EMBEDDING_BACKEND=api`。当 `RETRIEVAL_EMBEDDING_API_*` / `RETRIEVAL_RERANKER_API_*` 没显式提供时，它会优先复用当前进程里的 `ROUTER_API_BASE/ROUTER_API_KEY` 作为兜底；如果你还设置了 `INTENT_LLM_*`，这条链路也会一并注入。这个模式更适合本地排障，不等于你正在验证最终发布口径的 `router` 模板。
+
 > `docker_one_click.sh/.ps1` 默认会为**每次运行**生成独立的临时 Docker env 文件，并通过 `MEMORY_PALACE_DOCKER_ENV_FILE` 传给 `docker compose`；只有显式设置该环境变量时才会复用指定文件，而不是固定共享 `.env.docker`。
 >
 > 同一 checkout 下的并发部署会被 deployment lock 串行化；若已有另一条一键部署在执行，后续进程会直接退出并提示稍后重试。
 >
-> 如果 Docker env 文件里的 `MCP_API_KEY` 为空，`apply_profile.*` 会自动生成一把本地 key。Docker 前端会在代理层自动带上这把 key，所以 Dashboard 默认不需要再手动点 `Set API key`。
+> 如果 Docker env 文件里的 `MCP_API_KEY` 为空，`apply_profile.*` 会自动生成一把本地 key。Docker 前端会在代理层自动带上这把 key，所以**按推荐的一键脚本路径启动时**，大多数情况下不需要再手动点 `Set API key` 才能访问受保护页面；如果你不是用一键脚本启动，或者手动改了 env / 代理配置，页面里仍可能看到这个按钮。
+>
+> 当前 Docker Compose 还会额外等 **backend 和 SSE 各自的 `/health`** 都通过，才把 frontend 视为 ready。也就是说，容器刚显示 `running` 时，页面可能还会晚几秒才真正可用，这属于正常现象。
 >
 > Docker 默认还会分别持久化两类运行期数据：`memory_palace_data` 用于数据库（容器内 `/app/data`），`memory_palace_snapshots` 用于 Review snapshots（容器内 `/app/snapshots`）。如果你执行 `docker compose down -v` 或手动删除这两个卷，这两部分都会一起清空。
 >
@@ -280,30 +297,30 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups
 .\scripts\backup_memory.ps1
 ```
 
-> 备份文件默认写入 `backups/`。它属于运行期目录，通常只在你自己的机器上使用。
->
-> 💡 如果你只是想做本地试验，建议把 `backups/` 也当成“只放自己机器上”的目录。
+> 备份文件默认写入 `backups/`。如果你准备分享仓库或打包交付，通常不需要把它一并带上。
 
-### 4.2 哪些文件通常只在你自己的机器上使用
+### 4.2 哪些文件通常不需要提交
 
 当前仓库已经把以下典型本地产物放入 `<repo-root>/.gitignore`：
 
 - 运行期数据库：`*.db`、`*.sqlite`、`*.sqlite3`
-- 本地工具配置：`.mcp.json`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/`
+- 数据库锁文件：`*.init.lock`、`*.migrate.lock`
+- 本地工具配置：`.mcp.json`、`.mcp.json.bak`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/`
 - 本地缓存与临时目录：`.tmp/`、`backend/.pytest_cache/`
 - 前端本地产物：`frontend/node_modules/`、`frontend/dist/`
 - 日志与快照：`*.log`、`snapshots/`、`backups/`
 - 临时测试草稿：`frontend/src/*.tmp.test.jsx`
 - 维护期内部文档：`docs/improvement/`、`backend/docs/benchmark_*.md`
 - 一次性对照摘要：`docs/evaluation_old_vs_new_*.md`
+- 本地验证报告：`docs/skills/TRIGGER_SMOKE_REPORT.md`、`docs/skills/MCP_LIVE_E2E_REPORT.md`、`docs/skills/CLAUDE_SKILLS_AUDIT.md`
 
-如果你准备把项目分享给别人、打包交付，或者只是想做一次环境自检，建议执行：
+如果你准备分享项目、打包交付，或者只是想做一次环境自检，建议执行：
 
 ```bash
 bash scripts/pre_publish_check.sh
 ```
 
-它会检查本地敏感产物、数据库、日志、个人路径和 `.env.example` 占位项，帮助你确认哪些内容更适合只留在当前机器上。
+它会检查常见本地敏感产物、工具配置、本地验证报告、个人路径和 `.env.example` 占位项，帮你快速确认仓库是否适合直接交付。若只是发现这些本地文件存在，通常会给出 `WARN`，提醒你在分享前自己确认。
 
 如果你额外运行下面这些验证脚本：
 
@@ -312,7 +329,8 @@ python scripts/evaluate_memory_palace_skill.py
 cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
-脚本会分别在 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 和 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` 本地生成或更新摘要。这两份结果更适合当成你自己机器上的验证记录，而不是主说明文档；它们默认也被 `.gitignore` 排除，所以公开 GitHub 仓库里通常不会带上这两份文件。
+脚本会分别在 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 和 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` 生成摘要。这两份结果主要用于本地复核，不是主说明文档。
+如果你是刚 clone 下来的 GitHub 仓库，暂时看不到这两份文件也正常；它们是运行脚本后才生成的本地产物。
 
 ---
 
@@ -396,6 +414,8 @@ python mcp_server.py
 > `stdio` 模式下 MCP 工具直接通过进程的标准输入/输出通信，**不经过 HTTP/SSE 鉴权层**，无需配置 `MCP_API_KEY` 即可使用。
 >
 > 这里的 `python mcp_server.py` 默认你还在使用 **Step 2 里创建并装好依赖的 `backend/.venv`**。如果你换了一个新终端，或者是在客户端里单独配置本地 MCP，优先直接用项目自己的 `.venv` 解释器。否则会在 MCP 进程真正启动前就报 `ModuleNotFoundError: No module named 'sqlalchemy'` 这类错误。
+>
+> 如果你是在客户端配置里接入 MCP，更推荐直接用 `scripts/run_memory_palace_mcp_stdio.sh`。这个 wrapper 会优先复用当前仓库的 `.env` / `DATABASE_URL`，避免 MCP 客户端和 Dashboard/API 连到两份不同的 SQLite 数据库。
 
 ### 6.2 SSE 模式
 
@@ -406,11 +426,15 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 
 > `run_sse.py` 默认监听 `0.0.0.0:8000`（通过 `HOST` 和 `PORT` 环境变量可自定义），SSE 端点路径为 `/sse`。SSE 模式受 `MCP_API_KEY` 鉴权保护。
 >
+> 同一个 SSE 进程还会提供一个轻量级 `/health` 端点，主要给 Docker / 脚本做就绪检查；真正对 MCP 客户端开放的流式入口仍然是 `/sse`。
+>
 > 上面这条命令故意绑定到 `127.0.0.1`，更适合本机调试。如果你真的需要让其他机器访问，再把 `HOST` 改成 `0.0.0.0`（或你的实际监听地址）。这会让远程客户端可以连上监听地址，但 API Key、反向代理、防火墙和传输层安全仍然要你自己补齐。
 >
 > 如果你使用 Docker 一键部署，SSE 会由独立容器启动，并通过前端代理暴露在 `http://127.0.0.1:3000/sse`。
 >
 > 上面的 `HOST=127.0.0.1 PORT=8010` 示例是**本机回环**写法。只有在你确实要开放给远程客户端时，才改为 `HOST=0.0.0.0`（或目标绑定地址），并自行补齐网络侧安全控制。
+>
+> 如果你自己用 `curl` 或脚本先连了一次 `/sse`，然后把这条连接断掉，再单独往 `/messages` 发同一个 `session_id`，看到 `404` / `410` 是正常的：这表示前一条 SSE session 已经关闭。真正的正常链路应该是“先保持 `/sse` 连接活着，再由客户端继续往 `/messages` 发请求”。
 
 ### 6.3 客户端配置示例
 
@@ -420,9 +444,8 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 {
   "mcpServers": {
     "memory-palace": {
-      "command": "/ABS/PATH/TO/REPO/backend/.venv/bin/python",
-      "args": ["mcp_server.py"],
-      "cwd": "/ABS/PATH/TO/REPO/backend"
+      "command": "bash",
+      "args": ["/ABS/PATH/TO/REPO/scripts/run_memory_palace_mcp_stdio.sh"]
     }
   }
 }
@@ -430,7 +453,7 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 
 > 如果你还没创建 `backend/.venv`，先回到 **Step 2** 完成虚拟环境和依赖安装。
 >
-> Windows 客户端把上面的 `command` 改成 `C:\\ABS\\PATH\\TO\\REPO\\backend\\.venv\\Scripts\\python.exe`。不要直接写系统 `python`，不然客户端很可能会用错解释器。
+> Windows 原生环境不要把 `command` 直接改成 `python.exe` 去执行这条 `.sh`。更稳妥的做法是先准备 Git Bash / WSL，再保持 `bash + run_memory_palace_mcp_stdio.sh` 这条组合；如果当前客户端不方便跑 shell wrapper，优先参考 `docs/skills/GETTING_STARTED.md` 里的脚本化安装路径。
 
 **SSE 模式**：
 
@@ -481,7 +504,7 @@ curl -fsS http://127.0.0.1:8000/maintenance/orphans \
 
 ### 前端鉴权配置
 
-如果前端也需要访问受保护接口，请在 `frontend/index.html` 的 `<head>` 中注入运行时配置（前端 `src/lib/api.js` 会读取 `window.__MEMORY_PALACE_RUNTIME__`）：
+如果前端也需要访问受保护接口，可以在**本地调试或你自己控制的私有部署环境**里注入运行时配置（前端 `src/lib/api.js` 会读取 `window.__MEMORY_PALACE_RUNTIME__`）：
 
 ```html
 <script>
@@ -491,6 +514,8 @@ curl -fsS http://127.0.0.1:8000/maintenance/orphans \
   };
 </script>
 ```
+
+> 不要把真实 `MCP_API_KEY` 写进任何公开页面、共享静态资源或会交付给最终用户的 HTML 里。浏览器里可以直接读取这个全局对象。
 
 > 这段配置主要用于**本地手动启动前后端**的场景。
 >

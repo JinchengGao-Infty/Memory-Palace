@@ -1,9 +1,9 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Trash2, Feather, AlertTriangle, RefreshCw,
   ChevronDown, ChevronUp, ArrowRight, Unlink, Archive, CheckSquare, Square, Minus
 } from 'lucide-react';
-import { format } from 'date-fns';
 import DiffViewer from '../../components/DiffViewer';
 import {
   queryVitalityCleanupCandidates,
@@ -16,21 +16,30 @@ import {
   getOrphanMemoryDetail,
   deleteOrphanMemory,
 } from '../../lib/api';
+import { formatDateTime } from '../../lib/format';
 
 const VITALITY_PREPARE_MAX_SELECTIONS = 100;
 
-const formatDateTimeOrUnknown = (value) => {
+const formatDateTimeOrUnknown = (value, lng, fallback) => {
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return 'Unknown';
-  return format(parsed, 'yyyy-MM-dd HH:mm');
+  if (Number.isNaN(parsed.getTime())) return fallback;
+  return formatDateTime(parsed, lng, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }) || fallback;
 };
 
 const normalizePaths = (value) => (Array.isArray(value) ? value : []);
 
 export default function MaintenancePage() {
+  const { t, i18n } = useTranslation();
   const [orphans, setOrphans] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [errorState, setErrorState] = useState(null);
 
   const [expandedId, setExpandedId] = useState(null);
   const [detailData, setDetailData] = useState({});
@@ -41,7 +50,7 @@ export default function MaintenancePage() {
 
   const [vitalityCandidates, setVitalityCandidates] = useState([]);
   const [vitalityLoading, setVitalityLoading] = useState(false);
-  const [vitalityError, setVitalityError] = useState(null);
+  const [vitalityErrorState, setVitalityErrorState] = useState(null);
   const [vitalitySelectedIds, setVitalitySelectedIds] = useState(new Set());
   const [vitalityThreshold, setVitalityThreshold] = useState(0.35);
   const [vitalityInactiveDays, setVitalityInactiveDays] = useState(14);
@@ -57,6 +66,21 @@ export default function MaintenancePage() {
   const detailRequestSeqRef = useRef(0);
   const vitalityRequestSeqRef = useRef(0);
   const vitalityPrepareSeqRef = useRef(0);
+  const error = useMemo(() => {
+    if (!errorState) return null;
+    return `${t('maintenance.errors.loadOrphans')}: ${extractApiError(
+      errorState.error,
+      t(errorState.fallbackKey)
+    )}`;
+  }, [errorState, t]);
+  const vitalityError = useMemo(() => {
+    if (!vitalityErrorState) return null;
+    if (typeof vitalityErrorState === 'string') return vitalityErrorState;
+    if (vitalityErrorState.type === 'translation') {
+      return t(vitalityErrorState.key, vitalityErrorState.values || {});
+    }
+    return extractApiError(vitalityErrorState.error, t(vitalityErrorState.fallbackKey));
+  }, [t, vitalityErrorState]);
 
   const invalidatePreparedReview = useCallback(() => {
     vitalityPrepareSeqRef.current += 1;
@@ -72,7 +96,7 @@ export default function MaintenancePage() {
     const requestSeq = orphanRequestSeqRef.current + 1;
     orphanRequestSeqRef.current = requestSeq;
     setLoading(true);
-    setError(null);
+    setErrorState(null);
     setSelectedIds(new Set());
     try {
       const data = await listOrphanMemories();
@@ -80,7 +104,7 @@ export default function MaintenancePage() {
       setOrphans(Array.isArray(data) ? data : []);
     } catch (err) {
       if (requestSeq !== orphanRequestSeqRef.current) return;
-      setError(`Failed to load orphans: ${extractApiError(err, 'Failed to load orphans')}`);
+      setErrorState({ error: err, fallbackKey: 'maintenance.errors.loadOrphans' });
     } finally {
       if (requestSeq !== orphanRequestSeqRef.current) return;
       setLoading(false);
@@ -91,20 +115,20 @@ export default function MaintenancePage() {
     const requestSeq = vitalityRequestSeqRef.current + 1;
     vitalityRequestSeqRef.current = requestSeq;
     setVitalityLoading(true);
-    setVitalityError(null);
+    setVitalityErrorState(null);
     invalidatePreparedReview();
     try {
       const thresholdRaw = String(vitalityThreshold ?? '').trim();
       const inactiveDaysRaw = String(vitalityInactiveDays ?? '').trim();
       const limitRaw = String(vitalityLimit ?? '').trim();
       if (!thresholdRaw) {
-        throw new Error('threshold is required');
+        throw new Error(t('maintenance.errors.thresholdRequired'));
       }
       if (!inactiveDaysRaw) {
-        throw new Error('inactive_days is required');
+        throw new Error(t('maintenance.errors.inactiveDaysRequired'));
       }
       if (!limitRaw) {
-        throw new Error('limit is required');
+        throw new Error(t('maintenance.errors.limitRequired'));
       }
       const parsedThreshold = Number(thresholdRaw);
       const parsedInactiveDays = Number(inactiveDaysRaw);
@@ -112,10 +136,10 @@ export default function MaintenancePage() {
       const domainRaw = String(vitalityDomain ?? '').trim();
       const pathPrefixRaw = String(vitalityPathPrefix ?? '').trim();
       if (!Number.isFinite(parsedThreshold) || parsedThreshold < 0) {
-        throw new Error('threshold must be a non-negative number');
+        throw new Error(t('maintenance.errors.thresholdNonNegative'));
       }
       if (!Number.isFinite(parsedInactiveDays) || parsedInactiveDays < 0) {
-        throw new Error('inactive_days must be a non-negative number');
+        throw new Error(t('maintenance.errors.inactiveDaysNonNegative'));
       }
       if (
         !Number.isFinite(parsedLimit)
@@ -123,7 +147,7 @@ export default function MaintenancePage() {
         || parsedLimit < 1
         || parsedLimit > 500
       ) {
-        throw new Error('limit must be in range [1, 500]');
+        throw new Error(t('maintenance.errors.limitRange'));
       }
       if (forceDecay) {
         await triggerVitalityDecay({ force: true, reason: 'maintenance.manual_refresh' });
@@ -150,7 +174,10 @@ export default function MaintenancePage() {
     } catch (err) {
       if (requestSeq !== vitalityRequestSeqRef.current) return;
       setVitalityQueryMeta(null);
-      setVitalityError(extractApiError(err, 'Failed to load vitality candidates'));
+      setVitalityErrorState({
+        error: err,
+        fallbackKey: 'maintenance.errors.loadVitalityCandidates',
+      });
     } finally {
       if (requestSeq !== vitalityRequestSeqRef.current) return;
       setVitalityLoading(false);
@@ -211,7 +238,7 @@ export default function MaintenancePage() {
   const handleBatchDelete = async () => {
     const count = selectedIds.size;
     if (count === 0) return;
-    if (!confirm(`Permanently delete ${count} memories? This cannot be undone.`)) return;
+    if (!confirm(t('maintenance.prompts.deleteMemories', { count }))) return;
 
     setBatchDeleting(true);
     const toDelete = [...selectedIds];
@@ -234,7 +261,11 @@ export default function MaintenancePage() {
     }
 
     if (failed.length > 0) {
-      alert(`${failed.length} of ${count} deletions failed. Failed IDs: ${failed.join(', ')}`);
+      alert(t('maintenance.errors.deleteSummary', {
+        failed: failed.length,
+        count,
+        ids: failed.join(', '),
+      }));
     }
 
     setBatchDeleting(false);
@@ -249,23 +280,32 @@ export default function MaintenancePage() {
       : selectedRows;
     if (reviewRows.length === 0) {
       invalidatePreparedReview();
-      setVitalityError(
-        normalizedAction === 'delete'
-          ? 'No deletable candidate selected. Please select rows marked as deletable.'
-          : 'No candidate selected for keep review.'
-      );
+      setVitalityErrorState({
+        type: 'translation',
+        key:
+          normalizedAction === 'delete'
+            ? 'maintenance.errors.noDeletableSelected'
+            : 'maintenance.errors.noCandidateSelected',
+      });
       return;
     }
     if (reviewRows.length > VITALITY_PREPARE_MAX_SELECTIONS) {
       invalidatePreparedReview();
-      setVitalityError(`Too many selections: ${reviewRows.length}. Max allowed is ${VITALITY_PREPARE_MAX_SELECTIONS}.`);
+      setVitalityErrorState({
+        type: 'translation',
+        key: 'maintenance.errors.tooManySelections',
+        values: {
+          count: reviewRows.length,
+          max: VITALITY_PREPARE_MAX_SELECTIONS,
+        },
+      });
       return;
     }
 
     const prepareSeq = vitalityPrepareSeqRef.current + 1;
     vitalityPrepareSeqRef.current = prepareSeq;
     setVitalityProcessing(true);
-    setVitalityError(null);
+    setVitalityErrorState(null);
     try {
       const payload = await prepareVitalityCleanup({
         action: normalizedAction,
@@ -283,7 +323,7 @@ export default function MaintenancePage() {
         || !review.token
         || !review.confirmation_phrase
       ) {
-        throw new Error('Invalid cleanup review payload');
+        throw new Error(t('maintenance.errors.invalidReviewPayload'));
       }
       if (prepareSeq !== vitalityPrepareSeqRef.current) return;
       setVitalityPreparedReview({ ...review, action: review.action || normalizedAction });
@@ -291,7 +331,10 @@ export default function MaintenancePage() {
     } catch (err) {
       if (prepareSeq !== vitalityPrepareSeqRef.current) return;
       setVitalityPreparedReview(null);
-      setVitalityError(extractApiError(err, 'Failed to prepare cleanup'));
+      setVitalityErrorState({
+        error: err,
+        fallbackKey: 'maintenance.errors.prepareCleanup',
+      });
     } finally {
       if (prepareSeq !== vitalityPrepareSeqRef.current) return;
       setVitalityProcessing(false);
@@ -311,16 +354,22 @@ export default function MaintenancePage() {
     const action = vitalityPreparedReview.action || 'delete';
 
     const typed = window.prompt(
-      `Type confirmation phrase to execute ${action} cleanup:\n${vitalityPreparedReview.confirmation_phrase}`
+      t('maintenance.prompts.executeCleanup', {
+        action,
+        phrase: vitalityPreparedReview.confirmation_phrase,
+      })
     );
     if (typed === null) return;
     if (typed.trim() !== vitalityPreparedReview.confirmation_phrase) {
-      setVitalityError('Confirmation phrase mismatch. Cleanup request not sent.');
+      setVitalityErrorState({
+        type: 'translation',
+        key: 'maintenance.errors.confirmationMismatch',
+      });
       return;
     }
 
     setVitalityProcessing(true);
-    setVitalityError(null);
+    setVitalityErrorState(null);
     try {
       const payload = await confirmVitalityCleanup({
         review_id: vitalityPreparedReview.review_id,
@@ -332,8 +381,10 @@ export default function MaintenancePage() {
       await Promise.all([loadOrphans(), loadVitalityCandidates()]);
     } catch (err) {
       const detailCode = extractApiErrorCode(err);
-      const detailText = extractApiError(err, 'Failed to confirm cleanup');
-      setVitalityError(detailText);
+      setVitalityErrorState({
+        error: err,
+        fallbackKey: 'maintenance.errors.confirmCleanup',
+      });
       if (detailCode !== 'confirmation_phrase_mismatch') {
         invalidatePreparedReview();
         await loadVitalityCandidates();
@@ -366,7 +417,12 @@ export default function MaintenancePage() {
       setDetailData(prev => ({ ...prev, [id]: data }));
     } catch (err) {
       if (requestSeq !== detailRequestSeqRef.current) return;
-      setDetailData(prev => ({ ...prev, [id]: { error: extractApiError(err, 'Failed to load orphan detail') } }));
+      setDetailData(prev => ({
+        ...prev,
+        [id]: {
+          errorState: { error: err, fallbackKey: 'maintenance.errors.loadOrphanDetail' },
+        },
+      }));
     } finally {
       if (requestSeq !== detailRequestSeqRef.current) return;
       setDetailLoading(null);
@@ -415,11 +471,11 @@ export default function MaintenancePage() {
               </span>
               {item.category === 'deprecated' ? (
                 <span className="text-[10px] font-mono text-amber-300 bg-amber-900/40 px-1.5 py-0.5 rounded flex items-center gap-1">
-                  <Archive size={9} /> deprecated
+                  <Archive size={9} /> {t('maintenance.card.deprecated')}
                 </span>
               ) : (
                 <span className="text-[10px] font-mono text-rose-300 bg-rose-900/40 px-1.5 py-0.5 rounded flex items-center gap-1">
-                  <Unlink size={9} /> orphaned
+                  <Unlink size={9} /> {t('maintenance.card.orphaned')}
                 </span>
               )}
               {item.migrated_to && (
@@ -428,7 +484,7 @@ export default function MaintenancePage() {
                 </span>
               )}
               <span className="text-[11px] text-stone-500">
-                {formatDateTimeOrUnknown(item.created_at)}
+                {formatDateTimeOrUnknown(item.created_at, i18n.resolvedLanguage, t('common.states.unknown'))}
               </span>
             </div>
 
@@ -446,7 +502,7 @@ export default function MaintenancePage() {
               <div className="flex items-center gap-1.5 mb-2">
                 <ArrowRight size={12} className="text-stone-500 flex-shrink-0" />
                 <span className="text-[11px] text-stone-500 italic">
-                  target #{item.migration_target.id} also has no paths
+                  {t('maintenance.card.targetNoPaths', { id: item.migration_target.id })}
                 </span>
               </div>
             )}
@@ -466,15 +522,18 @@ export default function MaintenancePage() {
             {isLoadingDetail ? (
               <div className="flex items-center gap-3 text-stone-500 py-4">
                 <div className="w-4 h-4 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"></div>
-                <span className="text-xs">Loading full content...</span>
+                <span className="text-xs">{t('maintenance.card.loadingFullContent')}</span>
               </div>
-            ) : detail?.error ? (
-              <div className="text-rose-400 text-xs py-2">Error: {detail.error}</div>
+            ) : detail?.errorState ? (
+              <div className="text-rose-400 text-xs py-2">
+                {t('maintenance.card.errorPrefix')}{' '}
+                {extractApiError(detail.errorState.error, t(detail.errorState.fallbackKey))}
+              </div>
             ) : detail ? (
               <div className="space-y-4">
                 <div>
                   <h4 className="text-[11px] uppercase tracking-widest text-stone-500 mb-2 font-semibold">
-                    {detail.migration_target ? 'Old Version (This Memory)' : 'Full Content'}
+                    {detail.migration_target ? t('maintenance.card.oldVersion') : t('maintenance.card.fullContent')}
                   </h4>
                   <div className="bg-stone-900 rounded p-4 border border-stone-800/60 text-[12px] text-stone-300 font-mono leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto custom-scrollbar">
                     {detail.content}
@@ -484,7 +543,7 @@ export default function MaintenancePage() {
                 {detail.migration_target && (
                   <div>
                     <h4 className="text-[11px] uppercase tracking-widest text-stone-500 mb-2 font-semibold flex items-center gap-2">
-                      <span>Diff: #{item.id} → #{detail.migration_target.id}</span>
+                      <span>{t('maintenance.card.diffTitle', { from: item.id, to: detail.migration_target.id })}</span>
                       {detailMigrationPaths.length > 0 && (
                         <span className="text-amber-400/70 normal-case tracking-normal font-normal">
                           ({detailMigrationPaths[0]})
@@ -516,7 +575,7 @@ export default function MaintenancePage() {
         <button
           onClick={() => toggleSelectAll(items)}
           className="p-0.5 rounded transition-colors hover:bg-stone-700/30"
-          title={allSelected ? 'Deselect all' : 'Select all'}
+          title={allSelected ? t('maintenance.deselectAll') : t('maintenance.selectAll')}
         >
           {allSelected ? (
             <CheckSquare size={16} className={color} />
@@ -544,27 +603,25 @@ export default function MaintenancePage() {
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-amber-800/30 bg-amber-950/30 shadow-[0_0_20px_rgba(245,158,11,0.1)]">
             <Feather className="text-amber-400" size={24} />
           </div>
-          <h1 className="font-display mb-2 text-xl text-amber-50">Brain Cleanup</h1>
-          <p className="text-[12px] text-stone-400 leading-relaxed">
-            Manage orphan memories and low-vitality cleanup candidates with human confirmation.
-          </p>
+          <h1 className="font-display mb-2 text-xl text-amber-50">{t('maintenance.title')}</h1>
+          <p className="text-[12px] text-stone-400 leading-relaxed">{t('maintenance.subtitle')}</p>
         </div>
 
         <div className="space-y-3 mt-auto">
           <div className="bg-stone-800/40 rounded-lg p-4 border border-stone-700/40">
-            <div className="text-stone-400 text-xs uppercase font-bold tracking-wider mb-1">Deprecated</div>
+            <div className="text-stone-400 text-xs uppercase font-bold tracking-wider mb-1">{t('maintenance.stats.deprecated')}</div>
             <div className="text-3xl font-mono text-amber-400">{deprecated.length}</div>
-            <div className="text-stone-500 text-[11px] mt-1">old versions from updates</div>
+            <div className="text-stone-500 text-[11px] mt-1">{t('maintenance.stats.deprecatedHint')}</div>
           </div>
           <div className="bg-stone-800/40 rounded-lg p-4 border border-stone-700/40">
-            <div className="text-stone-400 text-xs uppercase font-bold tracking-wider mb-1">Orphaned</div>
+            <div className="text-stone-400 text-xs uppercase font-bold tracking-wider mb-1">{t('maintenance.stats.orphaned')}</div>
             <div className="text-3xl font-mono text-rose-400">{orphaned.length}</div>
-            <div className="text-stone-500 text-[11px] mt-1">unreachable (no paths)</div>
+            <div className="text-stone-500 text-[11px] mt-1">{t('maintenance.stats.orphanedHint')}</div>
           </div>
           <div className="bg-stone-800/40 rounded-lg p-4 border border-stone-700/40">
-            <div className="text-stone-400 text-xs uppercase font-bold tracking-wider mb-1">Low Vitality</div>
+            <div className="text-stone-400 text-xs uppercase font-bold tracking-wider mb-1">{t('maintenance.stats.lowVitality')}</div>
             <div className="text-3xl font-mono text-sky-400">{vitalityCandidates.length}</div>
-            <div className="text-stone-500 text-[11px] mt-1">{vitalityCanDeleteCount} deletable now</div>
+            <div className="text-stone-500 text-[11px] mt-1">{t('maintenance.stats.lowVitalityHint', { count: vitalityCanDeleteCount })}</div>
           </div>
         </div>
       </div>
@@ -572,7 +629,7 @@ export default function MaintenancePage() {
       <div className="flex-1 flex flex-col min-w-0 bg-stone-950 relative overflow-hidden">
         <div className="h-14 flex items-center justify-between px-8 border-b border-stone-700/30 bg-stone-950/90 backdrop-blur-md sticky top-0 z-10">
           <h2 className="text-sm font-bold text-stone-300 uppercase tracking-widest flex items-center gap-2">
-            <Trash2 size={14} /> Maintenance Console
+            <Trash2 size={14} /> {t('maintenance.console')}
           </h2>
           <div className="flex items-center gap-2">
             {selectedIds.size > 0 && (
@@ -586,7 +643,7 @@ export default function MaintenancePage() {
                 ) : (
                   <Trash2 size={13} />
                 )}
-                Delete {selectedIds.size} orphans
+                {t('maintenance.deleteOrphans', { count: selectedIds.size })}
               </button>
             )}
             <button
@@ -596,7 +653,7 @@ export default function MaintenancePage() {
               }}
               disabled={loading || vitalityLoading || vitalityProcessing}
               className="p-2 text-stone-400 hover:text-amber-400 hover:bg-stone-700/40 rounded-full transition-all disabled:opacity-50"
-              title="Refresh"
+              title={t('maintenance.refresh')}
             >
               <RefreshCw size={16} className={loading || vitalityLoading ? 'animate-spin' : ''} />
             </button>
@@ -608,16 +665,16 @@ export default function MaintenancePage() {
             <section>
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-amber-300 flex items-center gap-2">
-                  <Archive size={14} /> Orphan Cleanup
+                  <Archive size={14} /> {t('maintenance.orphanCleanup')}
                 </h3>
                 <span className="text-[11px] text-stone-500 bg-stone-800/80 px-2 py-0.5 rounded-full">
-                  {orphans.length} total
+                  {t('maintenance.total', { count: orphans.length })}
                 </span>
               </div>
               {loading ? (
                 <div className="flex items-center gap-2 text-xs text-stone-500">
                   <div className="w-3 h-3 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"></div>
-                  Scanning orphan memories...
+                  {t('maintenance.scanningOrphans')}
                 </div>
               ) : error ? (
                 <div className="text-rose-400 bg-rose-950/20 border border-rose-800/40 p-4 rounded-lg flex items-center gap-3">
@@ -626,7 +683,7 @@ export default function MaintenancePage() {
                 </div>
               ) : orphans.length === 0 ? (
                 <div className="rounded-lg border border-stone-800 bg-stone-900/40 p-4 text-sm text-stone-500">
-                  No orphan memories detected.
+                  {t('maintenance.noOrphans')}
                 </div>
               ) : (
                 <div className="space-y-8">
@@ -634,7 +691,7 @@ export default function MaintenancePage() {
                     <section>
                       {renderSectionHeader(
                         <Archive size={16} className="text-amber-400/80" />,
-                        'Deprecated Versions',
+                        t('maintenance.deprecatedVersions'),
                         'text-amber-400/80',
                         deprecated
                       )}
@@ -648,7 +705,7 @@ export default function MaintenancePage() {
                     <section>
                       {renderSectionHeader(
                         <Unlink size={16} className="text-rose-400/80" />,
-                        'Orphaned Memories',
+                        t('maintenance.orphanedMemories'),
                         'text-rose-400/80',
                         orphaned
                       )}
@@ -664,7 +721,7 @@ export default function MaintenancePage() {
             <section className="rounded-lg border border-stone-800/80 bg-stone-900/30 p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-sky-300 flex items-center gap-2">
-                  <Trash2 size={14} /> Vitality Cleanup Candidates
+                  <Trash2 size={14} /> {t('maintenance.vitality.title')}
                 </h3>
                 <div className="flex items-center gap-2">
                   <button
@@ -672,14 +729,14 @@ export default function MaintenancePage() {
                     disabled={vitalityLoading || vitalityProcessing}
                     className="px-2.5 py-1 text-[11px] rounded border border-sky-800/50 text-sky-200 hover:bg-sky-900/30 disabled:opacity-50"
                   >
-                    Run Decay + Refresh
+                    {t('maintenance.vitality.runDecay')}
                   </button>
                 </div>
               </div>
 
               <div className="mb-4 flex flex-wrap items-center gap-3 text-xs">
                 <label className="flex items-center gap-1 text-stone-400">
-                  threshold
+                  {t('maintenance.vitality.threshold')}
                   <input
                     type="number"
                     min="0"
@@ -694,7 +751,7 @@ export default function MaintenancePage() {
                   />
                 </label>
                 <label className="flex items-center gap-1 text-stone-400">
-                  inactive_days
+                  {t('maintenance.vitality.inactiveDays')}
                   <input
                     type="number"
                     min="0"
@@ -709,7 +766,7 @@ export default function MaintenancePage() {
                   />
                 </label>
                 <label className="flex items-center gap-1 text-stone-400">
-                  limit
+                  {t('maintenance.vitality.limit')}
                   <input
                     type="number"
                     min="1"
@@ -725,7 +782,7 @@ export default function MaintenancePage() {
                   />
                 </label>
                 <label className="flex items-center gap-1 text-stone-400">
-                  domain
+                  {t('maintenance.vitality.domain')}
                   <input
                     type="text"
                     value={vitalityDomain}
@@ -735,12 +792,12 @@ export default function MaintenancePage() {
                     }}
                     disabled={vitalityProcessing}
                     className="w-24 rounded border border-stone-700 bg-stone-900 px-2 py-1 text-stone-200"
-                    placeholder="(optional)"
-                    aria-label="vitality domain"
+                    placeholder={t('maintenance.vitality.optional')}
+                    aria-label={t('maintenance.vitality.domain')}
                   />
                 </label>
                 <label className="flex items-center gap-1 text-stone-400">
-                  path_prefix
+                  {t('maintenance.vitality.pathPrefix')}
                   <input
                     type="text"
                     value={vitalityPathPrefix}
@@ -750,12 +807,12 @@ export default function MaintenancePage() {
                     }}
                     disabled={vitalityProcessing}
                     className="w-32 rounded border border-stone-700 bg-stone-900 px-2 py-1 text-stone-200"
-                    placeholder="(optional)"
-                    aria-label="vitality path prefix"
+                    placeholder={t('maintenance.vitality.optional')}
+                    aria-label={t('maintenance.vitality.pathPrefix')}
                   />
                 </label>
                 <label className="flex items-center gap-1 text-stone-400">
-                  reviewer
+                  {t('maintenance.vitality.reviewer')}
                   <input
                     type="text"
                     value={vitalityReviewer}
@@ -773,7 +830,7 @@ export default function MaintenancePage() {
                   disabled={vitalityLoading || vitalityProcessing}
                   className="px-2.5 py-1 text-[11px] rounded border border-stone-700 text-stone-200 hover:bg-stone-800/60 disabled:opacity-50"
                 >
-                  Apply Filters
+                  {t('maintenance.vitality.applyFilters')}
                 </button>
                 <button
                   onClick={toggleVitalitySelectAll}
@@ -781,8 +838,8 @@ export default function MaintenancePage() {
                   className="px-2.5 py-1 text-[11px] rounded border border-stone-700 text-stone-300 hover:bg-stone-800/60 disabled:opacity-50"
                 >
                   {vitalityCandidates.length > 0 && vitalityCandidates.every(item => vitalitySelectedIds.has(item.memory_id))
-                    ? 'Deselect all'
-                    : 'Select all'}
+                    ? t('maintenance.deselectAll')
+                    : t('maintenance.selectAll')}
                 </button>
               </div>
 
@@ -792,65 +849,73 @@ export default function MaintenancePage() {
                   disabled={vitalitySelectedCount === 0 || vitalityProcessing}
                   className="px-3 py-1.5 text-xs rounded bg-sky-900/40 text-sky-200 border border-sky-800/50 hover:bg-sky-900/60 disabled:opacity-50"
                 >
-                  Prepare Keep ({vitalitySelectedCount})
+                  {t('maintenance.vitality.prepareKeep', { count: vitalitySelectedCount })}
                 </button>
                 <button
                   onClick={handlePrepareVitalityDelete}
                   disabled={vitalitySelectedCanDelete === 0 || vitalityProcessing}
                   className="px-3 py-1.5 text-xs rounded bg-amber-900/40 text-amber-200 border border-amber-800/50 hover:bg-amber-900/60 disabled:opacity-50"
                 >
-                  Prepare Delete ({vitalitySelectedCanDelete})
+                  {t('maintenance.vitality.prepareDelete', { count: vitalitySelectedCanDelete })}
                 </button>
                 <button
                   onClick={handleConfirmVitalityCleanup}
                   disabled={!vitalityPreparedReview || vitalityProcessing}
                   className="px-3 py-1.5 text-xs rounded bg-rose-900/40 text-rose-200 border border-rose-800/50 hover:bg-rose-900/60 disabled:opacity-50"
                 >
-                  Confirm {vitalityPreparedReview?.action || 'Review'}
+                  {t('maintenance.vitality.confirmAction', {
+                    action: vitalityPreparedReview?.action || t('maintenance.vitality.reviewFallback'),
+                  })}
                 </button>
                 {vitalityPreparedReview && (
                   <button
                     onClick={invalidatePreparedReview}
                     disabled={vitalityProcessing}
-                    className="px-3 py-1.5 text-xs rounded border border-stone-700 text-stone-300 hover:bg-stone-800/60 disabled:opacity-50"
-                  >
-                    Discard Review
+                  className="px-3 py-1.5 text-xs rounded border border-stone-700 text-stone-300 hover:bg-stone-800/60 disabled:opacity-50"
+                >
+                    {t('maintenance.vitality.discardReview')}
                   </button>
                 )}
                 <span className="text-xs text-stone-500">
-                  selected: {vitalitySelectedCount}, deletable selected: {vitalitySelectedCanDelete}
+                  {t('maintenance.vitality.selectionSummary', {
+                    selected: vitalitySelectedCount,
+                    deletable: vitalitySelectedCanDelete,
+                  })}
                 </span>
               </div>
 
               {vitalityPreparedReview && (
                 <div className="mb-4 rounded border border-amber-800/40 bg-amber-950/20 p-3 text-xs text-amber-200">
-                  <div>review_id: {vitalityPreparedReview.review_id}</div>
-                  <div>action: {vitalityPreparedReview.action}</div>
-                  <div>reviewer: {vitalityPreparedReview.reviewer}</div>
-                  <div>confirmation phrase: {vitalityPreparedReview.confirmation_phrase}</div>
+                  <div>{t('maintenance.vitality.reviewId', { value: vitalityPreparedReview.review_id })}</div>
+                  <div>{t('maintenance.vitality.action', { value: vitalityPreparedReview.action })}</div>
+                  <div>{t('maintenance.vitality.reviewerValue', { value: vitalityPreparedReview.reviewer })}</div>
+                  <div>{t('maintenance.vitality.confirmationPhrase', { value: vitalityPreparedReview.confirmation_phrase })}</div>
                 </div>
               )}
 
               {vitalityQueryMeta?.status === 'degraded' && (
                 <div className="mb-4 rounded border border-amber-800/40 bg-amber-950/20 p-3 text-xs text-amber-200">
-                  <div>status: degraded</div>
-                  <div>reason: {vitalityQueryMeta?.decay?.reason || 'unknown'}</div>
+                  <div>{t('maintenance.vitality.degradedStatus')}</div>
+                  <div>{t('maintenance.vitality.reason', { value: vitalityQueryMeta?.decay?.reason || t('common.states.unknown') })}</div>
                 </div>
               )}
 
               {vitalityLastResult && (
                 <div className="mb-4 rounded border border-sky-800/40 bg-sky-950/20 p-3 text-xs text-sky-200">
-                  <div>status: {vitalityLastResult.status}</div>
-                  <div>
-                    deleted={vitalityLastResult.deleted_count} kept={vitalityLastResult.kept_count} skipped={vitalityLastResult.skipped_count} errors={vitalityLastResult.error_count}
-                  </div>
+                  <div>{t('maintenance.vitality.status', { value: vitalityLastResult.status })}</div>
+                  <div>{t('maintenance.vitality.resultSummary', {
+                    deleted: vitalityLastResult.deleted_count,
+                    kept: vitalityLastResult.kept_count,
+                    skipped: vitalityLastResult.skipped_count,
+                    errors: vitalityLastResult.error_count,
+                  })}</div>
                 </div>
               )}
 
               {vitalityLoading ? (
                 <div className="flex items-center gap-2 text-xs text-stone-500">
                   <div className="w-3 h-3 border-2 border-sky-500/30 border-t-sky-500 rounded-full animate-spin"></div>
-                  Loading vitality candidates...
+                  {t('maintenance.vitality.loading')}
                 </div>
               ) : vitalityError ? (
                 <div className="rounded border border-rose-800/40 bg-rose-950/20 p-3 text-xs text-rose-300">
@@ -858,7 +923,7 @@ export default function MaintenancePage() {
                 </div>
               ) : vitalityCandidates.length === 0 ? (
                 <div className="rounded border border-stone-800 bg-stone-900/40 p-3 text-xs text-stone-500">
-                  No vitality candidates match current filters.
+                  {t('maintenance.vitality.noCandidates')}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -883,20 +948,20 @@ export default function MaintenancePage() {
                           #{item.memory_id}
                         </span>
                         <span className="text-[11px] text-sky-300 bg-sky-900/30 px-1.5 py-0.5 rounded">
-                          vitality {Number(item.vitality_score || 0).toFixed(3)}
+                          {t('maintenance.vitality.vitality', { value: Number(item.vitality_score || 0).toFixed(3) })}
                         </span>
                         <span className="text-[11px] text-stone-400 bg-stone-800/70 px-1.5 py-0.5 rounded">
-                          inactive {Number(item.inactive_days || 0).toFixed(1)}d
+                          {t('maintenance.vitality.inactive', { value: Number(item.inactive_days || 0).toFixed(1) })}
                         </span>
                         <span className="text-[11px] text-stone-400 bg-stone-800/70 px-1.5 py-0.5 rounded">
-                          access {item.access_count || 0}
+                          {t('maintenance.vitality.access', { value: item.access_count || 0 })}
                         </span>
                         <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.can_delete ? 'text-rose-300 bg-rose-900/30' : 'text-amber-300 bg-amber-900/30'}`}>
-                          {item.can_delete ? 'deletable' : 'active paths'}
+                          {item.can_delete ? t('maintenance.vitality.deletable') : t('maintenance.vitality.activePaths')}
                         </span>
                       </div>
                       <div className="text-[11px] text-stone-500 mb-1.5">
-                        {item.uri || '(no path)'}
+                        {item.uri || t('maintenance.vitality.noPath')}
                       </div>
                       <div className="rounded bg-stone-900 p-2 text-[12px] text-stone-400 font-mono leading-relaxed">
                         {item.content_snippet}

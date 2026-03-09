@@ -33,15 +33,26 @@ check_local_artifacts() {
     ".env.docker"
     ".venv"
     ".claude"
+    ".codex"
+    ".cursor"
+    ".opencode"
+    ".gemini"
+    ".agent"
+    ".mcp.json"
+    ".mcp.json.bak"
     ".tmp"
     "demo.db"
     "snapshots"
+    "backups"
     "backend/backend.log"
     "frontend/frontend.log"
     "backend/.pytest_cache"
     "backend/tests/benchmark/.real_profile_cache"
     "frontend/node_modules"
     "frontend/dist"
+    "docs/skills/TRIGGER_SMOKE_REPORT.md"
+    "docs/skills/MCP_LIVE_E2E_REPORT.md"
+    "docs/skills/CLAUDE_SKILLS_AUDIT.md"
   )
   local -a glob_paths=(
     "backend/*.db"
@@ -78,15 +89,26 @@ check_tracked_forbidden_paths() {
     ".env.docker"
     ".venv"
     ".claude"
+    ".codex"
+    ".cursor"
+    ".opencode"
+    ".gemini"
+    ".agent"
+    ".mcp.json"
+    ".mcp.json.bak"
     ".tmp"
     "demo.db"
     "snapshots"
+    "backups"
     "backend/backend.log"
     "frontend/frontend.log"
     "backend/.pytest_cache"
     "backend/tests/benchmark/.real_profile_cache"
     "frontend/node_modules"
     "frontend/dist"
+    "docs/skills/TRIGGER_SMOKE_REPORT.md"
+    "docs/skills/MCP_LIVE_E2E_REPORT.md"
+    "docs/skills/CLAUDE_SKILLS_AUDIT.md"
     "backend/*.db"
     "backend/*.sqlite"
     "backend/*.sqlite3"
@@ -180,6 +202,100 @@ check_env_example_api_keys() {
   fi
 }
 
+check_required_public_files_tracked() {
+  local -a required_paths=(
+    "backend/tests/benchmark/baseline_manifest.md"
+    "backend/tests/benchmark/thresholds_v1.json"
+  )
+  local path
+  local hit=0
+  for path in "${required_paths[@]}"; do
+    if [[ ! -f "${path}" ]]; then
+      fail "缺少公开仓必须包含的文件: ${path}"
+      hit=1
+      continue
+    fi
+    if ! git ls-files --error-unmatch "${path}" >/dev/null 2>&1; then
+      fail "公开仓必须包含的文件尚未被跟踪: ${path}"
+      hit=1
+    fi
+  done
+
+  if [[ "${hit}" -eq 0 ]]; then
+    pass "公开 benchmark 基线文件存在且已被跟踪"
+  fi
+}
+
+check_public_doc_local_references_tracked() {
+  local issues
+  issues="$(
+    python3 - "${PROJECT_ROOT}" <<'PY'
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+tracked_output = subprocess.run(
+    ["git", "-C", str(root), "ls-files", "-z"],
+    check=True,
+    capture_output=True,
+).stdout.split(b"\0")
+tracked = set(tracked_output)
+docs = [
+    item.decode("utf-8")
+    for item in tracked_output
+    if item
+    and (
+        item.decode("utf-8") in {"README.md", "README_CN.md"}
+        or (item.decode("utf-8").startswith("docs/") and item.decode("utf-8").endswith(".md"))
+    )
+]
+markdown_link = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+html_src = re.compile(r"""src=["']([^"']+)["']""")
+issues = set()
+
+def normalize_target(raw: str) -> str:
+    target = raw.strip()
+    if not target:
+        return ""
+    if target.startswith(("http://", "https://", "mailto:", "#", "data:")):
+        return ""
+    if target.startswith("<") and target.endswith(">"):
+        target = target[1:-1].strip()
+    target = target.split("#", 1)[0].strip()
+    return target
+
+for doc in docs:
+    doc_path = root / doc
+    text = doc_path.read_text(encoding="utf-8")
+    for raw in markdown_link.findall(text) + html_src.findall(text):
+        target = normalize_target(raw)
+        if not target:
+            continue
+        resolved = (doc_path.parent / target).resolve()
+        try:
+            relative = resolved.relative_to(root).as_posix()
+        except ValueError:
+            continue
+        if not resolved.exists():
+            issues.add(f"MISSING {doc} -> {relative}")
+        elif relative.encode("utf-8") not in tracked:
+            issues.add(f"UNTRACKED {doc} -> {relative}")
+
+if issues:
+    print("\n".join(sorted(issues)))
+PY
+  )"
+
+  if [[ -n "${issues}" ]]; then
+    fail "公开文档引用了缺失或未跟踪的本地文件："
+    printf '  - %s\n' "${issues}"
+  else
+    pass "公开文档引用的本地文件均存在且已被跟踪"
+  fi
+}
+
 print_section "1) 本地敏感产物检查"
 check_local_artifacts
 
@@ -203,6 +319,12 @@ fi
 
 print_section "5) .env.example 占位检查"
 check_env_example_api_keys
+
+print_section "6) 公开基线文件检查"
+check_required_public_files_tracked
+
+print_section "7) 公开文档引用检查"
+check_public_doc_local_references_tracked
 
 echo
 if [[ "${EXIT_CODE}" -ne 0 ]]; then

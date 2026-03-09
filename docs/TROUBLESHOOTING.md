@@ -15,7 +15,7 @@
 >
 > 这通常不是前端挂了，而是**你还没给受保护接口授权**。
 >
-> 如果你用的是 **Docker 一键部署**，默认不需要手动点这个按钮。优先先确认是不是用了 `apply_profile.*` / `docker_one_click.*` 生成的 Docker env 文件。
+> 如果你用的是 **Docker 一键部署**，按推荐路径启动时通常不需要手动点这个按钮。优先先确认是不是用了 `apply_profile.*` / `docker_one_click.*` 生成的 Docker env 文件；如果你是手动改 env、自己起容器，或者改过代理配置，页面里仍可能保留这个按钮。
 
 **排查步骤**：
 
@@ -61,9 +61,31 @@
 
 ---
 
+## 1.1 页面默认是英文，怎么切到中文？
+
+**现象**：
+
+- 页面能正常打开
+- 但界面默认显示英文
+
+**这不是前端没加载完整**。当前版本的前端默认语言就是英文。
+
+**处理方式**：
+
+1. 看页面右上角的语言按钮
+2. 直接点一下，就可以在英文和中文之间切换
+3. 浏览器会记住你的选择；下次再打开时会优先使用你上次切到的语言
+
+**补充说明**：
+
+- 语言切换只影响前端显示，不会改变 MCP、API、鉴权或数据库行为
+- 如果你看到的是英文界面，但功能、按钮、数据都正常，这属于预期行为，不是故障
+
+---
+
 ## 2. `/maintenance/*`、`/review/*` 或 `/browse/*` 返回 401
 
-**原因**：启用了 `MCP_API_KEY` 但请求没带鉴权头。注意 `/browse/node` 的读操作也受保护。
+**常见原因**：请求没带鉴权头。注意 `/browse/node` 的读操作也受保护，而且这些接口默认就是 fail-closed；只有显式开启 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true` 且请求来自 loopback 时才会放行。
 
 **排查与处理**：
 
@@ -119,13 +141,21 @@
 
 **处理**：
 
-1. 更换端口（SSE 默认端口为 `8000`，参见 `backend/run_sse.py` 第 105 行）：
+1. 先确认 SSE 进程是不是已经起来：
+
+   ```bash
+   curl -fsS http://127.0.0.1:8010/health
+   ```
+
+   如果这里都不通，优先排查进程和端口；如果这里已经返回 `{"status":"ok","service":"memory-palace-sse"}`，再继续看 `/sse` 和 `/messages` 的鉴权或 session。
+
+2. 更换端口（SSE 默认端口为 `8000`）：
 
    ```bash
    HOST=127.0.0.1 PORT=8010 python run_sse.py
    ```
 
-2. 或查找并释放被占用端口：
+3. 或查找并释放被占用端口：
 
    ```bash
    # macOS / Linux
@@ -141,7 +171,49 @@
 
 ---
 
-## 3.1 后端启动时报 `No module named 'diff_match_patch'`
+## 3.1 `/messages` 返回 404 或 410
+
+**现象**：
+
+- 你先连上了 `/sse`
+- 也拿到了 `event: endpoint`
+- 但后面往 `/messages/?session_id=...` 发请求时返回 `404` 或 `410`
+
+**这通常不是鉴权错了**，而是你手里的 `session_id` 已经失效了。
+
+当前真实行为是：
+
+- `404`：服务端已经找不到这条 session
+- `410`：session 还在映射里，但底层 SSE writer 已经关闭
+
+说人话就是：
+
+- 只要 SSE 流断开了，就别继续复用旧的 `session_id`
+- 你需要重新连一次 `/sse`，拿一条新的 `event: endpoint`
+
+**处理方式**：
+
+1. 重新建立 SSE 连接：
+
+   ```bash
+   curl -i \
+     -H 'Accept: text/event-stream' \
+     -H 'X-MCP-API-Key: <YOUR_MCP_API_KEY>' \
+     http://127.0.0.1:8010/sse
+   ```
+
+2. 从新返回的 `event: endpoint` 里取新的 `session_id`
+
+3. 再向新的 `/messages/?session_id=...` 发请求
+
+**补充说明**：
+
+- 这是当前版本故意做成 fail-closed 的行为
+- 目的就是避免“旧会话其实已经死了，但服务端还回你一个假 `202 Accepted`”
+
+---
+
+## 3.2 后端启动时报 `No module named 'diff_match_patch'`
 
 **现象**：
 
@@ -209,7 +281,7 @@
 
 ---
 
-## 3.2 运行 `python mcp_server.py` 时提示 `No module named 'sqlalchemy'`
+## 3.3 运行 `python mcp_server.py` 时提示 `No module named 'sqlalchemy'`
 
 **现象**：
 
@@ -288,6 +360,9 @@ cd backend
    ```bash
    bash scripts/docker_one_click.sh --profile b --frontend-port 3100 --backend-port 18100
    ```
+
+   如果脚本发现你指定的端口也被占用，会继续自动换到附近空闲端口。
+   这时请以脚本最后打印出来的 `Frontend` / `Backend API` 地址为准，不要继续死盯你最初输入的端口。
 
 4. 镜像构建失败时，检查 Dockerfile 是否完整：
    - `deploy/docker/Dockerfile.backend` — 基于 `python:3.11-slim`
@@ -441,12 +516,17 @@ pytest tests -k "test_search" -q
    ```
 
    > 如果不设置，默认锁文件为 `<数据库文件>.migrate.lock`（例如 `demo.db.migrate.lock`），保存在与数据库文件同一目录下。
+   >
+   > 当前版本另外还有一把启动初始化锁：`<数据库文件>.init.lock`。它用于把 `init_db()` 串行化，避免 `backend` 和 `sse` 首次并发启动时互相抢库。
+   >
+   > 这把 `.init.lock` 只会用于**文件型 SQLite 数据库**。像 `:memory:` 这类目标不会生成它；如果你的 `DATABASE_URL` 带 query string，锁文件也会按真实数据库文件名生成，不会把 `?cache=shared` 这类参数拼进文件名里。
 
 4. **手动删除残留锁文件后重启**：
 
    ```bash
    # 找到锁文件并删除（默认在数据库文件旁）
    rm -f /path/to/demo.db.migrate.lock
+   rm -f /path/to/demo.db.init.lock
    ```
 
 **验证锚点**：当前仓库中的 `backend/tests/test_migration_runner.py` 覆盖了迁移锁与超时场景。

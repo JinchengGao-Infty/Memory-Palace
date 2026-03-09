@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from pathlib import Path
+import http.client
 import os
 import pytest
 import signal
@@ -11,7 +12,7 @@ import sys
 import time
 
 import run_sse
-from run_sse import apply_mcp_api_key_middleware
+from run_sse import apply_mcp_api_key_middleware, create_sse_app
 
 
 def _build_client(*, client=("testclient", 50000)) -> TestClient:
@@ -119,6 +120,17 @@ def test_sse_auth_preserves_streaming_response(monkeypatch) -> None:
             lines = list(response.iter_lines())
     assert "event: endpoint" in lines
     assert "data: ok" in lines
+
+
+def test_sse_health_endpoint_is_public(monkeypatch) -> None:
+    monkeypatch.delenv("MCP_API_KEY", raising=False)
+    monkeypatch.delenv("MCP_API_KEY_ALLOW_INSECURE_LOCAL", raising=False)
+
+    with TestClient(create_sse_app()) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "service": "memory-palace-sse"}
 
 
 def test_sse_auth_does_not_raise_on_streaming_disconnect(tmp_path) -> None:
@@ -270,6 +282,98 @@ def test_sse_auth_does_not_raise_on_streaming_shutdown(tmp_path) -> None:
 
     assert "Expected ASGI message 'http.response.body'" not in output
     assert "RuntimeError:" not in output
+
+
+def test_sse_auth_rejects_when_posting_to_closed_message_stream(tmp_path) -> None:
+    backend_dir = Path(__file__).resolve().parents[1]
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+
+    env = dict(**os.environ)
+    env["MCP_API_KEY"] = "week6-sse-secret"
+    env["DATABASE_URL"] = f"sqlite+aiosqlite:///{tmp_path / 'closed_message_stream.db'}"
+    env["HOST"] = "127.0.0.1"
+    env["PORT"] = str(port)
+    server = subprocess.Popen(
+        [
+            sys.executable,
+            "run_sse.py",
+        ],
+        cwd=str(backend_dir),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+    try:
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            if server.poll() is not None:
+                pytest.fail("uvicorn exited before the closed-stream test could connect")
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    break
+            except OSError:
+                time.sleep(0.1)
+        else:
+            pytest.fail("timed out waiting for closed-stream test server to start")
+
+        session_id = None
+        request = (
+            "GET /sse HTTP/1.1\r\n"
+            f"Host: 127.0.0.1:{port}\r\n"
+            "Accept: text/event-stream\r\n"
+            "X-MCP-API-Key: week6-sse-secret\r\n"
+            "Connection: close\r\n"
+            "\r\n"
+        ).encode("utf-8")
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as client:
+            client.sendall(request)
+            received = ""
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                chunk = client.recv(4096).decode("utf-8", errors="ignore")
+                if not chunk:
+                    break
+                received += chunk
+                if "session_id=" in received:
+                    session_id = received.split("session_id=", 1)[1].splitlines()[0].strip()
+                    break
+        assert session_id
+
+        time.sleep(0.2)
+
+        connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            connection.request(
+                "POST",
+                f"/messages/?session_id={session_id}",
+                body='{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}',
+                headers={
+                    "Content-Type": "application/json",
+                    "X-MCP-API-Key": "week6-sse-secret",
+                },
+            )
+            response = connection.getresponse()
+            response.read()
+        finally:
+            connection.close()
+
+        assert response.status in {404, 410}
+
+        time.sleep(0.5)
+    finally:
+        server.terminate()
+        try:
+            output, _ = server.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            output, _ = server.communicate(timeout=5)
+
+    assert "ClosedResourceError" not in output
+    assert "Traceback" not in output
 
 
 def test_sse_main_runs_mcp_startup_before_uvicorn(monkeypatch) -> None:

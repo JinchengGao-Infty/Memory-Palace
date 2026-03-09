@@ -142,7 +142,7 @@ create_memory(
     parent_uri: str,              # 必填，父 URI（如 "core://agent"）
     content: str,                 # 必填，记忆正文
     priority: int,                # 必填，检索优先级（数字越小越优先）
-    title: Optional[str] = None,  # 可选，路径名（仅限 a-z/0-9/_/-；强烈建议显式填写）
+    title: Optional[str] = None,  # 可选，路径名（仅限 a-z/0-9/_/-）
     disclosure: str = ""          # 可选，触发条件描述
 )
 ```
@@ -153,7 +153,6 @@ create_memory(
 2. 若 Guard 判定为 `NOOP` / `UPDATE` / `DELETE`，创建会被阻止，返回建议目标 `guard_target_uri`
 3. `title` 只允许字母、数字、下划线和连字符（不允许空格和特殊字符）
 4. 若省略 `title`，系统自动分配数字 ID
-5. 为了让路径更稳定、结果更好读，也为了降低弱模型漏填参数时的可读性问题，**实际使用时建议始终填写 `title`**
 
 **使用示例：**
 
@@ -208,8 +207,6 @@ update_memory(
 > ⚠️ **没有全量替换模式。** 必须通过 `old_string` / `new_string` 明确指定修改内容，防止意外覆盖。
 >
 > ⚠️ **更新前请先 `read_memory`**，确保你了解将被修改的内容。
->
-> 📌 **日常推荐顺序**：优先使用 **Patch 模式**；只有当你确实是要在末尾补一段新内容时，再使用 **Append 模式**。如果只是改 `priority` / `disclosure`，直接做元数据更新即可。
 
 **使用示例：**
 
@@ -588,14 +585,14 @@ Memory Palace 支持多种检索 Profile。Profile C 和 D 使用混合检索路
 RETRIEVAL_EMBEDDING_BACKEND=none      # 可选: none / hash / router / api / openai
 RETRIEVAL_EMBEDDING_API_BASE=         # API 地址
 RETRIEVAL_EMBEDDING_API_KEY=          # API 密钥
-RETRIEVAL_EMBEDDING_MODEL=Qwen3-Embedding-8B
-RETRIEVAL_EMBEDDING_DIM=1024            # 向量维度
+RETRIEVAL_EMBEDDING_MODEL=your-embedding-model-id
+RETRIEVAL_EMBEDDING_DIM=4096            # 向量维度
 
 # ── Reranker 配置 ──
 RETRIEVAL_RERANKER_ENABLED=false      # 是否启用 Reranker
 RETRIEVAL_RERANKER_API_BASE=          # API 地址
 RETRIEVAL_RERANKER_API_KEY=           # API 密钥
-RETRIEVAL_RERANKER_MODEL=Qwen3-Reranker-8B
+RETRIEVAL_RERANKER_MODEL=your-reranker-model-id
 
 # ── 权重调参 ──
 RETRIEVAL_RERANKER_WEIGHT=0.25        # Reranker 权重（首要调参项）
@@ -607,7 +604,7 @@ RETRIEVAL_HYBRID_SEMANTIC_WEIGHT=0.3  # 语义权重
 >
 > 配置语义说明：`RETRIEVAL_EMBEDDING_BACKEND` 仅控制 Embedding 路径；Reranker 没有 `RETRIEVAL_RERANKER_BACKEND` 开关。Reranker 参数优先使用 `RETRIEVAL_RERANKER_*`，缺失时才回退 `ROUTER_*`（最后回退 `OPENAI_*` 的 base/key）。
 >
-> 推荐模型：Embedding 使用 `Qwen3-Embedding-8B`，Reranker 使用 `Qwen3-Reranker-8B`；如启用可选 LLM，推荐 `Qwen3.5-35B-A3B`。
+> 这里的 model id 只是占位示例，不是项目硬依赖。Memory Palace 不绑定某个固定 provider 或模型家族；请直接填写你自己的 OpenAI-compatible 服务里实际可用的 model id。
 >
 > 进阶配置（例如 `INTENT_LLM_*`、`RETRIEVAL_MMR_*`、`CORS_ALLOW_*`、运行时观测/睡眠整合开关）请以 `.env.example` 为准；本节只保留最常用主配置。
 >

@@ -30,8 +30,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PROJECT_ROOT
 CANONICAL_DIR = PROJECT_ROOT / "docs" / "skills" / "memory-palace"
 BACKEND_DIR = PROJECT_ROOT / "backend"
-EXPECTED_DB_PATH = BACKEND_DIR / "memory.db"
-EXPECTED_DB_URI = f"sqlite+aiosqlite:///{EXPECTED_DB_PATH}"
 WRAPPER_RELATIVE = Path("scripts/run_memory_palace_mcp_stdio.sh")
 WRAPPER_ABSOLUTE = PROJECT_ROOT / "scripts" / "run_memory_palace_mcp_stdio.sh"
 MIRRORS = {
@@ -52,12 +50,34 @@ REQUIRED_FILES = [
 GEMINI_TEST_MODEL = "gemini-3.1-pro-preview"
 GEMINI_FALLBACK_MODEL = "gemini-3-flash-preview"
 SKIP_GEMINI_LIVE = os.getenv("MEMORY_PALACE_SKIP_GEMINI_LIVE", "").lower() in {"1", "true", "yes"}
+CODEX_SMOKE_TIMEOUT_SEC = int(os.getenv("MEMORY_PALACE_CODEX_SMOKE_TIMEOUT_SEC", "120"))
+OPENCODE_SMOKE_TIMEOUT_SEC = int(os.getenv("MEMORY_PALACE_OPENCODE_SMOKE_TIMEOUT_SEC", "90"))
 PROMPT = (
     "In this repository, answer in exactly 3 bullets only: "
     "(1) the first memory tool call required by the memory-palace skill, "
     "(2) what to do when guard_action is NOOP, and "
     "(3) the canonical repo-visible path of the trigger sample set."
 )
+
+
+def _read_repo_database_url() -> str:
+    env_file = PROJECT_ROOT / ".env"
+    if env_file.is_file():
+        for raw_line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.strip() == "DATABASE_URL":
+                normalized = value.strip()
+                if normalized:
+                    return normalized
+
+    default_db_path = PROJECT_ROOT / "demo.db"
+    return f"sqlite+aiosqlite:///{default_db_path}"
+
+
+EXPECTED_DB_URI = _read_repo_database_url()
 CURSOR_AGENT_BIN = Path.home() / ".local" / "bin" / "cursor-agent"
 ANTIGRAVITY_BIN = Path("/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity")
 ANTIGRAVITY_USER_WORKFLOW = Path.home() / ".gemini" / "antigravity" / "global_workflows" / "memory-palace.md"
@@ -105,11 +125,15 @@ def run_command_capture(cmd: list[str], *, cwd: Path, input_text: str | None = N
         stdout, stderr = process.communicate(input=input_text, timeout=timeout)
         return CommandCapture(returncode=process.returncode, stdout=stdout, stderr=stderr, timed_out=False)
     except subprocess.TimeoutExpired:
-        if os.name != "nt":
-            os.killpg(process.pid, signal.SIGKILL)
-        else:  # pragma: no cover
-            process.kill()
-        stdout, stderr = process.communicate()
+        _terminate_process_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            if os.name != "nt":
+                os.killpg(process.pid, signal.SIGKILL)
+            else:  # pragma: no cover
+                process.kill()
+            stdout, stderr = process.communicate()
         return CommandCapture(returncode=-9, stdout=stdout, stderr=stderr, timed_out=True)
 
 
@@ -552,7 +576,7 @@ def _check_command_binding(
         return True, f"{client_name}: MCP 已通过 wrapper 绑定到当前项目（{config_path}）"
 
     if has_server_entry and has_backend_dir and has_expected_db:
-        return True, f"{client_name}: MCP 已绑定到当前项目 backend/memory.db（{config_path}）"
+        return True, f"{client_name}: MCP 已绑定到当前项目数据库配置（{config_path}）"
 
     reasons: list[str] = []
     if not has_server_entry:
@@ -560,7 +584,7 @@ def _check_command_binding(
     if not has_backend_dir:
         reasons.append("未指向当前项目 backend 目录")
     if not has_expected_db:
-        reasons.append("DATABASE_URL 不是当前项目 memory.db")
+        reasons.append("DATABASE_URL 与当前项目配置不一致")
     return False, f"{client_name}: {'；'.join(reasons)}（{config_path}）\ncommand={joined}\nenv={json.dumps(env_payload, ensure_ascii=False)}"
 
 
@@ -772,7 +796,7 @@ def smoke_codex() -> CheckResult:
             ],
             cwd=REPO_ROOT,
             output_path=output_path,
-            timeout=60,
+            timeout=CODEX_SMOKE_TIMEOUT_SEC,
         )
         if proc.returncode != 0 or not output_path.is_file():
             if proc.timed_out and output_path.is_file():
@@ -809,7 +833,7 @@ def smoke_opencode() -> CheckResult:
             "(3) the path to the trigger sample file. Keep it concise.",
         ],
         cwd=REPO_ROOT,
-        timeout=45,
+        timeout=OPENCODE_SMOKE_TIMEOUT_SEC,
     )
     if proc.timed_out:
         return CheckResult("FAIL", "OpenCode smoke 超时", (proc.stdout + "\n" + proc.stderr).strip())
@@ -1036,22 +1060,32 @@ def generate_markdown(results: dict[str, CheckResult]) -> str:
 
 def main() -> int:
     report_path = PROJECT_ROOT / "docs" / "skills" / "TRIGGER_SMOKE_REPORT.md"
-    results: dict[str, CheckResult] = {
-        "structure": check_structure(),
-        "description_contract": check_description_contract(),
-        "mirrors": check_mirrors(),
-        "sync_check": check_sync_script(),
-        "gate_syntax": check_gate_syntax(),
-        "mcp_bindings": check_client_mcp_bindings(),
-        "claude": smoke_claude(),
-        "codex": smoke_codex(),
-        "opencode": smoke_opencode(),
-        "gemini": smoke_gemini(),
-        "gemini_live": smoke_gemini_live_suite(),
-        "cursor": smoke_cursor(),
-        "agent": mirror_only_status("agent"),
-        "antigravity": smoke_antigravity(),
-    }
+    checks = [
+        ("structure", check_structure),
+        ("description_contract", check_description_contract),
+        ("mirrors", check_mirrors),
+        ("sync_check", check_sync_script),
+        ("gate_syntax", check_gate_syntax),
+        ("mcp_bindings", check_client_mcp_bindings),
+        ("claude", smoke_claude),
+        ("codex", smoke_codex),
+        ("opencode", smoke_opencode),
+        ("gemini", smoke_gemini),
+        ("gemini_live", smoke_gemini_live_suite),
+        ("cursor", smoke_cursor),
+        ("agent", lambda: mirror_only_status("agent")),
+        ("antigravity", smoke_antigravity),
+    ]
+    results: dict[str, CheckResult] = {}
+    for name, runner in checks:
+        print(f"[skill-smoke] START {name}", file=sys.stderr, flush=True)
+        result = runner()
+        results[name] = result
+        print(
+            f"[skill-smoke] END {name}: {result.status} - {result.summary}",
+            file=sys.stderr,
+            flush=True,
+        )
     markdown = generate_markdown(results)
     report_path.write_text(markdown + "\n", encoding="utf-8")
     print(report_path)

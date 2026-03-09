@@ -37,7 +37,7 @@
 
 ### 受保护的接口范围
 
-当配置 `MCP_API_KEY` 后，以下接口需要鉴权：
+以下接口默认都受保护：
 
 | 接口前缀 | 保护范围 | 代码出处 |
 |---|---|---|
@@ -78,8 +78,6 @@ Authorization: Bearer <MCP_API_KEY>
 | `MCP_API_KEY` 为空，未开启 insecure local | ❌ 拒绝 | `401`，`reason: api_key_not_configured` |
 
 > 📌 Loopback 地址仅包含 `127.0.0.1`、`::1`、`localhost`（代码常量 `_LOOPBACK_CLIENT_HOSTS`）；且必须为直连本机请求（无 `Forwarded` / `X-Forwarded-*` / `X-Real-IP` 等转发头）。
->
-> 📌 如果你把 SSE 监听地址改成 `0.0.0.0`（或其他非 loopback 地址），表示这个监听地址可以被远程客户端访问；但鉴权规则**不会**因此放宽，`MCP_API_KEY` / 反向代理 / 网络隔离仍然要照常配置。
 
 ### 当前仓库中的验证锚点
 
@@ -94,7 +92,7 @@ Authorization: Bearer <MCP_API_KEY>
 
 ## 4. 前端密钥注入（运行时）
 
-前端不在构建时写死密钥，而是通过运行时注入。在 `index.html` 或部署脚本中添加：
+前端不在构建时写死密钥，而是通过运行时注入读取。这个方式更适合本地调试或你自己控制的私有部署环境：
 
 ```html
 <script>
@@ -104,6 +102,8 @@ Authorization: Bearer <MCP_API_KEY>
   };
 </script>
 ```
+
+> ⚠️ 这适合本地调试或你自己控制的部署环境。不要把真实 `MCP_API_KEY` 直接写进公开页面或任何会暴露给最终用户的静态资源里，因为浏览器里可以直接读到这个全局对象。
 
 **工作原理**（参见 `frontend/src/lib/api.js`）：
 
@@ -155,9 +155,7 @@ Authorization: Bearer <MCP_API_KEY>
    bash scripts/pre_publish_check.sh
    ```
 
-   该脚本会检查：本地敏感产物是否存在、是否被 git 跟踪、已跟踪文件中的密钥模式、个人绝对路径泄露、`.env.example` 的 API key 占位状态。
-
-   脚本会把检查结果直接输出在当前终端；如果你另外运行 `python scripts/evaluate_memory_palace_skill.py` 或 `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py`，对应的 Markdown 摘要会在 `<repo-root>/docs/skills/` 下本地生成或更新，通常更适合当成你自己机器上的验证记录；这些摘要默认也被 `.gitignore` 排除，所以公开 GitHub 仓库里通常不会带上。
+   该脚本会检查：常见本地敏感产物 / 工具配置 / 本地报告是否存在、是否被 git 跟踪、已跟踪文件中的密钥模式、个人绝对路径泄露、`.env.example` 的 API key 占位状态。它更像“分享前仓库卫生检查”；如果只是发现本地文件存在，通常会给 `WARN`，不是直接 `FAIL`。
 
 1. **检查工作区状态** — 确认无意外暴露：
 
@@ -167,11 +165,13 @@ Authorization: Bearer <MCP_API_KEY>
 
    应确保以下文件不在提交中（均已在 `.gitignore` 中配置）：
    - `.env`、`.env.docker`（如果你显式复用了固定 Docker env 文件）
-   - `.venv`、`.mcp.json`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/`（通常由你本地的 sync / install 脚本生成）
+   - `.venv`、`.mcp.json`、`.mcp.json.bak`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/`（通常由你本地的 sync / install 脚本生成）
    - `*.db`（数据库文件）
+   - `*.init.lock`、`*.migrate.lock`（数据库初始化 / 迁移锁文件）
    - `backend/backend.log`、`frontend/frontend.log`
    - `snapshots/`、`frontend/dist/`
    - `backend/tests/benchmark/.real_profile_cache/`
+   - `docs/skills/TRIGGER_SMOKE_REPORT.md`、`docs/skills/MCP_LIVE_E2E_REPORT.md`、`docs/skills/CLAUDE_SKILLS_AUDIT.md`
    - 任意 `.DS_Store`
 
 2. **关键字扫描** — 检查代码和文档中是否残留真实密钥：
@@ -204,16 +204,15 @@ Authorization: Bearer <MCP_API_KEY>
 
 ---
 
-## 7. 通常只在自己机器上使用的文件与维护文档
-
-以下内容分为两类：一类已在 [`.gitignore`](../.gitignore) 中配置排除；另一类是运行脚本后在你自己的工作区生成或更新、通常更适合只留在当前机器上的摘要。
+## 7. 通常不应提交的本地文件
 
 | 文件 / 目录 | 说明 |
 |---|---|
 | `.env`、`.env.docker`（如果你显式复用了固定 Docker env 文件） | 可能包含真实 API Key |
 | `.venv`、`backend/.venv`、`frontend/.venv` | 本地虚拟环境，不应进入仓库 |
-| `.mcp.json`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/` | 本地工具 / MCP 配置目录（通常由你本地的 sync / install 脚本生成） |
+| `.mcp.json`、`.mcp.json.bak`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/` | 本地工具 / MCP 配置目录（通常由你本地的 sync / install 脚本生成） |
 | `*.db` | SQLite 数据库文件（如 `demo.db`） |
+| `*.init.lock`、`*.migrate.lock` | 数据库初始化 / 迁移时生成的锁文件 |
 | `backend/backend.log` | 后端运行日志 |
 | `frontend/frontend.log` | 前端运行日志 |
 | `snapshots/` | 本地快照目录 |
@@ -222,14 +221,14 @@ Authorization: Bearer <MCP_API_KEY>
 | `frontend/node_modules` | NPM 依赖 |
 | `frontend/dist/` | 前端构建产物 |
 | `.DS_Store` | macOS 系统文件 |
-| `backups/` | 本地备份目录，通常只在你自己的机器上使用 |
-| `docs/improvement/` | 阶段性实施计划、重测草稿、内部排障记录 |
-| `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` | 运行 `python scripts/evaluate_memory_palace_skill.py` 后本地生成或更新的 skill smoke 摘要（默认 `.gitignore` 排除） |
-| `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` | 运行 `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py` 后本地生成或更新的 MCP e2e 摘要（默认 `.gitignore` 排除） |
+| `backups/` | 本地备份目录 |
+| `docs/improvement/` | 阶段性计划、重测草稿、排障记录 |
+| `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` | 本地 skill smoke 摘要 |
+| `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` | 本地 MCP e2e 摘要 |
 | `backend/docs/benchmark_*.md` | 本地 benchmark 分析笔记 |
 | `backend/tests/benchmark_results.md` | 一次性 benchmark 汇总草稿 |
-| `docs/evaluation_old_vs_new_executive_summary_2026-03-05.md` | 一次性对照摘要，更适合作为维护阶段材料；公开 GitHub 仓库里可能不存在这一类本地文件 |
-| `docs/changelog/current_code_improvements_vs_legacy_docs.md` | 面向维护者的补充差异清单；公开 GitHub 仓库里可能不存在这一类本地文件 |
+| `docs/evaluation_old_vs_new_executive_summary_2026-03-05.md` | 一次性对照摘要 |
+| `docs/changelog/current_code_improvements_vs_legacy_docs.md` | 补充差异清单 |
 
 > 💡 保留 `.env.example` 作为配置模板提交到仓库。
 >
