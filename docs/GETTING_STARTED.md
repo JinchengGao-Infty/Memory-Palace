@@ -192,6 +192,10 @@ VITE v7.x.x  ready in xxx ms
 
 打开浏览器访问 `http://127.0.0.1:5173`，即可看到 Memory Palace Dashboard。
 
+如果你希望按页面逐项看 Dashboard 的按钮、字段和典型操作流程，可继续看：
+
+- `docs/DASHBOARD_GUIDE_CN.md`
+
 > 如果你在本地手动启动时看到右上角的 `Set API key`，这是正常现象：页面已经打开，但 `/browse/*`、`/review/*`、`/maintenance/*` 等受保护接口还没授权。第 5 节会继续说明本地验证方式。
 
 > 如果你配置了 `MCP_API_KEY`，打开页面后请点右上角 `Set API key`，输入同一把 key。

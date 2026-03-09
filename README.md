@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="README_CN.md">中文</a> · <a href="docs/README.md">Docs</a> · <a href="docs/GETTING_STARTED.md">Quick Start</a> · <a href="docs/EVALUATION.md">Benchmarks</a>
+  <a href="README_CN.md">中文</a> · <a href="docs/README_EN.md">Docs</a> · <a href="docs/GETTING_STARTED_EN.md">Quick Start</a> · <a href="docs/EVALUATION_EN.md">Benchmarks</a>
 </p>
 
 ---
@@ -93,6 +93,8 @@ Four deployment profiles (A/B/C/D) from pure local to cloud-connected, with Dock
 A React-powered dashboard with four views: **Memory Browser**, **Review & Rollback**, **Maintenance**, and **Observability**.
 
 The current frontend now defaults to English. Use the top-right language button to switch between English and Chinese; the browser remembers your choice and applies it to common UI copy, date/number formatting, and common API error hints.
+
+If you want a page-by-page walkthrough of the Dashboard, see [Dashboard User Guide (English)](docs/DASHBOARD_GUIDE_EN.md).
 
 ---
 
@@ -529,7 +531,7 @@ COMPACT_GIST_LLM_MODEL=your-chat-model-id
 
 Profile templates are located at: `deploy/profiles/{macos,windows,docker}/profile-{a,b,c,d}.env`
 
-Full parameter reference: [DEPLOYMENT_PROFILES.md](docs/DEPLOYMENT_PROFILES.md)
+Full parameter reference: [DEPLOYMENT_PROFILES_EN.md](docs/DEPLOYMENT_PROFILES_EN.md)
 
 ---
 
@@ -577,7 +579,7 @@ cd backend && HOST=127.0.0.1 PORT=8010 python run_sse.py
 >
 > Use `HOST=0.0.0.0` only when you really need remote clients and have already added the usual network protections.
 
-Full tool semantics: [TOOLS.md](docs/TOOLS.md)
+Full tool semantics: [TOOLS_EN.md](docs/TOOLS_EN.md)
 
 ---
 
@@ -655,7 +657,7 @@ The canonical skill is aligned with the current code contract:
 
 If you want to re-check skill smoke or the live MCP path, run `python scripts/evaluate_memory_palace_skill.py` and `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py`. They generate local reports under `docs/skills/`.
 
-Full guide: [MEMORY_PALACE_SKILLS.md](docs/skills/MEMORY_PALACE_SKILLS.md)
+Full guide: [MEMORY_PALACE_SKILLS_EN.md](docs/skills/MEMORY_PALACE_SKILLS_EN.md)
 
 ---
 
@@ -663,7 +665,7 @@ Full guide: [MEMORY_PALACE_SKILLS.md](docs/skills/MEMORY_PALACE_SKILLS.md)
 
 > This section keeps the **user-facing summary tables** from the current benchmark suite.
 >
-> For methodology, caveats, and reproduction commands, see `docs/EVALUATION.md`. For the same-setup old-vs-current summary used in this release note, see `docs/changelog/release_summary_vs_old_project_2026-03-06.md`.
+> For methodology, caveats, and reproduction commands, see [EVALUATION_EN.md](docs/EVALUATION_EN.md). For the same-setup old-vs-current summary used in this release note, see [release_summary_vs_old_project_2026-03-06_EN.md](docs/changelog/release_summary_vs_old_project_2026-03-06_EN.md).
 >
 > The numbers below are a release summary, not a guarantee for every hardware or provider setup.
 
@@ -834,14 +836,14 @@ Real-time search query monitoring, retrieval quality insights, and task queue st
 
 | Document | Description |
 |---|---|
-| [Getting Started](docs/GETTING_STARTED.md) | Complete guide from zero to running |
-| [Technical Overview](docs/TECHNICAL_OVERVIEW.md) | Architecture design and module responsibilities |
-| [Deployment Profiles](docs/DEPLOYMENT_PROFILES.md) | A/B/C/D detailed configuration and tuning guide |
-| [MCP Tools](docs/TOOLS.md) | Full semantics and return formats for all 9 tools |
-| [Evaluation](docs/EVALUATION.md) | Retrieval quality, write gates, intent classification metrics |
-| [Skills Guide](docs/skills/MEMORY_PALACE_SKILLS.md) | Multi-client unified integration strategy |
-| [Security & Privacy](docs/SECURITY_AND_PRIVACY.md) | API Key authentication and security policies |
-| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
+| [Getting Started](docs/GETTING_STARTED_EN.md) | Complete guide from zero to running |
+| [Technical Overview](docs/TECHNICAL_OVERVIEW_EN.md) | Architecture design and module responsibilities |
+| [Deployment Profiles](docs/DEPLOYMENT_PROFILES_EN.md) | A/B/C/D detailed configuration and tuning guide |
+| [MCP Tools](docs/TOOLS_EN.md) | Full semantics and return formats for all 9 tools |
+| [Evaluation](docs/EVALUATION_EN.md) | Retrieval quality, write gates, intent classification metrics |
+| [Skills Guide](docs/skills/MEMORY_PALACE_SKILLS_EN.md) | Multi-client unified integration strategy |
+| [Security & Privacy](docs/SECURITY_AND_PRIVACY_EN.md) | API Key authentication and security policies |
+| [Troubleshooting](docs/TROUBLESHOOTING_EN.md) | Common issues and solutions |
 
 ---
 
@@ -854,7 +856,7 @@ Real-time search query monitoring, retrieval quality insights, and task queue st
 - Docker one-click deployment forwards auth headers at the server-side proxy, so the browser does not receive the real `MCP_API_KEY`
 - Local bypass requires explicit opt-in: `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true` (loopback only)
 
-Details: [SECURITY_AND_PRIVACY.md](docs/SECURITY_AND_PRIVACY.md)
+Details: [SECURITY_AND_PRIVACY_EN.md](docs/SECURITY_AND_PRIVACY_EN.md)
 
 ---
 
