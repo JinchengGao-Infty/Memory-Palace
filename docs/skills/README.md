@@ -38,6 +38,7 @@
   - 运行 `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py` 后生成
 
 它们主要用来帮你复核当前环境的接通结果，不是主入口文档。
+刚 clone 下来的 GitHub 仓库里如果暂时看不到这两份文件，属于正常现象；先运行上面的命令再看即可。
 
 ---
 

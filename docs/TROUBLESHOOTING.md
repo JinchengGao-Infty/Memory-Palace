@@ -163,7 +163,49 @@
 
 ---
 
-## 3.1 后端启动时报 `No module named 'diff_match_patch'`
+## 3.1 `/messages` 返回 404 或 410
+
+**现象**：
+
+- 你先连上了 `/sse`
+- 也拿到了 `event: endpoint`
+- 但后面往 `/messages/?session_id=...` 发请求时返回 `404` 或 `410`
+
+**这通常不是鉴权错了**，而是你手里的 `session_id` 已经失效了。
+
+当前真实行为是：
+
+- `404`：服务端已经找不到这条 session
+- `410`：session 还在映射里，但底层 SSE writer 已经关闭
+
+说人话就是：
+
+- 只要 SSE 流断开了，就别继续复用旧的 `session_id`
+- 你需要重新连一次 `/sse`，拿一条新的 `event: endpoint`
+
+**处理方式**：
+
+1. 重新建立 SSE 连接：
+
+   ```bash
+   curl -i \
+     -H 'Accept: text/event-stream' \
+     -H 'X-MCP-API-Key: <YOUR_MCP_API_KEY>' \
+     http://127.0.0.1:8010/sse
+   ```
+
+2. 从新返回的 `event: endpoint` 里取新的 `session_id`
+
+3. 再向新的 `/messages/?session_id=...` 发请求
+
+**补充说明**：
+
+- 这是当前版本故意做成 fail-closed 的行为
+- 目的就是避免“旧会话其实已经死了，但服务端还回你一个假 `202 Accepted`”
+
+---
+
+## 3.2 后端启动时报 `No module named 'diff_match_patch'`
 
 **现象**：
 
@@ -231,7 +273,7 @@
 
 ---
 
-## 3.2 运行 `python mcp_server.py` 时提示 `No module named 'sqlalchemy'`
+## 3.3 运行 `python mcp_server.py` 时提示 `No module named 'sqlalchemy'`
 
 **现象**：
 
@@ -463,12 +505,17 @@ pytest tests -k "test_search" -q
    ```
 
    > 如果不设置，默认锁文件为 `<数据库文件>.migrate.lock`（例如 `demo.db.migrate.lock`），保存在与数据库文件同一目录下。
+   >
+   > 当前版本另外还有一把启动初始化锁：`<数据库文件>.init.lock`。它用于把 `init_db()` 串行化，避免 `backend` 和 `sse` 首次并发启动时互相抢库。
+   >
+   > 这把 `.init.lock` 只会用于**文件型 SQLite 数据库**。像 `:memory:` 这类目标不会生成它；如果你的 `DATABASE_URL` 带 query string，锁文件也会按真实数据库文件名生成，不会把 `?cache=shared` 这类参数拼进文件名里。
 
 4. **手动删除残留锁文件后重启**：
 
    ```bash
    # 找到锁文件并删除（默认在数据库文件旁）
    rm -f /path/to/demo.db.migrate.lock
+   rm -f /path/to/demo.db.init.lock
    ```
 
 **验证锚点**：当前仓库中的 `backend/tests/test_migration_runner.py` 覆盖了迁移锁与超时场景。

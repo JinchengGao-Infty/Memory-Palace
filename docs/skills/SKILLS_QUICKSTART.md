@@ -155,10 +155,12 @@ python scripts/install_skill.py --targets gemini --scope user --with-mcp --force
 
 ```bash
 gemini mcp remove memory-palace
-gemini mcp add -s project -e DATABASE_URL=sqlite+aiosqlite:////<repo-root>/backend/memory.db memory-palace /bin/zsh -lc 'cd <repo-root>/backend && source .venv/bin/activate && RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py'
+gemini mcp add -s project memory-palace /bin/zsh -lc 'cd <repo-root> && bash scripts/run_memory_palace_mcp_stdio.sh'
 ```
 
 > 把上面的 `<repo-root>` 替换成你的实际仓库根目录。
+>
+> 这条写法会复用当前仓库 `.env` 里的 `DATABASE_URL`。如果你前面已经让 Dashboard / HTTP API 跑在同一个仓库里，就不要再另外手写一条 `backend/memory.db`，否则很容易把客户端和页面接到两份不同的库上。
 
 ---
 
@@ -178,8 +180,7 @@ gemini mcp add -s project -e DATABASE_URL=sqlite+aiosqlite:////<repo-root>/backe
 
 ```bash
 codex mcp add memory-palace \
-  --env DATABASE_URL=sqlite+aiosqlite:////ABS/PATH/TO/REPO/backend/memory.db \
-  -- /bin/zsh -lc 'cd /ABS/PATH/TO/REPO/backend && source .venv/bin/activate && RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py'
+  -- /bin/zsh -lc 'cd /ABS/PATH/TO/REPO && bash scripts/run_memory_palace_mcp_stdio.sh'
 ```
 
 然后检查：
@@ -221,7 +222,7 @@ type: local / stdio
 command: /bin/zsh
 args:
   - -lc
-  - cd <repo-root>/backend && source .venv/bin/activate && DATABASE_URL=sqlite+aiosqlite:///$PWD/memory.db RETRIEVAL_REMOTE_TIMEOUT_SEC=1 python mcp_server.py
+  - cd <repo-root> && bash scripts/run_memory_palace_mcp_stdio.sh
 ```
 
 不同版本的 `OpenCode` 交互入口可能长得不一样，但要填的本质就是这几项。

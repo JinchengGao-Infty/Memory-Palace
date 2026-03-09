@@ -88,6 +88,19 @@ python scripts/install_skill.py \
    - `Claude Code` → `.mcp.json`
    - `Gemini CLI` → `.gemini/settings.json`
 
+这两个入口现在都会统一调用：
+
+```text
+scripts/run_memory_palace_mcp_stdio.sh
+```
+
+它的作用很简单：
+
+- 用项目自己的 `backend/.venv`
+- 优先复用当前仓库 `.env` 里的 `DATABASE_URL`
+
+这样你在 Dashboard / HTTP API 里看到的库，和 MCP 客户端实际读写的库，默认就是同一份。
+
 注意：
 
 - `Codex/OpenCode` 在 workspace scope 下仍以 **repo-local skill 自动发现** 为主
@@ -123,6 +136,13 @@ python scripts/install_skill.py \
 - `Codex CLI` → `~/.codex/config.toml`
 - `Gemini CLI` → `~/.gemini/settings.json`
 - `OpenCode` → `~/.config/opencode/opencode.json`
+
+这些 user-scope MCP 配置本质上也还是调用同一个 wrapper，所以默认行为和 workspace 入口一致：
+
+- 先读当前仓库 `.env`
+- 再决定实际 `DATABASE_URL`
+
+如果你想换到另一份数据库，优先改这个仓库自己的 `.env`，不要手工在不同客户端里各写一套不同的数据库路径。
 
 ---
 
@@ -206,6 +226,8 @@ python scripts/evaluate_memory_palace_skill.py
 docs/skills/TRIGGER_SMOKE_REPORT.md
 ```
 
+如果你是刚 clone 下来的 GitHub 仓库，这个文件默认可能还不存在；先跑完命令再看，属于正常现象。
+
 ### 真实 MCP 调用链
 
 ```bash
@@ -218,6 +240,8 @@ python ../scripts/evaluate_memory_palace_mcp_e2e.py
 ```text
 docs/skills/MCP_LIVE_E2E_REPORT.md
 ```
+
+同样地，这份报告默认也是“运行后才会出现”的本地产物；公开 GitHub 仓库里暂时没有，不代表接法有问题。
 
 这两份报告主要用来复核当前环境的结果，不是主入口文档。
 

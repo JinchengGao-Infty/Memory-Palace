@@ -111,11 +111,11 @@ bash scripts/apply_profile.sh macos b
 | `DATABASE_URL` | SQLite 数据库路径（**建议使用绝对路径**） | `sqlite+aiosqlite:////absolute/path/to/memory_palace/demo.db` |
 | `SEARCH_DEFAULT_MODE` | 检索模式：`keyword` / `semantic` / `hybrid` | `keyword` |
 | `RETRIEVAL_EMBEDDING_BACKEND` | 嵌入后端：`none` / `hash` / `router` / `api` / `openai` | `none` |
-| `RETRIEVAL_EMBEDDING_MODEL` | Embedding 模型名 | `Qwen/Qwen3-Embedding-8B` |
+| `RETRIEVAL_EMBEDDING_MODEL` | Embedding 模型名 | `your-embedding-model-id` |
 | `RETRIEVAL_RERANKER_ENABLED` | 是否启用 Reranker | `false` |
 | `RETRIEVAL_RERANKER_API_BASE` | Reranker API 地址 | 空 |
 | `RETRIEVAL_RERANKER_API_KEY` | Reranker API 密钥 | 空 |
-| `RETRIEVAL_RERANKER_MODEL` | Reranker 模型名 | `Qwen/Qwen3-Reranker-8B` |
+| `RETRIEVAL_RERANKER_MODEL` | Reranker 模型名 | `your-reranker-model-id` |
 | `INTENT_LLM_ENABLED` | 实验性意图 LLM 开关 | `false` |
 | `RETRIEVAL_MMR_ENABLED` | hybrid 检索下的去重 / 多样性重排 | `false` |
 | `RETRIEVAL_SQLITE_VEC_ENABLED` | sqlite-vec rollout 开关 | `false` |
@@ -140,9 +140,7 @@ bash scripts/apply_profile.sh macos b
 > - `RETRIEVAL_SQLITE_VEC_ENABLED=false`：普通部署先保持 legacy 路径
 > - `CORS_ALLOW_ORIGINS=`：本地开发留空；要开放给浏览器跨域访问时再写明确域名
 >
-> 当前推荐模型：Embedding 使用 `Qwen/Qwen3-Embedding-8B`，Reranker 使用 `Qwen/Qwen3-Reranker-8B`；如需启用可选 LLM，推荐使用 `gpt-5.4`。
->
-> 如果你的 provider 使用了不同的 model id 写法，请保持同一模型家族，但把这里的值改成你自己的 provider 实际 model id。
+> 上面这些模型名只是占位示例，不是项目硬依赖。Memory Palace 不绑定某个固定 provider 或模型家族；请直接改成你自己的 OpenAI-compatible 服务里实际可用的 embedding / reranker / chat model id。
 >
 > 如果你接下来就要在本地打开 Dashboard，或者直接用 `curl` 调 `/browse` / `/review` / `/maintenance`，建议在 `.env` 里再补一项鉴权配置（二选一）：
 >
@@ -324,6 +322,7 @@ cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
 脚本会分别在 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 和 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` 生成摘要。这两份结果主要用于本地复核，不是主说明文档。
+如果你是刚 clone 下来的 GitHub 仓库，暂时看不到这两份文件也正常；它们是运行脚本后才生成的本地产物。
 
 ---
 
@@ -407,6 +406,8 @@ python mcp_server.py
 > `stdio` 模式下 MCP 工具直接通过进程的标准输入/输出通信，**不经过 HTTP/SSE 鉴权层**，无需配置 `MCP_API_KEY` 即可使用。
 >
 > 这里的 `python mcp_server.py` 默认你还在使用 **Step 2 里创建并装好依赖的 `backend/.venv`**。如果你换了一个新终端，或者是在客户端里单独配置本地 MCP，优先直接用项目自己的 `.venv` 解释器。否则会在 MCP 进程真正启动前就报 `ModuleNotFoundError: No module named 'sqlalchemy'` 这类错误。
+>
+> 如果你是在客户端配置里接入 MCP，更推荐直接用 `scripts/run_memory_palace_mcp_stdio.sh`。这个 wrapper 会优先复用当前仓库的 `.env` / `DATABASE_URL`，避免 MCP 客户端和 Dashboard/API 连到两份不同的 SQLite 数据库。
 
 ### 6.2 SSE 模式
 
@@ -431,9 +432,8 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 {
   "mcpServers": {
     "memory-palace": {
-      "command": "/ABS/PATH/TO/REPO/backend/.venv/bin/python",
-      "args": ["mcp_server.py"],
-      "cwd": "/ABS/PATH/TO/REPO/backend"
+      "command": "bash",
+      "args": ["/ABS/PATH/TO/REPO/scripts/run_memory_palace_mcp_stdio.sh"]
     }
   }
 }

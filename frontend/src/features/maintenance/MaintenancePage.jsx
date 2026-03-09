@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Trash2, Feather, AlertTriangle, RefreshCw,
@@ -39,7 +39,7 @@ export default function MaintenancePage() {
   const { t, i18n } = useTranslation();
   const [orphans, setOrphans] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [errorState, setErrorState] = useState(null);
 
   const [expandedId, setExpandedId] = useState(null);
   const [detailData, setDetailData] = useState({});
@@ -50,7 +50,7 @@ export default function MaintenancePage() {
 
   const [vitalityCandidates, setVitalityCandidates] = useState([]);
   const [vitalityLoading, setVitalityLoading] = useState(false);
-  const [vitalityError, setVitalityError] = useState(null);
+  const [vitalityErrorState, setVitalityErrorState] = useState(null);
   const [vitalitySelectedIds, setVitalitySelectedIds] = useState(new Set());
   const [vitalityThreshold, setVitalityThreshold] = useState(0.35);
   const [vitalityInactiveDays, setVitalityInactiveDays] = useState(14);
@@ -66,6 +66,21 @@ export default function MaintenancePage() {
   const detailRequestSeqRef = useRef(0);
   const vitalityRequestSeqRef = useRef(0);
   const vitalityPrepareSeqRef = useRef(0);
+  const error = useMemo(() => {
+    if (!errorState) return null;
+    return `${t('maintenance.errors.loadOrphans')}: ${extractApiError(
+      errorState.error,
+      t(errorState.fallbackKey)
+    )}`;
+  }, [errorState, t]);
+  const vitalityError = useMemo(() => {
+    if (!vitalityErrorState) return null;
+    if (typeof vitalityErrorState === 'string') return vitalityErrorState;
+    if (vitalityErrorState.type === 'translation') {
+      return t(vitalityErrorState.key, vitalityErrorState.values || {});
+    }
+    return extractApiError(vitalityErrorState.error, t(vitalityErrorState.fallbackKey));
+  }, [t, vitalityErrorState]);
 
   const invalidatePreparedReview = useCallback(() => {
     vitalityPrepareSeqRef.current += 1;
@@ -81,7 +96,7 @@ export default function MaintenancePage() {
     const requestSeq = orphanRequestSeqRef.current + 1;
     orphanRequestSeqRef.current = requestSeq;
     setLoading(true);
-    setError(null);
+    setErrorState(null);
     setSelectedIds(new Set());
     try {
       const data = await listOrphanMemories();
@@ -89,7 +104,7 @@ export default function MaintenancePage() {
       setOrphans(Array.isArray(data) ? data : []);
     } catch (err) {
       if (requestSeq !== orphanRequestSeqRef.current) return;
-      setError(`${t('maintenance.errors.loadOrphans')}: ${extractApiError(err, t('maintenance.errors.loadOrphans'))}`);
+      setErrorState({ error: err, fallbackKey: 'maintenance.errors.loadOrphans' });
     } finally {
       if (requestSeq !== orphanRequestSeqRef.current) return;
       setLoading(false);
@@ -100,7 +115,7 @@ export default function MaintenancePage() {
     const requestSeq = vitalityRequestSeqRef.current + 1;
     vitalityRequestSeqRef.current = requestSeq;
     setVitalityLoading(true);
-    setVitalityError(null);
+    setVitalityErrorState(null);
     invalidatePreparedReview();
     try {
       const thresholdRaw = String(vitalityThreshold ?? '').trim();
@@ -159,7 +174,10 @@ export default function MaintenancePage() {
     } catch (err) {
       if (requestSeq !== vitalityRequestSeqRef.current) return;
       setVitalityQueryMeta(null);
-      setVitalityError(extractApiError(err, t('maintenance.errors.loadVitalityCandidates')));
+      setVitalityErrorState({
+        error: err,
+        fallbackKey: 'maintenance.errors.loadVitalityCandidates',
+      });
     } finally {
       if (requestSeq !== vitalityRequestSeqRef.current) return;
       setVitalityLoading(false);
@@ -262,28 +280,32 @@ export default function MaintenancePage() {
       : selectedRows;
     if (reviewRows.length === 0) {
       invalidatePreparedReview();
-      setVitalityError(
-        normalizedAction === 'delete'
-          ? t('maintenance.errors.noDeletableSelected')
-          : t('maintenance.errors.noCandidateSelected')
-      );
+      setVitalityErrorState({
+        type: 'translation',
+        key:
+          normalizedAction === 'delete'
+            ? 'maintenance.errors.noDeletableSelected'
+            : 'maintenance.errors.noCandidateSelected',
+      });
       return;
     }
     if (reviewRows.length > VITALITY_PREPARE_MAX_SELECTIONS) {
       invalidatePreparedReview();
-      setVitalityError(
-        t('maintenance.errors.tooManySelections', {
+      setVitalityErrorState({
+        type: 'translation',
+        key: 'maintenance.errors.tooManySelections',
+        values: {
           count: reviewRows.length,
           max: VITALITY_PREPARE_MAX_SELECTIONS,
-        })
-      );
+        },
+      });
       return;
     }
 
     const prepareSeq = vitalityPrepareSeqRef.current + 1;
     vitalityPrepareSeqRef.current = prepareSeq;
     setVitalityProcessing(true);
-    setVitalityError(null);
+    setVitalityErrorState(null);
     try {
       const payload = await prepareVitalityCleanup({
         action: normalizedAction,
@@ -309,7 +331,10 @@ export default function MaintenancePage() {
     } catch (err) {
       if (prepareSeq !== vitalityPrepareSeqRef.current) return;
       setVitalityPreparedReview(null);
-      setVitalityError(extractApiError(err, t('maintenance.errors.prepareCleanup')));
+      setVitalityErrorState({
+        error: err,
+        fallbackKey: 'maintenance.errors.prepareCleanup',
+      });
     } finally {
       if (prepareSeq !== vitalityPrepareSeqRef.current) return;
       setVitalityProcessing(false);
@@ -336,12 +361,15 @@ export default function MaintenancePage() {
     );
     if (typed === null) return;
     if (typed.trim() !== vitalityPreparedReview.confirmation_phrase) {
-      setVitalityError(t('maintenance.errors.confirmationMismatch'));
+      setVitalityErrorState({
+        type: 'translation',
+        key: 'maintenance.errors.confirmationMismatch',
+      });
       return;
     }
 
     setVitalityProcessing(true);
-    setVitalityError(null);
+    setVitalityErrorState(null);
     try {
       const payload = await confirmVitalityCleanup({
         review_id: vitalityPreparedReview.review_id,
@@ -353,8 +381,10 @@ export default function MaintenancePage() {
       await Promise.all([loadOrphans(), loadVitalityCandidates()]);
     } catch (err) {
       const detailCode = extractApiErrorCode(err);
-      const detailText = extractApiError(err, t('maintenance.errors.confirmCleanup'));
-      setVitalityError(detailText);
+      setVitalityErrorState({
+        error: err,
+        fallbackKey: 'maintenance.errors.confirmCleanup',
+      });
       if (detailCode !== 'confirmation_phrase_mismatch') {
         invalidatePreparedReview();
         await loadVitalityCandidates();
@@ -387,7 +417,12 @@ export default function MaintenancePage() {
       setDetailData(prev => ({ ...prev, [id]: data }));
     } catch (err) {
       if (requestSeq !== detailRequestSeqRef.current) return;
-      setDetailData(prev => ({ ...prev, [id]: { error: extractApiError(err, t('maintenance.errors.loadOrphanDetail')) } }));
+      setDetailData(prev => ({
+        ...prev,
+        [id]: {
+          errorState: { error: err, fallbackKey: 'maintenance.errors.loadOrphanDetail' },
+        },
+      }));
     } finally {
       if (requestSeq !== detailRequestSeqRef.current) return;
       setDetailLoading(null);
@@ -489,8 +524,11 @@ export default function MaintenancePage() {
                 <div className="w-4 h-4 border-2 border-amber-500/30 border-t-amber-500 rounded-full animate-spin"></div>
                 <span className="text-xs">{t('maintenance.card.loadingFullContent')}</span>
               </div>
-            ) : detail?.error ? (
-              <div className="text-rose-400 text-xs py-2">{t('maintenance.card.errorPrefix')} {detail.error}</div>
+            ) : detail?.errorState ? (
+              <div className="text-rose-400 text-xs py-2">
+                {t('maintenance.card.errorPrefix')}{' '}
+                {extractApiError(detail.errorState.error, t(detail.errorState.fallbackKey))}
+              </div>
             ) : detail ? (
               <div className="space-y-4">
                 <div>

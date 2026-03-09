@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   approveSnapshot,
@@ -63,7 +63,7 @@ function ReviewPage() {
   const [selectedSnapshot, setSelectedSnapshot] = useState(null);
   const [diffData, setDiffData] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [diffError, setDiffError] = useState(null);
+  const [diffErrorState, setDiffErrorState] = useState(null);
   const [mutationInFlight, setMutationInFlight] = useState(false);
   
   const sessionsRequestRef = useRef(0);
@@ -71,6 +71,10 @@ function ReviewPage() {
   const diffRequestRef = useRef(0);
   const snapshotsRequestRef = useRef(0);
   const mutationInFlightRef = useRef(false);
+  const diffError = useMemo(() => {
+    if (!diffErrorState) return null;
+    return extractApiError(diffErrorState.error, t(diffErrorState.fallbackKey));
+  }, [diffErrorState, t]);
 
   const beginMutation = () => {
     if (mutationInFlightRef.current) return false;
@@ -97,7 +101,7 @@ function ReviewPage() {
       const rawList = await getSessions();
       const list = normalizeSessionList(rawList);
       if (requestId !== sessionsRequestRef.current) return;
-      setDiffError(null);
+      setDiffErrorState(null);
       setSessions(list);
       // Logic to auto-select or maintain selection
       const activeSessionId = currentSessionIdRef.current;
@@ -114,7 +118,7 @@ function ReviewPage() {
       setCurrentSessionId(list[0].session_id);
     } catch (err) {
       if (requestId !== sessionsRequestRef.current) return;
-      setDiffError(extractApiError(err, t('review.errors.loadSessions')));
+      setDiffErrorState({ error: err, fallbackKey: 'review.errors.loadSessions' });
     }
   };
 
@@ -128,7 +132,7 @@ function ReviewPage() {
   const loadSnapshots = async (sessionId) => {
     const requestId = ++snapshotsRequestRef.current;
     setLoading(true);
-    setDiffError(null);
+    setDiffErrorState(null);
     try {
       const list = await getSnapshots(sessionId);
       if (requestId !== snapshotsRequestRef.current) return;
@@ -144,13 +148,13 @@ function ReviewPage() {
         setSnapshots([]);
         setSelectedSnapshot(null);
         setDiffData(null);
-        setDiffError(null);
+        setDiffErrorState(null);
         return;
       }
       setSnapshots([]);
       setSelectedSnapshot(null);
       setDiffData(null);
-      setDiffError(extractApiError(err, t('review.errors.loadSnapshots')));
+      setDiffErrorState({ error: err, fallbackKey: 'review.errors.loadSnapshots' });
     } finally {
       if (requestId !== snapshotsRequestRef.current) return;
       setLoading(false);
@@ -165,14 +169,14 @@ function ReviewPage() {
 
   const loadDiff = async (sessionId, resourceId) => {
     const requestId = ++diffRequestRef.current;
-    setDiffError(null);
+    setDiffErrorState(null);
     setDiffData(null);
     try {
       const data = await getDiff(sessionId, resourceId);
       if (requestId === diffRequestRef.current) setDiffData(data);
     } catch (err) {
       if (requestId === diffRequestRef.current) {
-        setDiffError(extractApiError(err, t('review.errors.retrieveFragment')));
+        setDiffErrorState({ error: err, fallbackKey: 'review.errors.retrieveFragment' });
         setDiffData(null);
       }
     }

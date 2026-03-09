@@ -157,7 +157,7 @@ RETRIEVAL_RERANKER_WEIGHT=0.35                     # 远程推荐略高
 
 > **🔑 C/D 第一调参项**：`RETRIEVAL_RERANKER_WEIGHT`，建议范围 `0.20 ~ 0.40`，以 `0.05` 步长微调。
 >
-> **模型 ID 提醒**：当前推荐写法是 `Qwen/Qwen3-Embedding-8B` 与 `Qwen/Qwen3-Reranker-8B`。如果你的 provider 要求不同写法，请保持同一模型家族，并改成你自己的 provider 实际 model id。
+> **模型 ID 提醒**：上面的 `<your-embedding-model-id>` / `<your-reranker-model-id>` 就是推荐写法。项目本身不绑定某个固定模型家族；请直接填写你自己的 provider 实际 model id。
 
 如果你采用直连方式，最小验证步骤如下：
 
@@ -176,16 +176,17 @@ curl -fsS http://127.0.0.1:18000/browse/node -H "X-MCP-API-Key: <YOUR_MCP_API_KE
 2. 无论你走 `router` 还是直连，都应在最终配置下通过启动 + 健康检查。
 3. 若占位 endpoint/key 下启动失败，属于预期 fail-closed；请替换成真实可用值后再复验。
 
-### 推荐模型选型
+### 模型 ID 示例
 
-项目档位模板中默认配置的模型：
+这里建议你直接按“用途 -> 真实 model id”去填：
 
-| 用途 | 默认模型 | 维度 | 说明 |
-|---|---|---|---|
-| Embedding | `Qwen/Qwen3-Embedding-8B` | 4096 | 多语言，支持中英文，精度高 |
-| Reranker | `Qwen/Qwen3-Reranker-8B` | — | 高精度重排序，支持中英文 |
+| 用途 | 建议写法 | 说明 |
+|---|---|---|
+| Embedding | `<your-embedding-model-id>` | 填你的 provider 实际 embedding model id |
+| Reranker | `<your-reranker-model-id>` | 填你的 provider 实际 reranker model id |
+| 可选 LLM | `<your-chat-model-id>` | 用于 `write_guard` / `compact_context` / `intent` |
 
-你也可以替换为其他 OpenAI-compatible 模型，例如 `bge-m3`、`text-embedding-3-small` 等，只需修改对应的 `*_MODEL` 和 `*_DIM` 参数。
+无论你走 `router` 还是直连 API，项目都只是把这些字符串原样传给你的 OpenAI-compatible 服务；不会强制要求某个固定模型品牌或家族。
 
 ---
 
@@ -200,24 +201,24 @@ curl -fsS http://127.0.0.1:18000/browse/node -H "X-MCP-API-Key: <YOUR_MCP_API_KE
 WRITE_GUARD_LLM_ENABLED=false
 WRITE_GUARD_LLM_API_BASE=             # OpenAI-compatible /chat/completions 端点
 WRITE_GUARD_LLM_API_KEY=
-WRITE_GUARD_LLM_MODEL=gpt-5.4
+WRITE_GUARD_LLM_MODEL=your-chat-model-id
 
 # Compact Context Gist LLM（上下文压缩，生成摘要）
 COMPACT_GIST_LLM_ENABLED=false
 COMPACT_GIST_LLM_API_BASE=
 COMPACT_GIST_LLM_API_KEY=
-COMPACT_GIST_LLM_MODEL=gpt-5.4
+COMPACT_GIST_LLM_MODEL=your-chat-model-id
 
 # Intent LLM（实验性意图分类增强）
 INTENT_LLM_ENABLED=false
 INTENT_LLM_API_BASE=
 INTENT_LLM_API_KEY=
-INTENT_LLM_MODEL=gpt-5.4
+INTENT_LLM_MODEL=your-chat-model-id
 ```
 
 > **回退机制**：当 `COMPACT_GIST_LLM_*` 未配置时，`compact_context` 会自动回退使用 `WRITE_GUARD_LLM_*` 的配置。两条链路均使用 OpenAI-compatible chat 接口（`/chat/completions`）。
 >
-> **推荐模型**：Embedding 使用 `Qwen/Qwen3-Embedding-8B`，Reranker 使用 `Qwen/Qwen3-Reranker-8B`，可选 LLM（write_guard / compact_context / intent）使用 `gpt-5.4`。
+> **说明**：这里的 model id 只起占位示例作用。只要你的服务兼容 OpenAI-style `/embeddings`、`/chat/completions` 或 reranker 端点，就可以改成你自己的实际 model id。
 >
 > 如果你的 provider 使用了不同的 model id 写法，请保持同一模型家族，并改成你自己的 provider 实际 model id。
 >

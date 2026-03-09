@@ -1,36 +1,25 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../../lib/api';
 import i18n, { LOCALE_STORAGE_KEY } from '../../i18n';
 import MaintenancePage from './MaintenancePage';
 
-vi.mock('../../lib/api', () => ({
-  queryVitalityCleanupCandidates: vi.fn(),
-  prepareVitalityCleanup: vi.fn(),
-  confirmVitalityCleanup: vi.fn(),
-  triggerVitalityDecay: vi.fn(),
-  extractApiError: vi.fn((error, fallback = 'Request failed') => {
-    const detail = error?.response?.data?.detail;
-    if (typeof detail === 'string' && detail.trim()) return detail;
-    if (detail && typeof detail === 'object') {
-      return detail.error || detail.reason || detail.message || fallback;
-    }
-    if (typeof error?.message === 'string' && error.message.trim()) return error.message;
-    return fallback;
-  }),
-  extractApiErrorCode: vi.fn((error) => {
-    const detail = error?.response?.data?.detail;
-    if (typeof detail === 'string' && detail.trim()) return detail.trim();
-    if (detail && typeof detail === 'object') {
-      return detail.code || detail.error || detail.reason || null;
-    }
-    return null;
-  }),
-  listOrphanMemories: vi.fn(),
-  getOrphanMemoryDetail: vi.fn(),
-  deleteOrphanMemory: vi.fn(),
-}));
+vi.mock('../../lib/api', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    queryVitalityCleanupCandidates: vi.fn(),
+    prepareVitalityCleanup: vi.fn(),
+    confirmVitalityCleanup: vi.fn(),
+    triggerVitalityDecay: vi.fn(),
+    extractApiError: vi.fn(actual.extractApiError),
+    extractApiErrorCode: vi.fn(actual.extractApiErrorCode),
+    listOrphanMemories: vi.fn(),
+    getOrphanMemoryDetail: vi.fn(),
+    deleteOrphanMemory: vi.fn(),
+  };
+});
 
 describe('MaintenancePage', () => {
   beforeEach(async () => {
@@ -243,5 +232,30 @@ describe('MaintenancePage', () => {
     expect(screen.getByText(i18n.t('maintenance.vitality.reviewId', { value: 'review-1' }))).toBeInTheDocument();
     expect(screen.getByText('confirmation phrase mismatch')).toBeInTheDocument();
     expect(api.queryVitalityCleanupCandidates).toHaveBeenCalledTimes(1);
+  });
+
+  it('recomputes orphan load error copy when the language changes', async () => {
+    api.listOrphanMemories.mockRejectedValue({
+      response: {
+        data: {
+          detail: {
+            error: 'maintenance_auth_failed',
+            reason: 'invalid_or_missing_api_key',
+          },
+        },
+      },
+    });
+    await i18n.changeLanguage('en');
+
+    render(<MaintenancePage />);
+
+    await screen.findByText(/Click "Set API key"/);
+
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
+
+    await screen.findByText(/点击右上角“设置 API 密钥”/);
+    expect(screen.queryByText(/Click "Set API key"/)).not.toBeInTheDocument();
   });
 });

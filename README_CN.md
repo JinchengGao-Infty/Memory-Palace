@@ -130,7 +130,7 @@
                 └───────┬───────┘
                         │
                 ┌───────▼────────┐
-                │ �️ SQLite 数据库│
+                │ 🗄️ SQLite 数据库│
                 │ (单文件存储)    │
                 └────────────────┘
 ```
@@ -404,6 +404,8 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 >
 > 上面这条 `python mcp_server.py` 默认你还在使用刚才安装依赖的那个 `backend/.venv`。如果你换了一个新终端，或者是在 Claude Code / Codex / OpenCode 这类客户端里配置本地 MCP，优先直接指向项目自己的 `.venv`。否则很容易因为解释器不对，在启动前就报 `ModuleNotFoundError: No module named 'sqlalchemy'`。
 >
+> 如果你要把 MCP 接到客户端配置里，更推荐直接用 `scripts/run_memory_palace_mcp_stdio.sh`。这个 wrapper 会优先复用当前仓库的 `.env` / `DATABASE_URL`，避免 MCP 客户端和 Dashboard/API 不小心各自写到两份 SQLite 库里。
+>
 > 上面这个 `HOST=127.0.0.1` 是**只给本机访问**的写法。真要给远程客户端访问，请改成 `HOST=0.0.0.0`（或你的实际绑定地址）。这一步只是把监听范围放开，**不等于**跳过安全控制；API Key、防火墙、反向代理和传输安全仍然要自己补齐。
 
 详细的客户端配置请参阅 [多客户端集成](#-多客户端集成)。
@@ -518,16 +520,16 @@ RETRIEVAL_RERANKER_WEIGHT=0.25
 WRITE_GUARD_LLM_ENABLED=true
 WRITE_GUARD_LLM_API_BASE=http://localhost:11434/v1
 WRITE_GUARD_LLM_API_KEY=your-api-key
-WRITE_GUARD_LLM_MODEL=gpt-5.4
+WRITE_GUARD_LLM_MODEL=your-chat-model-id
 
 # ── Compact Gist LLM（留空则回退至 Write Guard 配置）───────
 COMPACT_GIST_LLM_ENABLED=true
 COMPACT_GIST_LLM_API_BASE=
 COMPACT_GIST_LLM_API_KEY=
-COMPACT_GIST_LLM_MODEL=gpt-5.4
+COMPACT_GIST_LLM_MODEL=your-chat-model-id
 ```
 
-> 当前推荐模型：Embedding 使用 `Qwen/Qwen3-Embedding-8B`，Reranker 使用 `Qwen/Qwen3-Reranker-8B`，LLM 使用 `gpt-5.4`。如需调整 Intent LLM、CORS、自定义 MMR、sqlite-vec rollout 或运行时审计上限，请直接参考 `.env.example`；README 只保留最常用主配置。
+> 上面这些模型名只是占位示例，不是项目硬依赖。Memory Palace 不绑定某个固定 provider 或模型家族；请直接填写你自己的 OpenAI-compatible 服务里实际可用的 embedding / reranker / chat model id。如需调整 Intent LLM、CORS、自定义 MMR、sqlite-vec rollout 或运行时审计上限，请直接参考 `.env.example`；README 只保留最常用主配置。
 >
 > 如果你在本地用 `--allow-runtime-env-injection` 调试 `profile c/d`，脚本会把这次运行切到显式 API 模式；当 `RETRIEVAL_EMBEDDING_API_*` / `RETRIEVAL_RERANKER_API_*` 没填时，会把 `ROUTER_API_BASE/ROUTER_API_KEY` 作为 embedding / reranker API base+key 的兜底来源，同时也会透传可选的 `INTENT_LLM_*`。
 

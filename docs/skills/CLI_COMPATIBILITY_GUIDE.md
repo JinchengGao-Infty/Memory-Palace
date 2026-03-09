@@ -26,6 +26,11 @@
 - skill 能被当前 CLI 发现
 - MCP 确实指向当前仓库的 `scripts/run_memory_palace_mcp_stdio.sh`
 
+再补一句最容易踩坑的：
+
+- 这个 wrapper 会优先复用当前仓库 `.env` 里的 `DATABASE_URL`
+- 也就是说，只要你别手工乱改客户端命令，Dashboard / HTTP API / MCP 默认就是同一份数据库
+
 ## Current Local Baseline After Sync / Install
 
 执行 `sync_memory_palace_skill.py` / `install_skill.py` 之后，通常会出现这些入口：
@@ -55,6 +60,7 @@ docs/skills/memory-palace/
 > - `install_skill.py` 为 Claude / Codex / Gemini / OpenCode 生成的本地 MCP 配置也都调用 `bash` 风格命令
 > - 所以原生 Windows 如果没有 **Git Bash** 或 **WSL**，不要直接照抄 `/bin/zsh` / `bash` 版本的示例
 > - 当前更稳妥的口径是：在 Git Bash / WSL 中接这条本地 stdio 链，或使用 Docker / `pwsh-in-docker` 做等效验证
+> - 这条 wrapper 还会优先复用当前仓库 `.env` 的 `DATABASE_URL`，避免你在客户端侧又另外接到第二份 SQLite 库
 
 ## install_skill.py 现在负责什么
 
@@ -229,6 +235,8 @@ python scripts/evaluate_memory_palace_skill.py
 docs/skills/TRIGGER_SMOKE_REPORT.md
 ```
 
+如果刚 clone 下来的 GitHub 仓库里暂时没有这份文件，属于正常现象；这是运行后生成的本地验证摘要。
+
 ### 真实 MCP e2e
 
 ```bash
@@ -242,7 +250,7 @@ python ../scripts/evaluate_memory_palace_mcp_e2e.py
 docs/skills/MCP_LIVE_E2E_REPORT.md
 ```
 
-这两份报告主要用来补做验证，不作为主入口文档。
+这两份报告主要用来补做验证，不作为主入口文档。它们默认都是“运行后才出现”的本地产物，所以公开 GitHub 仓库里暂时没有也正常。
 
 ## 正向 / 反向 prompt
 

@@ -28,7 +28,6 @@ import {
   updateMemoryNode,
 } from '../../lib/api';
 import GlassCard from '../../components/GlassCard';
-import i18n from '../../i18n';
 
 const isAbortError = (error) =>
   Boolean(
@@ -106,7 +105,7 @@ export default function MemoryBrowser() {
   const path = searchParams.get('path') || '';
 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [errorState, setErrorState] = useState(null);
   const [data, setData] = useState({ node: null, children: [], breadcrumbs: [] });
 
   const [searchValue, setSearchValue] = useState('');
@@ -131,6 +130,10 @@ export default function MemoryBrowser() {
   const nodeAbortControllerRef = useRef(null);
 
   const isRoot = !path;
+  const error = useMemo(() => {
+    if (!errorState) return null;
+    return extractApiError(errorState.error, t(errorState.fallbackKey));
+  }, [errorState, t]);
 
   const refreshNode = useCallback(async () => {
     const requestId = ++nodeRequestRef.current;
@@ -138,7 +141,7 @@ export default function MemoryBrowser() {
     const controller = new AbortController();
     nodeAbortControllerRef.current = controller;
     setLoading(true);
-    setError(null);
+    setErrorState(null);
     setEditing(false);
     try {
       const response = await getMemoryNode({ domain, path }, { signal: controller.signal });
@@ -151,7 +154,7 @@ export default function MemoryBrowser() {
     } catch (err) {
       if (requestId !== nodeRequestRef.current) return;
       if (controller.signal.aborted || isAbortError(err)) return;
-      setError(extractApiError(err, i18n.t('memory.errors.loadNode')));
+      setErrorState({ error: err, fallbackKey: 'memory.errors.loadNode' });
     } finally {
       if (requestId !== nodeRequestRef.current) return;
       setLoading(false);

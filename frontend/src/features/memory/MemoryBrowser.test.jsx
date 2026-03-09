@@ -7,12 +7,16 @@ import MemoryBrowser from './MemoryBrowser';
 import i18n, { LOCALE_STORAGE_KEY } from '../../i18n';
 import * as api from '../../lib/api';
 
-vi.mock('../../lib/api', () => ({
-  createMemoryNode: vi.fn(),
-  deleteMemoryNode: vi.fn(),
-  getMemoryNode: vi.fn(),
-  updateMemoryNode: vi.fn(),
-}));
+vi.mock('../../lib/api', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    createMemoryNode: vi.fn(),
+    deleteMemoryNode: vi.fn(),
+    getMemoryNode: vi.fn(),
+    updateMemoryNode: vi.fn(),
+  };
+});
 
 const createDeferred = () => {
   let resolve;
@@ -196,5 +200,30 @@ describe('MemoryBrowser', () => {
       expect(screen.getAllByText('path-a').length).toBeGreaterThan(0);
     });
     expect(api.getMemoryNode.mock.calls.length).toBe(initialCalls);
+  });
+
+  it('recomputes load error copy when the language changes', async () => {
+    api.getMemoryNode.mockRejectedValue({
+      response: {
+        data: {
+          detail: {
+            error: 'maintenance_auth_failed',
+            reason: 'invalid_or_missing_api_key',
+          },
+        },
+      },
+    });
+    await i18n.changeLanguage('en');
+
+    renderMemoryBrowser('/memory?domain=core');
+
+    await screen.findByText(/Click "Set API key"/);
+
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
+
+    await screen.findByText(/点击右上角“设置 API 密钥”/);
+    expect(screen.queryByText(/Click "Set API key"/)).not.toBeInTheDocument();
   });
 });

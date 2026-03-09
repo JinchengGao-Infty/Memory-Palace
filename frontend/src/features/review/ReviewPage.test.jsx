@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as api from '../../lib/api';
@@ -351,5 +351,29 @@ describe('ReviewPage', () => {
       expect.anything(),
       i18n.t('review.errors.loadSessions')
     );
+  });
+
+  it('recomputes session load error copy when the language changes', async () => {
+    api.getSessions.mockRejectedValue({
+      response: {
+        data: {
+          detail: {
+            error: 'maintenance_auth_failed',
+            reason: 'invalid_or_missing_api_key',
+          },
+        },
+      },
+    });
+    await i18n.changeLanguage('en');
+
+    render(<ReviewPage />);
+
+    await screen.findByText(/Click "Set API key"/);
+
+    await act(async () => {
+      await i18n.changeLanguage('zh-CN');
+    });
+
+    await screen.findByText(/点击右上角“设置 API 密钥”/);
   });
 });

@@ -404,6 +404,8 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 >
 > The plain `python mcp_server.py` form assumes you are still using the same `backend/.venv` where you ran `pip install -r requirements.txt`. If you launch MCP from a new terminal or a client config, it is safer to point to the project venv directly. Otherwise the process can fail before startup with errors like `ModuleNotFoundError: No module named 'sqlalchemy'`.
 >
+> If you are wiring MCP into a client config, prefer `scripts/run_memory_palace_mcp_stdio.sh`. That wrapper reuses the repository's current `.env` / `DATABASE_URL` first, so your MCP client and the Dashboard/API do not accidentally write to two different SQLite files.
+>
 > This `HOST=127.0.0.1` example is intentionally loopback-only. If you really need remote access, switch `HOST` to `0.0.0.0` (or your bind address). That opens the listener for remote clients, but it does **not** remove the normal safety requirements — you still need your own API key, firewall, reverse proxy, and transport security controls.
 
 See [Multi-Client Integration](#-multi-client-integration) for detailed client configuration.
@@ -480,13 +482,13 @@ Configure these parameters in your `.env` file. All endpoints support the **Open
 RETRIEVAL_EMBEDDING_BACKEND=api
 RETRIEVAL_EMBEDDING_API_BASE=http://localhost:11434/v1   # e.g., Ollama
 RETRIEVAL_EMBEDDING_API_KEY=your-api-key
-RETRIEVAL_EMBEDDING_MODEL=Qwen/Qwen3-Embedding-8B
+RETRIEVAL_EMBEDDING_MODEL=your-embedding-model-id
 
 # ── Reranker Model ───────────────────────────────────────────
 RETRIEVAL_RERANKER_ENABLED=true
 RETRIEVAL_RERANKER_API_BASE=http://localhost:11434/v1
 RETRIEVAL_RERANKER_API_KEY=your-api-key
-RETRIEVAL_RERANKER_MODEL=Qwen/Qwen3-Reranker-8B
+RETRIEVAL_RERANKER_MODEL=your-reranker-model-id
 
 # ── Tuning (recommended 0.20 ~ 0.40) ────────────────────────
 RETRIEVAL_RERANKER_WEIGHT=0.25
@@ -497,9 +499,7 @@ RETRIEVAL_RERANKER_WEIGHT=0.25
 > - There is no `RETRIEVAL_RERANKER_BACKEND` switch; reranker activation is controlled by `RETRIEVAL_RERANKER_ENABLED`.
 > - Reranker connection settings are resolved from `RETRIEVAL_RERANKER_API_BASE/API_KEY/MODEL` first, and fall back to `ROUTER_*` only when missing (with base/key then able to fall back to `OPENAI_*`).
 >
-> Recommended model IDs: `Qwen/Qwen3-Embedding-8B` for embedding, `Qwen/Qwen3-Reranker-8B` for reranking, and `gpt-5.4` for the optional LLM path.
->
-> If your provider uses a different model ID format, keep the same model family but replace the value with your provider's exact ID.
+> The model IDs above are placeholders only. Memory Palace does not require a specific provider or model family; use the exact embedding / reranker / chat model IDs exposed by your own OpenAI-compatible service.
 >
 > If you use `--allow-runtime-env-injection` for local `profile c/d` debugging, the script switches that run into explicit API mode, reuses `ROUTER_API_BASE/ROUTER_API_KEY` as the fallback source for embedding / reranker API base+key when the explicit `RETRIEVAL_*` values are not set, and also forwards optional `INTENT_LLM_*` values when present.
 >
@@ -516,13 +516,13 @@ RETRIEVAL_RERANKER_WEIGHT=0.25
 WRITE_GUARD_LLM_ENABLED=true
 WRITE_GUARD_LLM_API_BASE=http://localhost:11434/v1
 WRITE_GUARD_LLM_API_KEY=your-api-key
-WRITE_GUARD_LLM_MODEL=gpt-5.4
+WRITE_GUARD_LLM_MODEL=your-chat-model-id
 
 # ── Compact Gist LLM (falls back to Write Guard if empty) ──
 COMPACT_GIST_LLM_ENABLED=true
 COMPACT_GIST_LLM_API_BASE=
 COMPACT_GIST_LLM_API_KEY=
-COMPACT_GIST_LLM_MODEL=gpt-5.4
+COMPACT_GIST_LLM_MODEL=your-chat-model-id
 ```
 
 Profile templates are located at: `deploy/profiles/{macos,windows,docker}/profile-{a,b,c,d}.env`
