@@ -555,6 +555,91 @@ In plain language:
 >
 > ⚠️ `HOST=0.0.0.0` only means "allow remote connection to this listening address," not "allow unauthenticated access."
 
+### 6.3.1 What is currently safe to document
+
+If your goal is to connect a client manually to Docker's exposed `/sse`, the current public guidance should be split into two groups:
+
+| Client | Current public stance | Recommended path |
+|---|---|---|
+| `Claude Code` | Official CLI already exposes a remote SSE option | Safe to document directly below |
+| `Gemini CLI` | Official CLI already exposes a remote SSE option | Safe to document directly below |
+| `Codex CLI` | Current official evidence is remote `--url` for streamable HTTP | For this repository today, prefer the repo-local stdio path |
+| `OpenCode` | Current official evidence is the generic `remote + url` structure | For this repository today, prefer the repo-local path unless you are comfortable mapping the generic remote config yourself |
+
+In other words:
+
+- if you want to connect a client manually to `http://localhost:3000/sse`
+- the **publicly supported direct path today is Claude Code and Gemini CLI first**
+- for `Codex` / `OpenCode`, this repository should not yet describe `/sse` as a fully validated copy-paste path
+
+### 6.3.2 Claude Code manual `/sse` connection
+
+```bash
+claude mcp add \
+  --transport sse \
+  --scope project \
+  --header "X-MCP-API-Key: <YOUR_MCP_API_KEY>" \
+  memory-palace \
+  http://127.0.0.1:3000/sse
+```
+
+Check:
+
+```bash
+claude mcp list
+```
+
+Notes:
+
+- Claude Code officially supports `stdio`, `sse`, and `http`
+- if Memory Palace later exposes a clearer HTTP / streamable HTTP MCP entry, prefer `http`
+- for the current public repository, the remote entry users can connect to directly is `/sse`
+
+### 6.3.3 Gemini CLI manual `/sse` connection
+
+```bash
+gemini mcp add \
+  --transport sse \
+  --scope project \
+  --header "X-MCP-API-Key: <YOUR_MCP_API_KEY>" \
+  memory-palace \
+  http://127.0.0.1:3000/sse
+```
+
+Check:
+
+```bash
+gemini mcp list
+```
+
+If you prefer editing `settings.json` directly, the minimal public skeleton we can safely confirm is:
+
+```json
+{
+  "mcpServers": {
+    "memory-palace": {
+      "url": "http://127.0.0.1:3000/sse",
+      "headers": {
+        "X-MCP-API-Key": "<YOUR_MCP_API_KEY>"
+      }
+    }
+  }
+}
+```
+
+### 6.3.4 Why there is no direct `/sse` copy-paste block for `Codex / OpenCode` here
+
+This does **not** mean they can never support remote MCP. It means the current public evidence is still narrower than what would be needed for this repository to claim that `/sse` is already a fully validated copy-paste path:
+
+- `Codex CLI` currently documents `codex mcp add <name> --url <URL>` for remote MCP / streamable HTTP
+- `OpenCode` currently documents the generic `type = remote` / `url` structure
+- but the public remote endpoint exposed and validated by this repository today is `/sse`
+
+So, to avoid misleading users:
+
+- `Codex / OpenCode` should still prefer the repo-local installation path today
+- once we complete a dedicated validation path for `Memory Palace /sse`, that client-specific remote example can be promoted into public copy-paste docs
+
 ---
 
 ## 7. HTTP/SSE Interface Authentication

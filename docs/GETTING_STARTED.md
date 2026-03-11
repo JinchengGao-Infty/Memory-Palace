@@ -555,6 +555,91 @@ RUNTIME_WRITE_BUSY_TIMEOUT_MS=5000
 >
 > ⚠️ `HOST=0.0.0.0` 只表示“允许远程连接到这个监听地址”，不表示“允许无鉴权访问”。
 
+### 6.3.1 当前已验证到什么程度
+
+如果你只想手工把客户端接到 Docker 暴露出来的 `/sse`，当前公开口径建议分成两类看：
+
+| 客户端 | 当前公开口径 | 推荐写法 |
+|---|---|---|
+| `Claude Code` | 已有官方 CLI 选项，可直接写远程 SSE | 可直接按下面示例配置 |
+| `Gemini CLI` | 已有官方 CLI 选项，可直接写远程 SSE | 可直接按下面示例配置 |
+| `Codex CLI` | 当前公开依据是远程 `--url`（streamable HTTP） | 这个仓库今天先推荐 repo-local stdio 路径 |
+| `OpenCode` | 当前公开依据是通用 `remote + url` 结构 | 这个仓库今天先推荐 repo-local 路径；手工远程接法只建议熟悉 OpenCode 配置的人使用 |
+
+也就是说：
+
+- 如果你现在就是想手工把客户端接到 `http://localhost:3000/sse`
+- **优先支持的公开路径是 `Claude Code` 和 `Gemini CLI`**
+- `Codex` / `OpenCode` 当前不要在这个仓库里写成“已经验证过的直接 `/sse` 产品级路径”
+
+### 6.3.2 Claude Code 手工接 `/sse`
+
+```bash
+claude mcp add \
+  --transport sse \
+  --scope project \
+  --header "X-MCP-API-Key: <YOUR_MCP_API_KEY>" \
+  memory-palace \
+  http://127.0.0.1:3000/sse
+```
+
+检查：
+
+```bash
+claude mcp list
+```
+
+说明：
+
+- `Claude Code` 当前官方 CLI 同时支持 `stdio`、`sse`、`http`
+- 如果未来 Memory Palace 公开提供了更明确的 HTTP / streamable HTTP MCP 入口，优先按官方推荐切到 `http`
+- 就当前仓库公开暴露的远程入口来说，用户可直接连接的是 `/sse`
+
+### 6.3.3 Gemini CLI 手工接 `/sse`
+
+```bash
+gemini mcp add \
+  --transport sse \
+  --scope project \
+  --header "X-MCP-API-Key: <YOUR_MCP_API_KEY>" \
+  memory-palace \
+  http://127.0.0.1:3000/sse
+```
+
+检查：
+
+```bash
+gemini mcp list
+```
+
+如果你更喜欢手改 `settings.json`，当前公开可确认的最小骨架仍然是：
+
+```json
+{
+  "mcpServers": {
+    "memory-palace": {
+      "url": "http://127.0.0.1:3000/sse",
+      "headers": {
+        "X-MCP-API-Key": "<YOUR_MCP_API_KEY>"
+      }
+    }
+  }
+}
+```
+
+### 6.3.4 为什么这里没有直接给 `Codex / OpenCode` 的 `/sse` 抄写版
+
+不是因为它们一定不支持远程 MCP，而是因为当前公开证据不足以让这个仓库把 `/sse` 直连写成“已经验证过、用户照抄即可”的口径：
+
+- `Codex CLI` 当前公开可确认的是 `codex mcp add <name> --url <URL>` 对应远程 MCP / streamable HTTP
+- `OpenCode` 当前公开可确认的是通用 `type = remote` / `url` 结构
+- 但这个仓库今天公开暴露和已验证的远程入口是 `/sse`
+
+所以为了不误导用户：
+
+- `Codex / OpenCode` 当前优先继续按 repo-local 安装路径走
+- 等我们补齐它们对 `Memory Palace /sse` 的实际验证后，再把那部分写成公开可照抄文档
+
 ---
 
 ## 7. HTTP/SSE 接口鉴权

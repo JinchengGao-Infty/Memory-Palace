@@ -23,7 +23,18 @@
   - 服务端地址
   - 鉴权方式
   - 通用 JSON 结构
- 作为仓库文档的边界
+作为仓库文档的边界
+
+当前仓库对“手工接远程 `/sse`”的公开口径是：
+
+- `Claude Code`：可直接写
+- `Gemini CLI`：可直接写
+- `Codex CLI`：当前先保守，优先继续走 repo-local stdio 路径
+- `OpenCode`：当前先保守，优先继续走 repo-local 路径
+
+更具体的手工示例已经写到：
+
+- `docs/GETTING_STARTED.md` 的 `6.3.1 ~ 6.3.4`
 
 ## 先分清两层
 

@@ -24,6 +24,17 @@ If you choose not to use the repo-local skill install path and only want to conn
   - auth method
   - generic JSON structure
 
+The current public repository stance for manual remote `/sse` connection is:
+
+- `Claude Code`: safe to document directly
+- `Gemini CLI`: safe to document directly
+- `Codex CLI`: stay conservative for now; prefer the repo-local stdio path
+- `OpenCode`: stay conservative for now; prefer the repo-local path
+
+The concrete manual examples now live in:
+
+- `6.3.1 ~ 6.3.4` of `docs/GETTING_STARTED_EN.md`
+
 ## Distinguish the Two Layers
 
 The `memory-palace` link is divided into two layers:
