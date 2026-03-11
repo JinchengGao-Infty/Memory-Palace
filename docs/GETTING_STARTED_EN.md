@@ -233,7 +233,45 @@ If you wish to view the Dashboard buttons, fields, and typical operation flows p
 
 ---
 
-## 4. Docker One-Click Deployment
+## 4. Docker Deployment
+
+### 4.1 Pull Prebuilt GHCR Images (Fastest for Users)
+
+If your local build environment keeps failing, use the prebuilt GHCR images first. This path is for **starting the service quickly**, not for rebuilding images locally.
+
+```bash
+cd <project-root>
+cp .env.example .env.docker
+bash scripts/apply_profile.sh docker b .env.docker
+
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Default access addresses:
+
+| Service | Address |
+|---|---|
+| Frontend | `http://localhost:3000` |
+| Backend API | `http://localhost:18000` |
+| SSE | `http://localhost:3000/sse` |
+
+What this path does and does not do:
+
+- It avoids **local image build**, but still assumes you have this repository checkout so you can use `docker-compose.ghcr.yml`, `.env.example`, and the profile scripts.
+- It solves **Dashboard / API / SSE startup** only.
+- It does **not** automatically configure local `skills / MCP / IDE host` entries on your machine.
+- If you want the current repo's repo-local skill + MCP install path, keep this checkout and continue with `docs/skills/GETTING_STARTED_EN.md`.
+- If you do not want the repo-local install path, any client that supports remote SSE MCP can still be configured manually to connect to `http://localhost:3000/sse` with the matching auth header / API key.
+- Unlike `docker_one_click.sh/.ps1`, this GHCR compose path does **not** auto-adjust ports. If `3000` / `18000` are occupied, set `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT` explicitly before `docker compose up`.
+
+Stop services:
+
+```bash
+docker compose -f docker-compose.ghcr.yml down --remove-orphans
+```
+
+### 4.2 Docker One-Click Deployment
 
 ```bash
 # macOS / Linux

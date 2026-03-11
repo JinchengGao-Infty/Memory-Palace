@@ -2,6 +2,8 @@
 
 > 如果你只想把当前仓库这条 skill + MCP 链路接通，按这份做就够了。
 >
+> 如果你当前只是通过 GHCR / Docker 把 `Dashboard / API / SSE` 跑起来，但还没打算接本机客户端，这份不是第一入口。那种情况下，服务已经能用；只有当你还要让 `Claude / Codex / Gemini / OpenCode / IDE host` 真正接到当前仓库时，才继续按这里做。
+>
 > **先补一个边界说明**：当前仓库里的 repo-local MCP wrapper 是 `scripts/run_memory_palace_mcp_stdio.sh`，安装脚本生成的本地 MCP 启动命令也统一走 `bash` / `/bin/zsh`。如果你是原生 Windows 环境，请先准备 **Git Bash** 或 **WSL**；不要把下面这些 shell 示例理解成“PowerShell 直接可用”。
 >
 > **再补一条范围说明**：这份主要写给 `Claude Code / Gemini CLI / Codex / OpenCode` 这类 CLI 客户端。`Cursor / Windsurf / VSCode-host / Antigravity` 这类 IDE 宿主，请直接看 `IDE_HOSTS.md`。
@@ -21,6 +23,13 @@
 2. MCP 指向当前仓库
 
 少任何一层，都不算真的配好。
+
+再补一句 Docker 用户最容易误会的：
+
+- `docker compose` 能把服务端跑起来
+- 但不会自动把你机器上的 skill / MCP / IDE host 配置也一起改好
+- 当前这份文档描述的是 **repo-local 安装路径**
+- 如果你不走这条 repo-local 路径，而是只想让某个客户端手工接 Docker 里的 MCP，请把它视为另一条“手工远程 SSE MCP”路径
 
 ---
 

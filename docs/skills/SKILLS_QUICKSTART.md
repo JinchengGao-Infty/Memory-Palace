@@ -8,6 +8,19 @@
 
 ## 🚀 先说结论
 
+如果你现在是通过 GHCR / Docker 把服务跑起来，先分成两种情况：
+
+- 只想用 `Dashboard / API / SSE`
+  - 到这里就够了，不一定要继续做 skill 安装
+- 还想让 `Claude / Codex / Gemini / OpenCode / IDE host` 在你本机上真正触发并调用 Memory Palace
+  - 再继续按下面这份做
+
+也就是说：
+
+- Docker 负责跑服务
+- 这份文档负责讲 **repo-local skill + MCP 安装路径**
+- 两者不是同一层能力
+
 当前这个仓库已经把 `memory-palace` 的 **canonical skill**、同步脚本和安装脚本整理好了。按下面命令执行后，你可以在**自己的本地工作区**把 skill + MCP 主链路接起来：
 
 | 客户端 | skill 自动识别 | MCP 连接现状 | 你该怎么做 |

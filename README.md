@@ -256,7 +256,45 @@ memory-palace/
 
 ## 🚀 Quick Start
 
-### Option 1: Manual Local Setup (Recommended for Beginners)
+### Option 1: Pull Prebuilt Docker Images (Fastest User Path)
+
+If your local build environment keeps failing, use the prebuilt GHCR images first. This path is for **running the service**, not for building images locally.
+
+```bash
+git clone https://github.com/AGI-is-going-to-arrive/Memory-Palace.git
+cd Memory-Palace
+
+cp .env.example .env.docker
+bash scripts/apply_profile.sh docker b .env.docker
+
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Default access addresses:
+
+| Service | URL |
+|---|---|
+| Frontend Dashboard | <http://127.0.0.1:3000> |
+| Backend API | <http://127.0.0.1:18000> |
+| SSE | <http://127.0.0.1:3000/sse> |
+
+Important boundaries:
+
+- This path avoids **local image build**, but you still need the repository checkout to get `docker-compose.ghcr.yml`, `.env.example`, and the profile helpers.
+- This path solves **Dashboard / API / SSE service startup** only.
+- It does **not** automatically configure `Claude / Codex / Gemini / OpenCode / Cursor / Antigravity` on your machine.
+- If you also want repo-local skill + MCP automation, keep the same checkout and continue with [docs/skills/GETTING_STARTED_EN.md](docs/skills/GETTING_STARTED_EN.md).
+- If you do **not** want the repo-local install path, any MCP client that supports remote SSE can still be configured manually to connect to `http://localhost:3000/sse` with the matching API key / auth header.
+- Unlike `docker_one_click.sh/.ps1`, the GHCR compose path does **not** auto-adjust ports. If `3000` / `18000` are already occupied, set `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT` yourself before `docker compose up`.
+
+Stop services:
+
+```bash
+docker compose -f docker-compose.ghcr.yml down --remove-orphans
+```
+
+### Option 2: Manual Local Setup (Recommended for Beginners)
 
 > **💡 Tip**: The recommended starting target in this guide is still **Profile B**, so you can boot with zero external model services.
 > For real day-to-day retrieval quality, **Profile C is the strongly recommended target profile** once you are ready to fill the embedding / reranker / LLM settings described in [Upgrading to Profile C/D](#-upgrading-to-profile-cd).
@@ -427,7 +465,7 @@ See [Multi-Client Integration](#-multi-client-integration) for detailed client c
 
 ---
 
-### Option 2: One-Click Docker Deployment
+### Option 3: One-Click Docker Deployment
 
 ```bash
 # macOS / Linux

@@ -65,6 +65,7 @@ docs/improvement/
 docs/evaluation_old_vs_new_*.md
 docs/changelog/current_code_improvements_vs_legacy_docs.md
 docs/nodeseek_post.md
+docs/SETUP_NOTICE.md
 docs/skills/TRIGGER_SMOKE_REPORT.md
 docs/skills/MCP_LIVE_E2E_REPORT.md
 docs/skills/CLAUDE_SKILLS_AUDIT.md

@@ -9,6 +9,12 @@
 - `IDE Hosts`（`Cursor / Windsurf / VSCode-host / Antigravity`）：主路径改为 **repo-local `AGENTS.md` + MCP snippet**，不再把 hidden skill mirrors 当默认入口
 - 当前设计已对齐 `Anthropic skill-creator` 的核心要求：`frontmatter`、`trigger description`、`references`、`eval/smoke`
 
+先补一句最容易误会的：
+
+- 如果你只是通过 GHCR / Docker 把服务跑起来，`Dashboard / API / SSE` 已经可以工作
+- 但这**不等于**本机上的 `Claude / Codex / Gemini / OpenCode / IDE host` 已经自动配好
+- 当前这份兼容指南描述的是 **客户端接入层**
+
 ## 先分清两层
 
 `memory-palace` 这套链路分成两层：

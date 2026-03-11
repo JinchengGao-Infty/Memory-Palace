@@ -253,7 +253,45 @@ memory-palace/
 
 ## 🚀 快速开始
 
-### 方式一：手动本地搭建（推荐新手使用）
+### 方式一：直接拉取预构建 Docker 镜像（最省事的用户路径）
+
+如果你本地构建环境总是出问题，先走 GHCR 预构建镜像这条路。这条路径的目标是**先把服务跑起来**，不是在你本机重新 build 镜像。
+
+```bash
+git clone https://github.com/AGI-is-going-to-arrive/Memory-Palace.git
+cd Memory-Palace
+
+cp .env.example .env.docker
+bash scripts/apply_profile.sh docker b .env.docker
+
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+默认访问地址：
+
+| 服务 | 地址 |
+|---|---|
+| 前端仪表盘 | <http://127.0.0.1:3000> |
+| 后端 API | <http://127.0.0.1:18000> |
+| SSE | <http://127.0.0.1:3000/sse> |
+
+先记住几个边界：
+
+- 这条路径绕开的是**本地镜像构建**，不是“完全不需要仓库 checkout”。你仍然需要仓库里的 `docker-compose.ghcr.yml`、`.env.example` 和 profile 脚本。
+- 这条路径解决的是 **Dashboard / API / SSE 服务启动**。
+- 它**不会**自动把 `Claude / Codex / Gemini / OpenCode / Cursor / Antigravity` 这些客户端在你机器上的 skill / MCP 配置一起改好。
+- 如果你还想用当前仓库现成的 repo-local skill + MCP 自动化安装链路，保留这个 checkout，再继续看 [docs/skills/GETTING_STARTED.md](docs/skills/GETTING_STARTED.md)。
+- 如果你不走 repo-local 安装链路，也可以手工把支持远程 SSE 的 MCP 客户端指到 `http://localhost:3000/sse`，并配置同一把 API key / 鉴权头。
+- 和 `docker_one_click.sh/.ps1` 不同，GHCR compose 路径**不会自动换端口**。如果 `3000` / `18000` 已被占用，请在启动前自己设置 `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT`。
+
+停止服务：
+
+```bash
+docker compose -f docker-compose.ghcr.yml down --remove-orphans
+```
+
+### 方式二：手动本地搭建（推荐新手使用）
 
 > **💡 提示**：本教程推荐你先以 **档位 B** 为目标，这样可以在**零外部模型服务**的前提下跑通全流程。
 > 如果你希望日常使用时拿到更好的检索效果，**强烈建议后续升级到档位 C**；但请先按 [升级到档位 C/D](#-升级到档位-cd) 中的说明补齐 embedding / reranker / LLM 对应配置。
@@ -425,7 +463,7 @@ HOST=127.0.0.1 PORT=8010 python run_sse.py
 
 ---
 
-### 方式二：一键 Docker 部署
+### 方式三：一键 Docker 部署
 
 ```bash
 # macOS / Linux

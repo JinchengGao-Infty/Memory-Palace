@@ -18,7 +18,7 @@
 
 | 文档 | 说明 |
 |---|---|
-| [GETTING_STARTED.md](GETTING_STARTED.md) | 5 分钟跑通本地开发 + Docker，附 MCP 客户端配置示例 |
+| [GETTING_STARTED.md](GETTING_STARTED.md) | 5 分钟跑通本地开发、GHCR 拉镜像和 Docker，附 MCP 客户端配置示例 |
 | [DASHBOARD_GUIDE_CN.md](DASHBOARD_GUIDE_CN.md) | 按页面解释 Dashboard 每个按钮、字段和典型操作流程 |
 | [skills/GETTING_STARTED.md](skills/GETTING_STARTED.md) | 第一次把 CLI 客户端的 skill + MCP 真正接到当前仓库 |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | 启动失败、端口冲突、鉴权失败、搜索降级等常见问题排查 |
@@ -41,6 +41,10 @@
 | [skills/MEMORY_PALACE_SKILLS.md](skills/MEMORY_PALACE_SKILLS.md) | canonical `memory-palace` skill 设计、安装与多 CLI 编排策略 |
 | [skills/CLI_COMPATIBILITY_GUIDE.md](skills/CLI_COMPATIBILITY_GUIDE.md) | 各 CLI 的推荐安装路径、检查方式与已知边界 |
 | [skills/IDE_HOSTS.md](skills/IDE_HOSTS.md) | Cursor / Windsurf / VSCode-host / Antigravity 这类 IDE 宿主的接入方式 |
+
+> 如果你只是想先把服务跑起来，优先看 `GETTING_STARTED.md` 里的 **GHCR 预构建镜像** 路径。
+>
+> 如果你还想把 `Claude / Codex / Gemini / OpenCode / IDE host` 真正接到当前仓库，再继续看 `docs/skills/` 里的文档。Docker 负责跑服务，不会自动改你本机客户端的 skill / MCP 配置。
 
 ## 📊 测评与质量
 

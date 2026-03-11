@@ -261,6 +261,31 @@ INTENT_LLM_MODEL=your-chat-model-id
 
 ## 5. Docker 一键部署（推荐）
 
+### 5.0 GHCR 预构建镜像（更适合本地构建总是失败的用户）
+
+如果你遇到的核心问题是“本地镜像 build 总是失败”，优先走 GHCR 路径：
+
+```bash
+cd <project-root>
+cp .env.example .env.docker
+bash scripts/apply_profile.sh docker b .env.docker
+
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+这条路径的定位是**先把服务跑起来**：
+
+- 它绕开本地镜像 build。
+- 但它仍然默认你手里有当前仓库 checkout，因为 compose 文件和 profile 脚本就在仓库里。
+- 它覆盖的是 `Dashboard / API / SSE`。
+- 它**不会**自动给你安装本机上的 `skills / MCP / IDE host` 配置。
+- 如果你还想用当前仓库现成的 repo-local skill + MCP 安装链路，请继续看 `docs/skills/GETTING_STARTED.md`。
+- 如果你只想让某个客户端连 MCP，不走 repo-local 安装链路，也可以手工把支持远程 SSE 的客户端指到 `http://localhost:3000/sse`。
+- 和 `docker_one_click.sh/.ps1` 不同，这条路径**不会自动换端口**。如果 `3000` / `18000` 已被占用，请显式设置 `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT`。
+
+本节下面剩余内容描述的是 **本地构建 / 维护者路径**，也就是 `docker_one_click.sh/.ps1`。
+
 ### 前置要求
 
 - 已安装 [Docker](https://docs.docker.com/get-docker/) 并启动 Docker Engine

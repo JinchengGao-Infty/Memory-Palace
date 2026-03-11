@@ -2,6 +2,12 @@
 
 This directory describes the skills / MCP orchestration setup for Memory Palace.
 
+One boundary first:
+
+- If you only started `Dashboard / API / SSE` through `docker compose` or GHCR images, this is not always your first stop.
+- Keep reading only when you also want to wire `Claude / Codex / Gemini / OpenCode / IDE hosts` into this repository.
+- Docker starts the service side; it does not automatically rewrite local skill / MCP / IDE host configuration on your machine.
+
 If this is your first time looking here, it is recommended to read in this order:
 
 1. **Start with the shortest path**

@@ -260,6 +260,31 @@ INTENT_LLM_MODEL=your-chat-model-id
 
 ## 5. Docker One-Click Deployment (Recommended)
 
+### 5.0 GHCR Prebuilt Images (Recommended for End Users with Local Build Problems)
+
+If your main problem is "local image build keeps failing," prefer the GHCR path first:
+
+```bash
+cd <project-root>
+cp .env.example .env.docker
+bash scripts/apply_profile.sh docker b .env.docker
+
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+This path is for **running the service quickly**:
+
+- It avoids local image build.
+- It still assumes you have a checkout of this repository, because the compose file and profile helpers live here.
+- It covers `Dashboard / API / SSE`.
+- It does **not** automatically install local `skills / MCP / IDE host` entries.
+- If you want the current repo's repo-local skill + MCP installation path, continue with `docs/skills/GETTING_STARTED_EN.md`.
+- If you only want MCP without repo-local install automation, configure an SSE-capable client manually against `http://localhost:3000/sse`.
+- Unlike `docker_one_click.sh/.ps1`, this path does **not** auto-adjust ports. Set `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT` explicitly if the defaults are occupied.
+
+The rest of this section describes the **local build / maintainer path** using `docker_one_click.sh/.ps1`.
+
 ### Prerequisites
 
 *   [Docker](https://docs.docker.com/get-docker/) installed and Docker Engine running.

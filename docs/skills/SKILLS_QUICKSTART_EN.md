@@ -8,6 +8,19 @@
 
 ## 🚀 The Bottom Line
 
+If you currently start the service through GHCR / Docker, split it into two cases first:
+
+- You only want `Dashboard / API / SSE`
+  - then you can stop there; skill installation is not required yet
+- You also want `Claude / Codex / Gemini / OpenCode / IDE hosts` on your machine to actually trigger and call Memory Palace
+  - then continue with the rest of this page
+
+In other words:
+
+- Docker starts the service side
+- this page explains the **repo-local skill + MCP installation path**
+- they are related, but not the same layer
+
 This repository has already organized the `memory-palace` **canonical skill**, synchronization scripts, and installation scripts. After executing the commands below, you can connect the skill + MCP main path in your **local workspace**:
 
 | Client | Skill Auto-recognized | MCP Connection Status | What You Should Do |

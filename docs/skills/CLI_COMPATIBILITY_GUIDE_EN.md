@@ -9,6 +9,12 @@
 - `IDE Hosts` (`Cursor / Windsurf / VSCode-host / Antigravity`): the primary path is now **repo-local `AGENTS.md` + MCP snippet**, not hidden skill mirrors.
 - The current design is aligned with the core requirements of `Anthropic skill-creator`: `frontmatter`, `trigger description`, `references`, and `eval/smoke`.
 
+One clarification first:
+
+- If you only start the service through GHCR / Docker, `Dashboard / API / SSE` can already work.
+- That does **not** mean local `Claude / Codex / Gemini / OpenCode / IDE host` integrations are automatically configured.
+- This compatibility guide describes the **client integration layer**.
+
 ## Distinguish the Two Layers
 
 The `memory-palace` link is divided into two layers:

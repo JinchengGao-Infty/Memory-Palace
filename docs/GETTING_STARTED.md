@@ -233,7 +233,45 @@ VITE v7.x.x  ready in xxx ms
 
 ---
 
-## 4. Docker 一键部署
+## 4. Docker 部署
+
+### 4.1 直接拉取 GHCR 预构建镜像（最省事的用户路径）
+
+如果你本地构建环境总是出问题，优先走 GHCR 预构建镜像。这条路径的目标是**先把服务跑起来**，不是在你机器上重新 build 镜像。
+
+```bash
+cd <project-root>
+cp .env.example .env.docker
+bash scripts/apply_profile.sh docker b .env.docker
+
+docker compose -f docker-compose.ghcr.yml pull
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+默认访问地址：
+
+| 服务 | 地址 |
+|---|---|
+| Frontend | `http://localhost:3000` |
+| Backend API | `http://localhost:18000` |
+| SSE | `http://localhost:3000/sse` |
+
+这条路径要注意：
+
+- 它绕开的是**本地镜像构建**，不是“完全不需要仓库 checkout”。你仍然需要当前仓库里的 `docker-compose.ghcr.yml`、`.env.example` 和 profile 脚本。
+- 它解决的是 **Dashboard / API / SSE 服务启动**。
+- 它**不会**自动帮你把本机上的 `skills / MCP / IDE host` 配置一起接好。
+- 如果你还想用当前仓库现成的 repo-local skill + MCP 安装链路，保留这个 checkout，再继续看 `docs/skills/GETTING_STARTED.md`。
+- 如果你不走 repo-local 安装链路，也可以手工把支持远程 SSE 的 MCP 客户端指到 `http://localhost:3000/sse`，并配置同一把 API key / 鉴权头。
+- 和 `docker_one_click.sh/.ps1` 不同，这条 GHCR compose 路径**不会自动换端口**。如果 `3000` / `18000` 已被占用，请在启动前显式设置 `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT`。
+
+停止服务：
+
+```bash
+docker compose -f docker-compose.ghcr.yml down --remove-orphans
+```
+
+### 4.2 Docker 一键部署
 
 ```bash
 # macOS / Linux

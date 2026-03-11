@@ -18,7 +18,7 @@
 
 | Document | Description |
 |---|---|
-| [GETTING_STARTED_EN.md](GETTING_STARTED_EN.md) | Get local development + Docker running in 5 minutes, with example MCP client configurations |
+| [GETTING_STARTED_EN.md](GETTING_STARTED_EN.md) | Get local development, GHCR image pull, and Docker running in 5 minutes, with example MCP client configurations |
 | [DASHBOARD_GUIDE_EN.md](DASHBOARD_GUIDE_EN.md) | Explains every Dashboard button, field, and typical operation flow page by page |
 | [skills/GETTING_STARTED_EN.md](skills/GETTING_STARTED_EN.md) | Connect the CLI-client skill + MCP path to the current repository for the first time |
 | [TROUBLESHOOTING_EN.md](TROUBLESHOOTING_EN.md) | Troubleshooting for common issues such as startup failures, port conflicts, authentication failures, and search degradation |
@@ -41,6 +41,10 @@
 | [skills/MEMORY_PALACE_SKILLS_EN.md](skills/MEMORY_PALACE_SKILLS_EN.md) | Canonical `memory-palace` skill design, installation, and multi-CLI orchestration strategy |
 | [skills/CLI_COMPATIBILITY_GUIDE_EN.md](skills/CLI_COMPATIBILITY_GUIDE_EN.md) | Recommended installation paths, verification methods, and known boundaries for each CLI |
 | [skills/IDE_HOSTS_EN.md](skills/IDE_HOSTS_EN.md) | How IDE hosts such as Cursor / Windsurf / VSCode-host / Antigravity should connect to this repository |
+
+> If you only want to get the service running first, start with the **GHCR prebuilt image** path in `GETTING_STARTED_EN.md`.
+>
+> If you also want to wire `Claude / Codex / Gemini / OpenCode / IDE hosts` into this repository, continue with the docs under `docs/skills/`. Docker starts the service side; it does not automatically rewrite the local skill / MCP configuration on your machine.
 
 ## 📊 Evaluation and Quality
 
