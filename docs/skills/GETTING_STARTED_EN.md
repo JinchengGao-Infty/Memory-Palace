@@ -31,6 +31,22 @@ One more Docker-specific clarification:
 - this page describes the **repo-local installation path**
 - if you do not want that repo-local path and only want a client to connect to the Docker deployment, treat that as a separate "manual remote SSE MCP" path
 
+That separate "manual remote SSE MCP" path already has public entry points:
+
+- `docs/GHCR_QUICKSTART_EN.md`
+- `6.2 SSE mode` in `docs/GETTING_STARTED_EN.md`
+- `6.3 client configuration examples` in `docs/GETTING_STARTED_EN.md`
+
+One more important boundary:
+
+- the repository already provides the **generic SSE MCP config skeleton**
+- but different clients do not always use the same UI surface, field names, or auth-entry workflow
+- so if you choose that manual path, Memory Palace documentation tells you:
+  - the service URL
+  - the auth requirement
+  - the generic JSON skeleton
+- while the final client-specific field names and UI steps still need to follow the client's own MCP documentation
+
 ---
 
 ## 1. Where is the Single Source of Truth?

@@ -7,6 +7,9 @@
 - 如果你只是通过 `docker compose` 或 GHCR 镜像把 **Dashboard / API / SSE** 跑起来，这里不一定是你的第一站。
 - 如果你还想把 `Claude / Codex / Gemini / OpenCode / IDE host` 真正接到当前仓库，再继续往下读。
 - Docker 负责跑服务，不会自动改你机器上的 skill / MCP / IDE host 配置。
+- 如果你不想走 repo-local skill 安装链路，只想把客户端**手工接到 Docker 暴露出来的 `/sse`**，优先回看：
+  - `docs/GHCR_QUICKSTART.md`
+  - `docs/GETTING_STARTED.md` 里的 `6.2 SSE 模式` 和 `6.3 客户端配置示例`
 
 如果你是第一次看这里，建议按这个顺序读：
 

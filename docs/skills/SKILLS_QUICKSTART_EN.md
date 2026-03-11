@@ -21,6 +21,19 @@ In other words:
 - this page explains the **repo-local skill + MCP installation path**
 - they are related, but not the same layer
 
+If your current goal is only:
+
+- no repo-local skill install
+- just manually connect an MCP client to Docker's `/sse`
+
+start with:
+
+- `docs/GHCR_QUICKSTART_EN.md`
+- `6.2 SSE mode` in `docs/GETTING_STARTED_EN.md`
+- `6.3 client configuration examples` in `docs/GETTING_STARTED_EN.md`
+
+Those sections provide the **generic SSE MCP skeleton** that is already grounded in this repository. Do not over-read it as "every client's final field names are identical."
+
 This repository has already organized the `memory-palace` **canonical skill**, synchronization scripts, and installation scripts. After executing the commands below, you can connect the skill + MCP main path in your **local workspace**:
 
 | Client | Skill Auto-recognized | MCP Connection Status | What You Should Do |

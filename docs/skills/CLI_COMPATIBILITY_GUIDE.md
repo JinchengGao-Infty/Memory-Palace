@@ -15,6 +15,16 @@
 - 但这**不等于**本机上的 `Claude / Codex / Gemini / OpenCode / IDE host` 已经自动配好
 - 当前这份兼容指南描述的是 **客户端接入层**
 
+如果你不走 repo-local skill 安装链路，而是只想把客户端手工接到 Docker 的 `/sse`：
+
+- 当前仓库已经提供了**通用 SSE MCP 骨架**
+- 但不同客户端的字段名、GUI 入口、header 写法不完全一样
+- 所以这份文档不会猜测各家 UI，而是把：
+  - 服务端地址
+  - 鉴权方式
+  - 通用 JSON 结构
+ 作为仓库文档的边界
+
 ## 先分清两层
 
 `memory-palace` 这套链路分成两层：

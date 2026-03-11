@@ -31,6 +31,22 @@
 - 当前这份文档描述的是 **repo-local 安装路径**
 - 如果你不走这条 repo-local 路径，而是只想让某个客户端手工接 Docker 里的 MCP，请把它视为另一条“手工远程 SSE MCP”路径
 
+这条“手工远程 SSE MCP”路径当前已经有公开入口：
+
+- `docs/GHCR_QUICKSTART.md`
+- `docs/GETTING_STARTED.md` 里的 `6.2 SSE 模式`
+- `docs/GETTING_STARTED.md` 里的 `6.3 客户端配置示例`
+
+补一句最重要的边界：
+
+- 当前仓库已经给出了**通用的 SSE MCP 配置骨架**
+- 但不同客户端自己的字段名、GUI 入口、header 配置方式并不完全一样
+- 所以如果你走这条手工路径，Memory Palace 文档负责告诉你：
+  - 服务地址
+  - 鉴权要求
+  - 通用 JSON 骨架
+- 客户端最终要填在哪个面板、字段名叫什么，仍以客户端自己的 MCP 文档为准
+
 ---
 
 ## 1. 单一真源在哪里

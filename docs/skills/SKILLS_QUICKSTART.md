@@ -21,6 +21,19 @@
 - 这份文档负责讲 **repo-local skill + MCP 安装路径**
 - 两者不是同一层能力
 
+如果你现在的目标只是：
+
+- 不装 repo-local skill
+- 只把某个 MCP 客户端手工接到 Docker 的 `/sse`
+
+先走：
+
+- `docs/GHCR_QUICKSTART.md`
+- `docs/GETTING_STARTED.md` 的 `6.2 SSE 模式`
+- `docs/GETTING_STARTED.md` 的 `6.3 客户端配置示例`
+
+那里给的是当前仓库已经验证过的**通用 SSE MCP 骨架**。不要把它误读成“每个客户端的最终字段名都完全一样”。
+
 当前这个仓库已经把 `memory-palace` 的 **canonical skill**、同步脚本和安装脚本整理好了。按下面命令执行后，你可以在**自己的本地工作区**把 skill + MCP 主链路接起来：
 
 | 客户端 | skill 自动识别 | MCP 连接现状 | 你该怎么做 |

@@ -7,6 +7,9 @@ One boundary first:
 - If you only started `Dashboard / API / SSE` through `docker compose` or GHCR images, this is not always your first stop.
 - Keep reading only when you also want to wire `Claude / Codex / Gemini / OpenCode / IDE hosts` into this repository.
 - Docker starts the service side; it does not automatically rewrite local skill / MCP / IDE host configuration on your machine.
+- If you do not want the repo-local install path and only want to **connect a client manually to the Docker-exposed `/sse` endpoint**, start with:
+  - `docs/GHCR_QUICKSTART_EN.md`
+  - `6.2 SSE mode` and `6.3 client configuration examples` in `docs/GETTING_STARTED_EN.md`
 
 If this is your first time looking here, it is recommended to read in this order:
 

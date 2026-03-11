@@ -15,6 +15,15 @@ One clarification first:
 - That does **not** mean local `Claude / Codex / Gemini / OpenCode / IDE host` integrations are automatically configured.
 - This compatibility guide describes the **client integration layer**.
 
+If you choose not to use the repo-local skill install path and only want to connect a client manually to Docker's `/sse` endpoint:
+
+- the repository already provides the **generic SSE MCP skeleton**
+- but client-specific field names, GUI entry points, and auth-entry steps are not perfectly identical across products
+- so this guide does not guess each product's UI; it stays within the repository boundary of:
+  - service address
+  - auth method
+  - generic JSON structure
+
 ## Distinguish the Two Layers
 
 The `memory-palace` link is divided into two layers:
