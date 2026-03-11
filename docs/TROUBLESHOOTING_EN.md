@@ -126,41 +126,6 @@ It does not reuse Docker container `/app/data`. If it detects that the local `.e
 
 ---
 
-## 1.2 Local stdio MCP disconnects immediately, or the error mentions `/app/data`
-
-**Common signs**:
-
-- the client shows `connection closed: initialize response`
-- or the startup log includes `Read-only file system: '/app'`
-- or your local `.env` already points `DATABASE_URL` at `/app/data/...`
-
-**This usually does not mean the MCP protocol is broken**. The more common reason is that you copied the Docker / GHCR path `sqlite+aiosqlite:////app/data/...` into your local `.env`.
-
-The repo-local `scripts/run_memory_palace_mcp_stdio.sh` path only serves:
-
-- the current checkout
-- the local `.env` under that checkout
-- the local `backend/.venv` under that checkout
-
-It does not reuse Docker container data under `/app/data`. If it detects that local `.env` still points to a container path, it now refuses to start on purpose instead of pretending the handshake succeeded.
-
-**Fix**:
-
-1. Open the repository root `.env`
-2. Change `DATABASE_URL` to a host absolute path, for example:
-
-   ```dotenv
-   DATABASE_URL=sqlite+aiosqlite:////absolute/path/to/memory_palace/demo.db
-   ```
-
-3. Or regenerate the local `.env`:
-
-   ```bash
-   bash scripts/apply_profile.sh macos b
-   ```
-
-4. If you actually want to reuse the Docker-side service and data, do not use local `stdio`; point the client at the exposed Docker `/sse` endpoint instead
-
 ---
 
 ## 2. `/maintenance/*`, `/review/*`, or `/browse/*` returns 401
