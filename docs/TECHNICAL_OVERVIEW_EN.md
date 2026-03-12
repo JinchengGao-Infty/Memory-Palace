@@ -307,7 +307,7 @@ Related files:
 
 - Compose file: `docker-compose.yml`
 - Image definition: `deploy/docker/Dockerfile.backend` (based on `python:3.11-slim`), `deploy/docker/Dockerfile.frontend` (build stage `node:22-alpine`, run stage `nginxinc/nginx-unprivileged:1.27-alpine`)
-- Nginx configuration template: `deploy/docker/nginx.conf.template`
+- Nginx configuration template: `deploy/docker/nginx.conf.template` (server-side forwarding for `X-MCP-API-Key`, plus `no-store/no-cache/must-revalidate` on `/index.html` to reduce stale entry pages after frontend updates)
 - Entrypoint scripts: `deploy/docker/backend-entrypoint.sh`, `deploy/docker/frontend-entrypoint.sh`
 - Backup scripts: `scripts/backup_memory.sh`, `scripts/backup_memory.ps1`
 - Pre-publishing check: `scripts/pre_publish_check.sh`

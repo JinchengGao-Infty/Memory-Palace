@@ -664,7 +664,32 @@ http://127.0.0.1:3000
 
 ---
 
-## 11. Getting Help
+## 11. Docker Update Still Looks Like an Old Frontend
+
+**Phenomenon**: You already updated the Docker frontend image or restarted the container, but the browser still shows an old Dashboard, or the same URL appears to behave like two different pages.
+
+**Description**: The current Docker frontend `deploy/docker/nginx.conf.template` serves `/index.html` with:
+
+```nginx
+Cache-Control: no-store, no-cache, must-revalidate
+```
+
+This is meant to reduce the chance that a browser keeps using an old entry HTML after a frontend update. In other words, if you still see an old page, the first things to suspect are usually not the repository's default Docker config, but one of these:
+
+- The frontend container is not actually running the new image / new config yet.
+- The browser tab is still showing the old page and has not reloaded.
+- You added your own reverse proxy, CDN, or corporate cache in front of the Docker frontend, and that extra layer rewrites or ignores the cache headers.
+
+**Handling Suggestions**:
+
+- First confirm the current frontend container was actually rebuilt and started successfully.
+- Then refresh the page once.
+- If the problem only happens through one external entry point, inspect the `/index.html` response headers there and confirm that `Cache-Control: no-store, no-cache, must-revalidate` is still present.
+- Only keep debugging cache behavior if you also added your own proxy/cache layer in front.
+
+---
+
+## 12. Getting Help
 
 If the above steps do not resolve your issue:
 

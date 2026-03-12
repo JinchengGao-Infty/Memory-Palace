@@ -307,7 +307,7 @@ Docker 端口环境变量：
 
 - Compose 文件：`docker-compose.yml`
 - 镜像定义：`deploy/docker/Dockerfile.backend`（基于 `python:3.11-slim`）、`deploy/docker/Dockerfile.frontend`（构建阶段 `node:22-alpine`，运行阶段 `nginxinc/nginx-unprivileged:1.27-alpine`）
-- Nginx 配置模板：`deploy/docker/nginx.conf.template`
+- Nginx 配置模板：`deploy/docker/nginx.conf.template`（服务端转发 `X-MCP-API-Key`，并对 `/index.html` 返回 no-store/no-cache/must-revalidate，减少前端更新后继续命中旧入口页面）
 - 入口脚本：`deploy/docker/backend-entrypoint.sh`、`deploy/docker/frontend-entrypoint.sh`
 - 备份脚本：`scripts/backup_memory.sh`、`scripts/backup_memory.ps1`
 - 分享前检查：`scripts/pre_publish_check.sh`

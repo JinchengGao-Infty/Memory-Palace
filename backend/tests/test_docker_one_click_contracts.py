@@ -126,3 +126,13 @@ def test_profile_d_templates_use_shell_safe_router_placeholders() -> None:
         text = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
         assert "https://router.example.com/v1" in text
         assert "<your-router-host>" not in text
+
+
+def test_frontend_nginx_template_disables_index_html_caching() -> None:
+    template_text = (PROJECT_ROOT / "deploy" / "docker" / "nginx.conf.template").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'location = /index.html {' in template_text
+    assert 'Cache-Control "no-store, no-cache, must-revalidate" always' in template_text
+    assert "try_files /index.html =404;" in template_text

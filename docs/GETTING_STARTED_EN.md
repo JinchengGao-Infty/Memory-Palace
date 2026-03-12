@@ -317,6 +317,8 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 >
 > Currently, Docker Compose also waits for **both backend and SSE `/health` checks** to pass before considering the frontend ready. This means that when the container first shows `running`, the page might take a few more seconds to become truly available, which is normal.
 >
+> The Docker frontend also serves `/index.html` with `Cache-Control: no-store, no-cache, must-revalidate` to reduce the chance that a browser keeps an old entry page after a frontend update. If you still see an obviously old page right after upgrading the image, first confirm the new container is actually running, then refresh the page once. Only continue checking cache behavior if you also put your own reverse proxy or corporate cache in front of it.
+>
 > Docker also persists two runtime data paths by default: the database volume is isolated per compose project as `<compose-project>_data` (container path `/app/data`), and the Review snapshots volume is isolated as `<compose-project>_snapshots` (container path `/app/snapshots`). If you intentionally want to reuse an old shared volume, set `MEMORY_PALACE_DATA_VOLUME` / `MEMORY_PALACE_SNAPSHOTS_VOLUME` explicitly. If you execute `docker compose down -v` or manually delete these volumes, both parts are cleared together.
 >
 > **C/D Local Joint Debugging Suggestions**:

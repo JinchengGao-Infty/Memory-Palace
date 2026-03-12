@@ -514,6 +514,8 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 >
 > The Docker frontend now waits for both the backend and the SSE service to pass their own `/health` checks before it is treated as ready. If containers are already up but the page still looks unavailable, wait a few more seconds and re-check the printed URLs.
 >
+> The Docker frontend also serves `/index.html` with `Cache-Control: no-store, no-cache, must-revalidate` to reduce the chance that a browser keeps an old entry page after a frontend update. If you still see an obviously old page after upgrading the image, first confirm the new container is actually running, then refresh the page once. Only continue checking cache behavior if you also put your own reverse proxy or CDN in front of it.
+>
 > Docker also persists two runtime data paths by default: the database volume is isolated per compose project as `<compose-project>_data` (`/app/data` in the container), and the snapshots volume is isolated as `<compose-project>_snapshots` (`/app/snapshots` in the container). If you want to intentionally reuse an old shared volume, set `MEMORY_PALACE_DATA_VOLUME` / `MEMORY_PALACE_SNAPSHOTS_VOLUME` explicitly. If you run `docker compose down -v` or delete those volumes manually, both are cleared together.
 >
 > That isolation also affects the Review page: when you switch to another data volume or compose project, the visible rollback sessions move with that database instead of being merged across environments.
