@@ -35,6 +35,8 @@
 
 通过统一的 [MCP（模型上下文协议）](https://modelcontextprotocol.io/) 接口，Memory Palace 已提供 **Codex、Claude Code、Gemini CLI、OpenCode** 的接入方案。对 `Cursor / Windsurf / VSCode-host / Antigravity` 这类 IDE 宿主，当前推荐单独走 **`AGENTS.md + MCP 配置片段`** 路径，而不是把它们当成完整 CLI skill 客户端来配置。想走最短路径时：CLI 客户端先看 [SKILLS_QUICKSTART.md](docs/skills/SKILLS_QUICKSTART.md)，IDE 宿主先看 [IDE_HOSTS.md](docs/skills/IDE_HOSTS.md)。
 
+如果你希望 **AI 一步一步带你安装**，优先从独立的 setup-skill 仓库开始：[`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup)。当前推荐口径是 **优先走 skills + MCP**，而不是只配 MCP。比较实用的一句提示词是：`使用 $memory-palace-setup 帮我一步步安装配置 Memory Palace，优先走 skills + MCP，不要只给 MCP-only。默认先按 Profile B 起步，但如果环境允许，请主动推荐我升级到 C/D。`
+
 ### 为什么选择 Memory Palace？
 
 | 痛点 | Memory Palace 如何解决 |

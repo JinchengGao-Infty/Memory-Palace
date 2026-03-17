@@ -6,6 +6,8 @@
 >
 > 这里优先放**用户真正要用到**的说明。
 >
+> 如果你想让 AI 直接带你一步一步安装，优先从独立仓库 [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup) 开始。当前统一口径是：**优先走 skills + MCP，不要默认只配 MCP-only**。
+>
 > 如需额外复核 skill smoke 或真实 MCP 调用链，可运行 `python scripts/evaluate_memory_palace_skill.py` 或 `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py`。它们会在 `docs/skills/` 下生成本地摘要，但这些报告不是主入口文档。
 >
 > 当前前端默认英文；右上角语言按钮可在英文和中文之间一键切换，浏览器会记住你的选择。
@@ -18,6 +20,7 @@
 
 | 文档 | 说明 |
 |---|---|
+| [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup) | 给 AI 看的独立安装向导 skill。装好后直接说：`使用 $memory-palace-setup 帮我一步步安装配置 Memory Palace，优先走 skills + MCP。` |
 | [GETTING_STARTED.md](GETTING_STARTED.md) | 5 分钟跑通本地开发、GHCR 拉镜像和 Docker，附 MCP 客户端配置示例 |
 | [DASHBOARD_GUIDE_CN.md](DASHBOARD_GUIDE_CN.md) | 按页面解释 Dashboard 每个按钮、字段和典型操作流程 |
 | [skills/GETTING_STARTED.md](skills/GETTING_STARTED.md) | 第一次把 CLI 客户端的 skill + MCP 真正接到当前仓库 |

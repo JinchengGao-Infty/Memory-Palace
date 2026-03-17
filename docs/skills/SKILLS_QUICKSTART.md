@@ -34,6 +34,17 @@
 
 那里给的是当前仓库已经验证过的**通用 SSE MCP 骨架**。不要把它误读成“每个客户端的最终字段名都完全一样”。
 
+如果你不想先手动消化这整页，而是希望 **AI 直接一步一步带你装**，当前更推荐这样走：
+
+1. 先安装独立的 setup skill：[`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup)
+2. 再直接对 AI 说：`使用 $memory-palace-setup 帮我一步步安装配置 Memory Palace，优先走 skills + MCP，不要只给 MCP-only。默认先按 Profile B 起步，但如果环境允许，请主动推荐我升级到 C/D。`
+
+如果你还没把这个 setup skill 装进客户端，也可以先把仓库地址发给 AI，然后说：
+
+```text
+请先阅读这个仓库的 README.md 和 SKILL.md，再按它的规则一步步引导我安装配置 Memory Palace。优先走 skills + MCP，不要默认走 MCP-only。
+```
+
 当前这个仓库已经把 `memory-palace` 的 **canonical skill**、同步脚本和安装脚本整理好了。按下面命令执行后，你可以在**自己的本地工作区**把 skill + MCP 主链路接起来：
 
 | 客户端 | skill 自动识别 | MCP 连接现状 | 你该怎么做 |

@@ -6,6 +6,8 @@
 >
 > This section prioritizes the instructions that **users will actually need**.
 >
+> If you want the AI to walk you through installation, start with the standalone repo [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup). The repository stance is: **prefer skills + MCP first, not MCP-only by default**.
+>
 > If you need additional verification of skill smoke tests or the real MCP call chain, you can run `python scripts/evaluate_memory_palace_skill.py` or `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py`. They will generate local summaries under `docs/skills/`, but those reports are not the primary entry documents.
 >
 > The frontend currently defaults to English; the language button in the upper-right corner lets you switch between English and Chinese with one click, and the browser will remember your choice.
@@ -18,6 +20,7 @@
 
 | Document | Description |
 |---|---|
+| [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup) | Standalone onboarding skill for AI-guided installation. After installing it, say: `Use $memory-palace-setup to install and configure Memory Palace step by step. Prefer skills + MCP.` |
 | [GETTING_STARTED_EN.md](GETTING_STARTED_EN.md) | Get local development, GHCR image pull, and Docker running in 5 minutes, with example MCP client configurations |
 | [DASHBOARD_GUIDE_EN.md](DASHBOARD_GUIDE_EN.md) | Explains every Dashboard button, field, and typical operation flow page by page |
 | [skills/GETTING_STARTED_EN.md](skills/GETTING_STARTED_EN.md) | Connect the CLI-client skill + MCP path to the current repository for the first time |

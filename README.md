@@ -35,6 +35,8 @@
 
 Through the unified [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) interface, Memory Palace provides integration paths for **Codex, Claude Code, Gemini CLI, and OpenCode**. For IDE-like hosts such as `Cursor / Windsurf / VSCode-host / Antigravity`, the repository now recommends a separate **AGENTS.md + MCP snippet** path instead of treating them like full CLI skill clients. For the shortest user path, use [SKILLS_QUICKSTART_EN.md](docs/skills/SKILLS_QUICKSTART_EN.md) for CLI clients and [IDE_HOSTS_EN.md](docs/skills/IDE_HOSTS_EN.md) for IDE hosts.
 
+If you want the AI to guide installation step by step, start with the standalone setup-skill repo: [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup). The intended stance is **skills + MCP first**, not MCP-only. A practical prompt is: `Use $memory-palace-setup to install and configure Memory Palace step by step. Prefer skills + MCP over MCP-only. Start with Profile B if you want the fewest extra requirements, but recommend C/D if the environment is ready.`
+
 ### Why Memory Palace?
 
 | Pain Point | How Memory Palace Solves It |

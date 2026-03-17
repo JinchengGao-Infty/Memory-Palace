@@ -7,6 +7,7 @@
 - 如果你只是通过 `docker compose` 或 GHCR 镜像把 **Dashboard / API / SSE** 跑起来，这里不一定是你的第一站。
 - 如果你还想把 `Claude / Codex / Gemini / OpenCode / IDE host` 真正接到当前仓库，再继续往下读。
 - Docker 负责跑服务，不会自动改你机器上的 skill / MCP / IDE host 配置。
+- 如果你希望 **AI 带你一步一步安装**，优先从独立仓库 [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup) 开始；当前统一口径是 **skills + MCP 优先，不是 MCP-only 优先**。
 - 如果你不想走 repo-local skill 安装链路，只想把客户端**手工接到 Docker 暴露出来的 `/sse`**，优先回看：
   - `docs/GHCR_QUICKSTART.md`
   - `docs/GETTING_STARTED.md` 里的 `6.2 SSE 模式` 和 `6.3 客户端配置示例`
@@ -14,6 +15,7 @@
 如果你是第一次看这里，建议按这个顺序读：
 
 1. **先看最短路径**
+   - `memory-palace-setup` 仓库
    - `SKILLS_QUICKSTART.md`
 2. **需要分步骤接通或排障时再看**
    - `GETTING_STARTED.md`
@@ -27,6 +29,7 @@
 ## 这些文件分别干什么
 
 - 如果你只想先知道“我现在该执行哪条命令”，优先看 `SKILLS_QUICKSTART.md`
+- 如果你想让 AI 带着做，而不是自己先消化整套文档，优先装 `memory-palace-setup`，然后直接说：`使用 $memory-palace-setup 帮我一步步安装配置 Memory Palace，优先走 skills + MCP。`
 - 如果你已经开始接入，但想按步骤检查“skill 到底有没有被发现、MCP 到底有没有绑到当前仓库”，再看 `GETTING_STARTED.md`
 - `GETTING_STARTED.md`
   - 面向第一次接通的人

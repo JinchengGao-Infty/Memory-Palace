@@ -34,6 +34,17 @@ start with:
 
 Those sections provide the **generic SSE MCP skeleton** that is already grounded in this repository. Do not over-read it as "every client's final field names are identical."
 
+If you do not want to manually digest this whole page first and would rather let the AI guide the process step by step, the current preferred path is:
+
+1. Install the standalone setup skill: [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup)
+2. Then tell the AI: `Use $memory-palace-setup to install and configure Memory Palace step by step. Prefer skills + MCP over MCP-only. Start with Profile B if you want the fewest extra requirements, but recommend C/D if the environment is ready.`
+
+If that setup skill is not installed in your client yet, you can still give the repo URL to the AI first and say:
+
+```text
+Please read the README.md and SKILL.md in this repository first, then guide me step by step to install and configure Memory Palace. Prefer skills + MCP, not MCP-only by default.
+```
+
 This repository has already organized the `memory-palace` **canonical skill**, synchronization scripts, and installation scripts. After executing the commands below, you can connect the skill + MCP main path in your **local workspace**:
 
 | Client | Skill Auto-recognized | MCP Connection Status | What You Should Do |

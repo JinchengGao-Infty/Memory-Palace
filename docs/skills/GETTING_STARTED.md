@@ -4,6 +4,10 @@
 >
 > 如果你当前只是通过 GHCR / Docker 把 `Dashboard / API / SSE` 跑起来，但还没打算接本机客户端，这份不是第一入口。那种情况下，服务已经能用；只有当你还要让 `Claude / Codex / Gemini / OpenCode / IDE host` 真正接到当前仓库时，才继续按这里做。
 >
+> 如果你希望 **AI 直接一步一步带你安装**，更推荐先从独立仓库 [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup) 开始。当前统一口径是：**优先走 skills + MCP，不要默认走 MCP-only**。装好后直接说：`使用 $memory-palace-setup 帮我一步步安装配置 Memory Palace，优先走 skills + MCP。默认先按 Profile B 起步，但如果环境允许，请主动推荐我升级到 C/D。`
+>
+> 这份长文档保留的定位是：**手工 repo-local 接通、逐步校验、以及更细的排障说明**。如果你只是想先跑通，优先看 `memory-palace-setup` 或 `SKILLS_QUICKSTART.md`。
+>
 > **先补一个边界说明**：当前仓库里的 repo-local MCP wrapper 是 `scripts/run_memory_palace_mcp_stdio.sh`，安装脚本生成的本地 MCP 启动命令也统一走 `bash` / `/bin/zsh`，并且默认依赖本地 `backend/.venv`。如果你是原生 Windows 环境，请先准备 **Git Bash** 或 **WSL**；不要把下面这些 shell 示例理解成“PowerShell 直接可用”。
 >
 > **再补一条很容易踩坑的边界**：这个 wrapper 只服务于“当前 checkout + 本地 `.env` + 本地 `backend/.venv`”这条 repo-local 路径，不会复用 Docker 容器里的 `/app/data`。如果仓库里只有 `.env.docker` 而没有本地 `.env`，它会明确拒绝回退到 `demo.db`；如果你把 `.env.docker` 里的 `DATABASE_URL` 原样抄进本地 `.env`，或者显式 `DATABASE_URL` 仍是 `/app/...` 这类容器路径，它也会直接拒绝启动，并提示你改成本机绝对路径或 Docker `/sse`。

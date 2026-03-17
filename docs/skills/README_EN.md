@@ -7,6 +7,7 @@ One boundary first:
 - If you only started `Dashboard / API / SSE` through `docker compose` or GHCR images, this is not always your first stop.
 - Keep reading only when you also want to wire `Claude / Codex / Gemini / OpenCode / IDE hosts` into this repository.
 - Docker starts the service side; it does not automatically rewrite local skill / MCP / IDE host configuration on your machine.
+- If you want the AI to guide installation step by step, start with the standalone repo [`memory-palace-setup`](https://github.com/AGI-is-going-to-arrive/memory-palace-setup); the current stance is **skills + MCP first, not MCP-only first**.
 - If you do not want the repo-local install path and only want to **connect a client manually to the Docker-exposed `/sse` endpoint**, start with:
   - `docs/GHCR_QUICKSTART_EN.md`
   - `6.2 SSE mode` and `6.3 client configuration examples` in `docs/GETTING_STARTED_EN.md`
@@ -14,6 +15,7 @@ One boundary first:
 If this is your first time looking here, it is recommended to read in this order:
 
 1. **Start with the shortest path**
+   - `memory-palace-setup` repo
    - `SKILLS_QUICKSTART_EN.md`
 2. **Use the step-by-step path only when you need setup checks or troubleshooting**
    - `GETTING_STARTED_EN.md`
@@ -27,6 +29,7 @@ If this is your first time looking here, it is recommended to read in this order
 ## What these files are each for
 
 - If you only want to know “which command should I run now,” start with `SKILLS_QUICKSTART_EN.md`
+- If you want the AI to do the routing instead of reading the whole setup stack yourself, install `memory-palace-setup` first, then say: `Use $memory-palace-setup to install and configure Memory Palace step by step. Prefer skills + MCP.`
 - If you are already wiring it and need to check “was the skill discovered” or “is MCP really bound to this checkout,” then read `GETTING_STARTED_EN.md`
 - `GETTING_STARTED_EN.md`
   - For people connecting it for the first time
