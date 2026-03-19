@@ -394,13 +394,13 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups
 - 运行期数据库：`*.db`、`*.sqlite`、`*.sqlite3`
 - 数据库锁文件：`*.init.lock`、`*.migrate.lock`
 - 本地工具配置：`.mcp.json`、`.mcp.json.bak`、`.claude/`、`.codex/`、`.cursor/`、`.opencode/`、`.gemini/`、`.agent/`、`.playwright-cli/`
-- 本地缓存与临时目录：`.tmp/`、`backend/.pytest_cache/`
+- 本地缓存与临时目录：`.tmp/`、`.pytest_cache/`、`backend/.pytest_cache/`
 - 前端本地产物：`frontend/node_modules/`、`frontend/dist/`
 - 日志与快照：`*.log`、`snapshots/`、`backups/`
 - 临时测试草稿：`frontend/src/*.tmp.test.jsx`
 - 维护期内部文档：`docs/improvement/`、`backend/docs/benchmark_*.md`
 - 一次性对照摘要：`docs/evaluation_old_vs_new_*.md`
-- 本地验证报告：`docs/skills/TRIGGER_SMOKE_REPORT.md`、`docs/skills/MCP_LIVE_E2E_REPORT.md`、`docs/skills/CLAUDE_SKILLS_AUDIT.md`
+- 本地验证报告：`docs/skills/TRIGGER_SMOKE_REPORT.md`、`docs/skills/MCP_LIVE_E2E_REPORT.md`
 
 如果你准备分享项目、打包交付，或者只是想做一次环境自检，建议执行：
 
@@ -417,7 +417,7 @@ python scripts/evaluate_memory_palace_skill.py
 cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
-脚本默认会分别在 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 和 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` 生成摘要。这两份结果主要用于本地复核，不是主说明文档。
+脚本默认会分别在 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 和 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` 生成摘要。这两份结果主要用于本地复核，不是主说明文档。`evaluate_memory_palace_skill.py` 现在只要任一检查是 `FAIL` 就会返回非零退出码；`SKIP` / `PARTIAL` / `MANUAL` 不会单独让进程失败，当前默认的 Gemini smoke 模型是 `gemini-3-flash-preview`。
 如果你在并行 review 或 CI 里想隔离输出，也可以先设置 `MEMORY_PALACE_SKILL_REPORT_PATH` / `MEMORY_PALACE_MCP_E2E_REPORT_PATH`。
 如果你是刚 clone 下来的 GitHub 仓库，暂时看不到这两份文件也正常；它们是运行脚本后才生成的本地产物。
 
@@ -504,7 +504,12 @@ python mcp_server.py
 >
 > 这里的 `python mcp_server.py` 默认你还在使用 **Step 2 里创建并装好依赖的 `backend/.venv`**。如果你换了一个新终端，或者是在客户端里单独配置本地 MCP，优先直接用项目自己的 `.venv` 解释器。否则会在 MCP 进程真正启动前就报 `ModuleNotFoundError: No module named 'sqlalchemy'` 这类错误。
 >
-> 如果你是在客户端配置里接入 MCP，更推荐直接用 `scripts/run_memory_palace_mcp_stdio.sh`。但要把边界理解准确：它依赖本地 `bash` 和 `backend/.venv`，优先复用当前仓库的 `.env` / `DATABASE_URL`；只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` 的 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`），它都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。
+> 如果你是在客户端配置里接入 MCP，优先按平台选 repo-local wrapper：
+>
+> - 原生 Windows：`python backend/mcp_wrapper.py`
+> - macOS / Linux / Git Bash / WSL：`bash scripts/run_memory_palace_mcp_stdio.sh`
+>
+> 这两条 repo-local wrapper 的边界保持一致：都依赖本地 `backend/.venv`，优先复用当前仓库的 `.env` / `DATABASE_URL`；只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` / 显式 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`），它们都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。
 
 ### 6.2 SSE 模式
 
@@ -546,7 +551,22 @@ RUNTIME_WRITE_BUSY_TIMEOUT_MS=5000
 
 ### 6.3 客户端配置示例
 
-**stdio 模式**（适用于 Claude Code / Codex / OpenCode 等常见 stdio 客户端）：
+**stdio 模式**
+
+原生 Windows（优先这一条）：
+
+```json
+{
+  "mcpServers": {
+    "memory-palace": {
+      "command": "python",
+      "args": ["/ABS/PATH/TO/REPO/backend/mcp_wrapper.py"]
+    }
+  }
+}
+```
+
+macOS / Linux / Git Bash / WSL：
 
 ```json
 {
@@ -561,7 +581,7 @@ RUNTIME_WRITE_BUSY_TIMEOUT_MS=5000
 
 > 如果你还没创建 `backend/.venv`，先回到 **Step 2** 完成虚拟环境和依赖安装。
 >
-> Windows 原生环境不要把 `command` 直接改成 `python.exe` 去执行这条 `.sh`。更稳妥的做法是先准备 Git Bash / WSL，再保持 `bash + run_memory_palace_mcp_stdio.sh` 这条组合；如果当前客户端不方便跑 shell wrapper，优先参考 `docs/skills/GETTING_STARTED.md` 里的脚本化安装路径。
+> Windows 原生环境优先直接走 `python + backend/mcp_wrapper.py`。只有在你本来就准备好了 Git Bash / WSL 的情况下，才继续用 `bash + run_memory_palace_mcp_stdio.sh` 这条组合。
 
 **SSE 模式**：
 

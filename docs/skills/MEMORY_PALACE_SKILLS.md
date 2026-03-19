@@ -173,7 +173,7 @@ Gemini 端当前有一个已知边界：
 
 - 把 canonical bundle 安装到其他工作区或用户目录
 - 支持 `copy` / `symlink`
-- 在需要时补齐 `--with-mcp` 的 CLI 配置，但 MCP 仍绑定到**当前 checkout** 的 `scripts/run_memory_palace_mcp_stdio.sh`
+- 在需要时补齐 `--with-mcp` 的 CLI 配置，但 MCP 仍绑定到**当前 checkout** 的 repo-local wrapper：原生 Windows 走 `backend/mcp_wrapper.py`，POSIX shell 路径走 `scripts/run_memory_palace_mcp_stdio.sh`
 - 对 Gemini，这也是当前更稳妥的推荐安装路径
 - 当目标是 Gemini 时，自动替换为 `variants/gemini/SKILL.md`
 - 当目标是 Gemini 时，也会同步安装 `variants/gemini/memory-palace-overrides.toml`

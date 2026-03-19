@@ -213,7 +213,7 @@ Authorization: Bearer <MCP_API_KEY>
    - `backend/backend.log`、`frontend/frontend.log`
    - `snapshots/`、`frontend/dist/`
    - `backend/tests/benchmark/.real_profile_cache/`
-   - `docs/skills/TRIGGER_SMOKE_REPORT.md`、`docs/skills/MCP_LIVE_E2E_REPORT.md`、`docs/skills/CLAUDE_SKILLS_AUDIT.md`
+   - `docs/skills/TRIGGER_SMOKE_REPORT.md`、`docs/skills/MCP_LIVE_E2E_REPORT.md`
    - 任意 `.DS_Store`
 
 2. **关键字扫描** — 检查代码和文档中是否残留真实密钥：
@@ -259,7 +259,7 @@ Authorization: Bearer <MCP_API_KEY>
 | `frontend/frontend.log` | 前端运行日志 |
 | `snapshots/` | 本地快照目录 |
 | `backend/tests/benchmark/.real_profile_cache/` | 本地 benchmark 临时数据库 |
-| `__pycache__/`、`backend/.pytest_cache/` | Python 缓存 |
+| `__pycache__/`、`.pytest_cache/`、`backend/.pytest_cache/` | Python 缓存 |
 | `frontend/node_modules` | NPM 依赖 |
 | `frontend/dist/` | 前端构建产物 |
 | `.DS_Store` | macOS 系统文件 |

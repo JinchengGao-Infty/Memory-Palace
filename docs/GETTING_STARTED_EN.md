@@ -395,13 +395,13 @@ The repository has already placed typical local artifacts into `<repo-root>/.git
 - Runtime databases: `*.db`, `*.sqlite`, `*.sqlite3`
 - Database lock files: `*.init.lock`, `*.migrate.lock`
 - Local tool configurations: `.mcp.json`, `.mcp.json.bak`, `.claude/`, `.codex/`, `.cursor/`, `.opencode/`, `.gemini/`, `.agent/`, `.playwright-cli/`
-- Local cache and temporary directories: `.tmp/`, `backend/.pytest_cache/`
+- Local cache and temporary directories: `.tmp/`, `.pytest_cache/`, `backend/.pytest_cache/`
 - Frontend local artifacts: `frontend/node_modules/`, `frontend/dist/`
 - Logs and snapshots: `*.log`, `snapshots/`, `backups/`
 - Temporary test drafts: `frontend/src/*.tmp.test.jsx`
 - Internal maintenance documents: `docs/improvement/`, `backend/docs/benchmark_*.md`
 - One-time comparison summaries: `docs/evaluation_old_vs_new_*.md`
-- Local validation reports: `docs/skills/TRIGGER_SMOKE_REPORT.md`, `docs/skills/MCP_LIVE_E2E_REPORT.md`, `docs/skills/CLAUDE_SKILLS_AUDIT.md`
+- Local validation reports: `docs/skills/TRIGGER_SMOKE_REPORT.md`, `docs/skills/MCP_LIVE_E2E_REPORT.md`
 
 If you are preparing to share the project, package it for delivery, or just want to perform an environment self-check, it is recommended to execute:
 
@@ -418,7 +418,7 @@ python scripts/evaluate_memory_palace_skill.py
 cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
-The scripts default to generating summaries in `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` and `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` respectively. These two results are mainly for local review and are not the primary instruction documents.
+The scripts default to generating summaries in `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` and `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` respectively. These two results are mainly for local review and are not the primary instruction documents. `evaluate_memory_palace_skill.py` now returns a non-zero exit code whenever any check is `FAIL`; `SKIP` / `PARTIAL` / `MANUAL` do not fail the process by themselves, and the current default Gemini smoke model is `gemini-3-flash-preview`.
 If you need isolated output during parallel review or CI, set `MEMORY_PALACE_SKILL_REPORT_PATH` / `MEMORY_PALACE_MCP_E2E_REPORT_PATH` first.
 If you just cloned the GitHub repository, it is normal if you don't see these two files yet; they are local artifacts generated after running the scripts.
 
@@ -505,9 +505,12 @@ python mcp_server.py
 >
 > The `python mcp_server.py` here assumes you are still using the **`backend/.venv` created and populated with dependencies in Step 2**. If you switch to a new terminal or are configuring local MCP in a client, prioritize using the project's own `.venv` interpreter. Otherwise, errors like `ModuleNotFoundError: No module named 'sqlalchemy'` will occur before the MCP process truly starts.
 >
-> If you are accessing MCP in a client configuration, it is highly recommended to use `scripts/run_memory_palace_mcp_stdio.sh` directly for a **local checkout**. It uses the project's own `backend/.venv`, reads the current repository `.env` / `DATABASE_URL` first, and only falls back to the repo's default SQLite path when neither `DATABASE_URL` nor `.env` is present. If `.env` is missing but `.env.docker` exists, or if a local `.env` still points `DATABASE_URL` at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db`, it now refuses to start on purpose because the repo-local stdio wrapper does **not** reuse the container's `/app/data` database path. In a Docker-only setup, prefer the exposed `/sse` endpoint instead.
+> If you are wiring MCP in a client configuration, choose the repo-local wrapper by platform:
 >
-> The same rule applies when `.env` itself is wrong: if `.env` or an explicit `DATABASE_URL` still points to `/app/...`, the wrapper also refuses to start on purpose. That is a local path configuration error, not an MCP protocol failure.
+> - native Windows: `python backend/mcp_wrapper.py`
+> - macOS / Linux / Git Bash / WSL: `bash scripts/run_memory_palace_mcp_stdio.sh`
+>
+> These repo-local wrappers keep the same boundary conditions: they depend on the local `backend/.venv`, reuse the current repository `.env` / `DATABASE_URL` first, and only fall back to the repo's default SQLite path when neither a local `.env` nor `.env.docker` exists. If the repository only has `.env.docker`, or if a local `.env` / explicit `DATABASE_URL` still points at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db`, they refuse to start on purpose. In a Docker-only setup, prefer the exposed `/sse` endpoint instead.
 
 ### 6.2 SSE Mode
 
@@ -551,7 +554,22 @@ In plain language:
 
 ### 6.3 Client Configuration Examples
 
-**stdio Mode** (applicable to common stdio clients like Claude Code / Codex / OpenCode):
+**stdio Mode**
+
+Native Windows (preferred there):
+
+```json
+{
+  "mcpServers": {
+    "memory-palace": {
+      "command": "python",
+      "args": ["/ABS/PATH/TO/REPO/backend/mcp_wrapper.py"]
+    }
+  }
+}
+```
+
+macOS / Linux / Git Bash / WSL:
 
 ```json
 {
@@ -566,7 +584,7 @@ In plain language:
 
 > If you haven't created `backend/.venv` yet, go back to **Step 2** to complete the virtual environment and dependency installation.
 >
-> In a native Windows environment, do not change `command` directly to `python.exe` to execute this `.sh`. A more stable approach is to prepare Git Bash / WSL first and then keep the `bash + run_memory_palace_mcp_stdio.sh` combination; if the current client cannot easily run a shell wrapper, prioritize the scripted installation path in `docs/skills/GETTING_STARTED_EN.md`.
+> In a native Windows environment, prefer `python + backend/mcp_wrapper.py` directly. Only keep `bash + run_memory_palace_mcp_stdio.sh` when you already have Git Bash / WSL available and want to stay on the shell-wrapper path.
 
 **SSE Mode**:
 

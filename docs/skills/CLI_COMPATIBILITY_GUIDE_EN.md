@@ -333,7 +333,7 @@ docs/skills/TRIGGER_SMOKE_REPORT.md
 ```
 
 If this file is temporarily missing from a newly cloned GitHub repository, it is normal; it is a local verification summary generated after running.
-If you plan to forward it to others, read the content yourself first; these local reports might include paths on your machine, client configuration paths, or other environment traces.
+If you plan to forward it to others, read the content yourself first; these local reports might include paths on your machine, client configuration paths, or other environment traces. `evaluate_memory_palace_skill.py` now returns a non-zero exit code whenever any check is `FAIL`; `SKIP` / `PARTIAL` / `MANUAL` do not fail the process by themselves, and the current default Gemini smoke model is `gemini-3-flash-preview`.
 If you do not want to overwrite the default file during parallel review or CI, set `MEMORY_PALACE_SKILL_REPORT_PATH` first and write the smoke report to another local path.
 Additionally, this script defaults to attempting `gemini_live`. If the Gemini configuration can infer the real database path, it will perform a round of `create/update/guard` verification on that database and might leave `notes://gemini_suite_*` test memories; if you only want to do a normal smoke test, you can explicitly set `MEMORY_PALACE_SKIP_GEMINI_LIVE=1`.
 If the current machine simply does not have the `Antigravity` host runtime, treat that item as "manual verification on the target host still pending" rather than a repository-mainline failure.

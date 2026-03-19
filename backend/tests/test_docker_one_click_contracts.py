@@ -89,6 +89,22 @@ def test_profile_external_settings_gate_checks_required_model_ids() -> None:
         assert literal in ps1_text
 
 
+def test_default_compose_project_name_uses_sha256_and_normalized_paths_in_both_scripts() -> None:
+    shell_text = (PROJECT_ROOT / "scripts" / "docker_one_click.sh").read_text(
+        encoding="utf-8"
+    )
+    ps1_text = (PROJECT_ROOT / "scripts" / "docker_one_click.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "normalize_project_root_for_compose_name" in shell_text
+    assert "cygpath -am" in shell_text
+    assert "wslpath -m" in shell_text
+    assert "hashlib.sha256" in shell_text
+    assert "$normalizedProjectRoot = $projectRoot -replace '\\\\', '/'" in ps1_text
+    assert "SHA256" in ps1_text
+
+
 def test_compose_waits_for_healthy_sse_service() -> None:
     compose_text = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
     backend_block = compose_text.split("\n  backend:\n", 1)[1].split("\n  sse:\n", 1)[0]

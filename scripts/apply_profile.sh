@@ -96,7 +96,9 @@ generate_random_mcp_api_key() {
 get_env_value() {
   local file_path="$1"
   local key="$2"
-  awk -F= -v key="${key}" '$1 == key { value = substr($0, length($1) + 2) } END { print value }' "${file_path}"
+  local raw_value
+  raw_value="$(awk -F= -v key="${key}" '$1 == key { value = substr($0, length($1) + 2) } END { print value }' "${file_path}")"
+  printf '%s\n' "${raw_value%$'\r'}"
 }
 
 resolve_windows_db_path() {

@@ -103,7 +103,8 @@ def build_runtime_env() -> dict[str, str]:
         )
         raise SystemExit(1)
 
-    if "DATABASE_URL" not in runtime_env and not ENV_FILE.is_file():
+    has_runtime_database_url = bool(normalize_database_url(runtime_env.get("DATABASE_URL", "")))
+    if not has_runtime_database_url and not ENV_FILE.is_file():
         if DOCKER_ENV_FILE.is_file():
             print(
                 f"Refusing to fall back to demo.db while {DOCKER_ENV_FILE} exists.",

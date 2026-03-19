@@ -168,7 +168,7 @@ Responsible for:
 
 - Installing the canonical bundle to other workspaces or user directories.
 - Supporting `copy` / `symlink`.
-- Populating `--with-mcp` CLI configs when needed, while still binding MCP to the **current checkout** via `scripts/run_memory_palace_mcp_stdio.sh`.
+- Populating `--with-mcp` CLI configs when needed, while still binding MCP to the **current checkout** via the repo-local wrapper: native Windows uses `backend/mcp_wrapper.py`, while POSIX shell paths use `scripts/run_memory_palace_mcp_stdio.sh`.
 - For Gemini, this is currently the more reliable recommended installation path.
 - When the target is Gemini, it automatically replaces the content with `variants/gemini/SKILL.md`.
 - When the target is Gemini, it also installs `variants/gemini/memory-palace-overrides.toml`.

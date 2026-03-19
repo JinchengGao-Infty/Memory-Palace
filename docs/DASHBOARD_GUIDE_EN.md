@@ -38,6 +38,8 @@ In the top-right corner, you may see one of these states:
 - **Update API key / Clear key**: a local key is already stored in the browser
 - **Runtime key active**: the page received a runtime-injected key, so manual key entry is usually not needed; the page still keeps a `Setup` entry so you can inspect masked status or fill local `.env` fields
 
+If neither a runtime key nor a browser-stored key is available yet, the first-run setup assistant may open automatically on first load.
+
 If the Dashboard shell opens but protected data does not load, the usual fix is:
 
 **Set API key** → open the first-run setup assistant → enter the `MCP_API_KEY` value from your `.env` file → choose **Save dashboard key only** or **Save local `.env` settings**.

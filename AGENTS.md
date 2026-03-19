@@ -26,4 +26,6 @@ These rules apply to the `Memory-Palace/` repository.
 
 ## MCP Binding
 
-- Use `scripts/run_memory_palace_mcp_stdio.sh` for repo-local MCP binding so the CLI reuses the repo `.env` / `DATABASE_URL` when present.
+- Use the repo-local MCP binding that matches the host:
+- native Windows: `backend/mcp_wrapper.py`
+- macOS / Linux / `Git Bash` / `WSL`: `scripts/run_memory_palace_mcp_stdio.sh`

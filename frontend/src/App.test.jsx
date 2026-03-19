@@ -250,6 +250,22 @@ describe('App routing', () => {
     expect(await screen.findByRole('dialog', { name: i18n.t('setup.title') })).toBeInTheDocument();
   });
 
+  it('does not auto-open setup assistant when runtime auth is already present', async () => {
+    window.localStorage.removeItem('memory-palace.setupAssistantDismissed');
+    window.history.pushState({}, '', '/memory');
+    window.__MEMORY_PALACE_RUNTIME__ = {
+      maintenanceApiKey: 'runtime-key',
+      maintenanceApiKeyMode: 'header',
+    };
+
+    render(<App />);
+
+    expect(await screen.findByText(i18n.t('app.auth.runtimeBadge'))).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: i18n.t('setup.title') })).not.toBeInTheDocument();
+    });
+  });
+
   it('allows switching language from inside the setup assistant on first load', async () => {
     const user = userEvent.setup();
     window.localStorage.removeItem('memory-palace.setupAssistantDismissed');

@@ -434,7 +434,7 @@ cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
 - `docs/skills/TRIGGER_SMOKE_REPORT.md`（本地 smoke 摘要，分享前请自己检查是否包含本机路径或客户端配置痕迹）
 - `docs/skills/MCP_LIVE_E2E_REPORT.md`
 
-默认建议把它们当成你自己机器上的复核产物，不把它们当成主入口文档；这两份文件默认也被 `.gitignore` 排除，所以公开 GitHub 仓库里通常不会带上。
+默认建议把它们当成你自己机器上的复核产物，不把它们当成主入口文档；这两份文件默认也被 `.gitignore` 排除，所以公开 GitHub 仓库里通常不会带上。`evaluate_memory_palace_skill.py` 现在只要任一检查是 `FAIL` 就会返回非零退出码；`SKIP` / `PARTIAL` / `MANUAL` 不会单独让进程失败，当前默认的 Gemini smoke 模型是 `gemini-3-flash-preview`。
 如果你在并行 review 或 CI 里想隔离输出，可以先设置 `MEMORY_PALACE_SKILL_REPORT_PATH` / `MEMORY_PALACE_MCP_E2E_REPORT_PATH`，把报告改写到别的本地路径。
 
 补一句体验口径：`evaluate_memory_palace_skill.py` 会串行调多个 CLI，完整跑完往往要几分钟；如果你机器上这几种客户端都装了，看到它跑一阵子没新输出，先别急着判定为卡死。

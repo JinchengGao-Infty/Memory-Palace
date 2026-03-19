@@ -54,3 +54,45 @@ def test_skill_install_docs_use_user_scope_as_the_default_recommendation() -> No
     assert "新机器上更稳的默认方案是 `user` 级安装" in readme_zh
     assert "The more stable default is still to start with `--scope user --with-mcp`." in cli_guide_en
     assert "默认更稳的推荐是先跑 `--scope user --with-mcp`" in cli_guide_zh
+
+
+def test_hygiene_docs_list_root_pytest_cache_and_only_current_local_reports() -> None:
+    zh_getting_started = (PROJECT_ROOT / "docs" / "GETTING_STARTED.md").read_text(
+        encoding="utf-8"
+    )
+    en_getting_started = (
+        PROJECT_ROOT / "docs" / "GETTING_STARTED_EN.md"
+    ).read_text(encoding="utf-8")
+    zh_security = (PROJECT_ROOT / "docs" / "SECURITY_AND_PRIVACY.md").read_text(
+        encoding="utf-8"
+    )
+    en_security = (
+        PROJECT_ROOT / "docs" / "SECURITY_AND_PRIVACY_EN.md"
+    ).read_text(encoding="utf-8")
+
+    assert "`.tmp/`、`.pytest_cache/`、`backend/.pytest_cache/`" in zh_getting_started
+    assert "`.tmp/`, `.pytest_cache/`, `backend/.pytest_cache/`" in en_getting_started
+    assert "docs/skills/CLAUDE_SKILLS_AUDIT.md" not in zh_getting_started
+    assert "docs/skills/CLAUDE_SKILLS_AUDIT.md" not in en_getting_started
+    assert "`.pytest_cache/`、`backend/.pytest_cache/`" in zh_security
+    assert "`.pytest_cache/`, `backend/.pytest_cache/`" in en_security
+    assert "docs/skills/CLAUDE_SKILLS_AUDIT.md" not in zh_security
+    assert "docs/skills/CLAUDE_SKILLS_AUDIT.md" not in en_security
+
+
+def test_docs_describe_platform_specific_repo_local_mcp_wrappers_and_setup_auto_open_gate() -> None:
+    readme_en = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (PROJECT_ROOT / "README_CN.md").read_text(encoding="utf-8")
+    zh_getting_started = (PROJECT_ROOT / "docs" / "GETTING_STARTED.md").read_text(
+        encoding="utf-8"
+    )
+    en_getting_started = (
+        PROJECT_ROOT / "docs" / "GETTING_STARTED_EN.md"
+    ).read_text(encoding="utf-8")
+
+    assert "neither runtime Dashboard auth nor stored browser Dashboard auth is available" in readme_en
+    assert "既没有已保存的 Dashboard 鉴权，也没有运行时注入的 Dashboard 鉴权" in readme_zh
+    assert "原生 Windows：`python backend/mcp_wrapper.py`" in zh_getting_started
+    assert "macOS / Linux / Git Bash / WSL：`bash scripts/run_memory_palace_mcp_stdio.sh`" in zh_getting_started
+    assert "native Windows: `python backend/mcp_wrapper.py`" in en_getting_started
+    assert "macOS / Linux / Git Bash / WSL: `bash scripts/run_memory_palace_mcp_stdio.sh`" in en_getting_started

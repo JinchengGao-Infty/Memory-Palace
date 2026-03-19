@@ -68,3 +68,19 @@ def test_build_runtime_env_sets_demo_db_when_no_env_exists(
 
     assert runtime_env["DATABASE_URL"] == f"sqlite+aiosqlite:///{demo_db.as_posix()}"
     assert runtime_env["RETRIEVAL_REMOTE_TIMEOUT_SEC"] == "1"
+
+
+def test_build_runtime_env_treats_empty_database_url_as_missing_when_no_env_exists(
+    monkeypatch, tmp_path: Path
+) -> None:
+    module = _load_module()
+    demo_db = tmp_path / "demo.db"
+
+    monkeypatch.setattr(module, "ENV_FILE", tmp_path / ".env")
+    monkeypatch.setattr(module, "DOCKER_ENV_FILE", tmp_path / ".env.docker")
+    monkeypatch.setattr(module, "DEFAULT_DB_PATH", demo_db)
+    monkeypatch.setattr(module.os, "environ", {"DATABASE_URL": ""})
+
+    runtime_env = module.build_runtime_env()
+
+    assert runtime_env["DATABASE_URL"] == f"sqlite+aiosqlite:///{demo_db.as_posix()}"

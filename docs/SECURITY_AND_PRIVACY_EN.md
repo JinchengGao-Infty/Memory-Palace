@@ -213,7 +213,7 @@ Before sharing the project, delivering environments, or official release, please
    - `backend/backend.log`, `frontend/frontend.log`
    - `snapshots/`, `frontend/dist/`
    - `backend/tests/benchmark/.real_profile_cache/`
-   - `docs/skills/TRIGGER_SMOKE_REPORT.md`, `docs/skills/MCP_LIVE_E2E_REPORT.md`, `docs/skills/CLAUDE_SKILLS_AUDIT.md`
+   - `docs/skills/TRIGGER_SMOKE_REPORT.md`, `docs/skills/MCP_LIVE_E2E_REPORT.md`
    - Any `.DS_Store`
 
 2. **Keyword Scan** — Check for residual real keys in code and documentation:
@@ -259,7 +259,7 @@ Before sharing the project, delivering environments, or official release, please
 | `frontend/frontend.log` | Frontend running logs |
 | `snapshots/` | Local snapshot directory |
 | `backend/tests/benchmark/.real_profile_cache/` | Local benchmark temporary database |
-| `__pycache__/`, `backend/.pytest_cache/` | Python cache |
+| `__pycache__/`, `.pytest_cache/`, `backend/.pytest_cache/` | Python cache |
 | `frontend/node_modules` | NPM dependencies |
 | `frontend/dist/` | Frontend build artifacts |
 | `.DS_Store` | macOS system files |

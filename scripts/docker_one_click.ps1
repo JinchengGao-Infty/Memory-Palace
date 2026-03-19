@@ -28,7 +28,8 @@ function Get-DefaultComposeProjectName {
         $projectSlug = 'memory-palace'
     }
 
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($projectRoot)
+    $normalizedProjectRoot = $projectRoot -replace '\\', '/'
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalizedProjectRoot)
     $hashBytes = [System.Security.Cryptography.SHA256]::HashData($bytes)
     $hash = ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').Substring(0, 8).ToLower()
     return "$projectSlug-$hash"

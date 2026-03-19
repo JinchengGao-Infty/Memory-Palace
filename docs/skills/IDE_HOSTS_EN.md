@@ -56,15 +56,16 @@ That means:
 
 ### 3. Local prerequisites for the default IDE-host path
 
-The default IDE-host path in this repository is:
+The default IDE-host path in this repository is split by host environment:
 
-- `bash` -> `scripts/run_memory_palace_mcp_stdio.sh`
+- native Windows: `python` -> `backend/mcp_wrapper.py`
+- macOS / Linux / `Git Bash` / `WSL`: `bash` -> `scripts/run_memory_palace_mcp_stdio.sh`
 - local repository `backend/.venv`
 - local repository `.env`
 
 Treat these as one bundle:
 
-- the generated IDE-host snippet assumes the host can run `bash`
+- the generated IDE-host snippet assumes the host can run the matching wrapper for its own environment
 - the wrapper assumes the local `backend/.venv` already exists and has the backend dependencies installed
 - the wrapper reads the local repository `.env` first to decide `DATABASE_URL`
 - if `.env` is missing while `.env.docker` exists, or if `.env` still points `DATABASE_URL` at Docker `/app/data/...`, it refuses to start, because the repo-local stdio wrapper does **not** reuse Docker's `/app/data` database path

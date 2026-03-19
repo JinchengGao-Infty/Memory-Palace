@@ -434,7 +434,7 @@ Both scripts will generate validation reports locally:
 - `docs/skills/TRIGGER_SMOKE_REPORT.md` (Summary of local smoke tests; please check for local paths or client config traces before sharing).
 - `docs/skills/MCP_LIVE_E2E_REPORT.md`
 
-It is recommended to treat these as review artifacts on your own machine rather than primary documentation; these files are excluded by `.gitignore` by default.
+It is recommended to treat these as review artifacts on your own machine rather than primary documentation; these files are excluded by `.gitignore` by default. `evaluate_memory_palace_skill.py` now returns a non-zero exit code whenever any check is `FAIL`; `SKIP` / `PARTIAL` / `MANUAL` do not fail the process by themselves, and the current default Gemini smoke model is `gemini-3-flash-preview`.
 If you need isolated output during parallel review or CI, set `MEMORY_PALACE_SKILL_REPORT_PATH` / `MEMORY_PALACE_MCP_E2E_REPORT_PATH` first and write the reports to another local path.
 
 A note on the experience: `evaluate_memory_palace_skill.py` runs multiple CLIs serially; it often takes a few minutes to complete. If you see no new output for a while, don't immediately assume it's stuck.

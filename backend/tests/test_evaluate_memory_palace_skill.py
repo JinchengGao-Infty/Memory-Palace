@@ -5,6 +5,7 @@ import json
 import subprocess
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 
 def _load_skill_eval_module():
@@ -262,9 +263,16 @@ def test_coalesce_structured_text_prefers_joined_field_values() -> None:
     assert "docs/skills/memory-palace/references/trigger-samples.md" in combined
 
 
-def test_run_gemini_prompt_falls_back_to_flash_preview_on_429(monkeypatch) -> None:
+def test_run_gemini_prompt_falls_back_when_capacity_error_hits_primary_model(
+    monkeypatch,
+) -> None:
     evaluate_memory_palace_skill = _load_skill_eval_module()
     calls: list[str] = []
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "GEMINI_FALLBACK_MODEL",
+        "gemini-alt-fallback-preview",
+    )
 
     def _fake_run_command_capture(cmd, *, cwd, input_text=None, timeout=120):
         _ = cwd
@@ -301,6 +309,82 @@ def test_run_gemini_prompt_falls_back_to_flash_preview_on_429(monkeypatch) -> No
     assert result.model == evaluate_memory_palace_skill.GEMINI_FALLBACK_MODEL
 
 
+def test_run_gemini_prompt_falls_back_when_timeout_hits_primary_model(
+    monkeypatch,
+) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    calls: list[str] = []
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "GEMINI_FALLBACK_MODEL",
+        "gemini-alt-fallback-preview",
+    )
+
+    def _fake_run_command_capture(cmd, *, cwd, input_text=None, timeout=120):
+        _ = cwd
+        _ = input_text
+        _ = timeout
+        model = cmd[2]
+        calls.append(model)
+        if model == evaluate_memory_palace_skill.GEMINI_TEST_MODEL:
+            return evaluate_memory_palace_skill.CommandCapture(
+                returncode=-9,
+                stdout="",
+                stderr="",
+                timed_out=True,
+                model=model,
+            )
+        return evaluate_memory_palace_skill.CommandCapture(
+            returncode=0,
+            stdout="fallback ok",
+            stderr="",
+            timed_out=False,
+            model=model,
+        )
+
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill, "run_command_capture", _fake_run_command_capture
+    )
+
+    result = evaluate_memory_palace_skill.run_gemini_prompt("prompt", timeout=30)
+
+    assert calls == [
+        evaluate_memory_palace_skill.GEMINI_TEST_MODEL,
+        evaluate_memory_palace_skill.GEMINI_FALLBACK_MODEL,
+    ]
+    assert result.model == evaluate_memory_palace_skill.GEMINI_FALLBACK_MODEL
+
+
+def test_run_gemini_prompt_does_not_retry_same_model_when_default_is_flash(
+    monkeypatch,
+) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    calls: list[str] = []
+
+    def _fake_run_command_capture(cmd, *, cwd, input_text=None, timeout=120):
+        _ = cwd
+        _ = input_text
+        _ = timeout
+        model = cmd[2]
+        calls.append(model)
+        return evaluate_memory_palace_skill.CommandCapture(
+            returncode=-9,
+            stdout="",
+            stderr="",
+            timed_out=True,
+            model=model,
+        )
+
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill, "run_command_capture", _fake_run_command_capture
+    )
+
+    result = evaluate_memory_palace_skill.run_gemini_prompt("prompt", timeout=30)
+
+    assert calls == [evaluate_memory_palace_skill.GEMINI_TEST_MODEL]
+    assert result.model == evaluate_memory_palace_skill.GEMINI_TEST_MODEL
+
+
 def test_smoke_gemini_live_suite_returns_partial_when_db_path_is_unavailable(
     monkeypatch,
 ) -> None:
@@ -335,9 +419,11 @@ def test_smoke_gemini_live_suite_accepts_verified_create_after_timeout(
 
     note_uri = "notes://gemini_suite_1234"
     unique_token = "gemini_suite_1234_nonce"
-    updated_content = (
-        "Unique token gemini_suite_1234_nonce. This note records one preference only: "
-        "user prefers concise answers. Updated once."
+    note_content = evaluate_memory_palace_skill._gemini_live_note_content(
+        "gemini_suite_1234", unique_token
+    )
+    updated_content = evaluate_memory_palace_skill._gemini_live_updated_content(
+        "gemini_suite_1234", unique_token
     )
     responses = iter(
         [
@@ -452,9 +538,8 @@ def test_smoke_gemini_live_suite_accepts_create_verified_via_update_row(
 
     note_uri = "notes://gemini_suite_1234"
     unique_token = "gemini_suite_1234_nonce"
-    updated_content = (
-        "Unique token gemini_suite_1234_nonce. This note records one preference only: "
-        "user prefers concise answers. Updated once."
+    updated_content = evaluate_memory_palace_skill._gemini_live_updated_content(
+        "gemini_suite_1234", unique_token
     )
     responses = iter(
         [
@@ -540,6 +625,120 @@ def test_smoke_gemini_live_suite_accepts_create_verified_via_update_row(
 
     assert result.status == "PASS"
     assert "create_verified_via_update=True" in result.details
+
+
+def test_smoke_gemini_live_suite_accepts_prefixed_mcp_tool_names(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    monkeypatch.setattr(evaluate_memory_palace_skill, "SKIP_GEMINI_LIVE", False)
+    monkeypatch.setattr(evaluate_memory_palace_skill.shutil, "which", lambda _: "/usr/bin/gemini")
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_extract_gemini_memory_palace_db_path",
+        lambda: tmp_path / "demo.db",
+    )
+    monkeypatch.setattr(evaluate_memory_palace_skill.time, "time", lambda: 4321)
+
+    note_uri = "notes://gemini_suite_4321"
+    unique_token = "gemini_suite_4321_nonce"
+    note_content = evaluate_memory_palace_skill._gemini_live_note_content(
+        "gemini_suite_4321", unique_token
+    )
+    updated_content = evaluate_memory_palace_skill._gemini_live_updated_content(
+        "gemini_suite_4321", unique_token
+    )
+    responses = iter(
+        [
+            evaluate_memory_palace_skill.CommandCapture(
+                returncode=0,
+                stdout=f"SUCCESS {note_uri}",
+                stderr="",
+                timed_out=False,
+                model=evaluate_memory_palace_skill.GEMINI_TEST_MODEL,
+            ),
+            evaluate_memory_palace_skill.CommandCapture(
+                returncode=0,
+                stdout=f"SUCCESS {note_uri}",
+                stderr="",
+                timed_out=False,
+                model=evaluate_memory_palace_skill.GEMINI_TEST_MODEL,
+            ),
+            evaluate_memory_palace_skill.CommandCapture(
+                returncode=-9,
+                stdout="",
+                stderr="",
+                timed_out=True,
+                model=evaluate_memory_palace_skill.GEMINI_TEST_MODEL,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "run_gemini_prompt",
+        lambda prompt, timeout: next(responses),
+    )
+    rows = iter(
+        [
+            {"content": note_content},
+            {"content": updated_content},
+        ]
+    )
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_wait_for_memory",
+        lambda db_path, uri, expected_substring=None, retries=5: next(rows),
+    )
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_memory_exists",
+        lambda db_path, uri: False,
+    )
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_find_latest_gemini_chat",
+        lambda marker: (
+            tmp_path / "chat.json",
+            {
+                "messages": [
+                    {"toolCalls": [{"name": "activate_skill"}]},
+                    {
+                        "toolCalls": [
+                            {
+                                "name": "mcp_memory-palace_create_memory",
+                                "result": [
+                                    {
+                                        "functionResponse": {
+                                            "response": {
+                                                "output": json.dumps(
+                                                    {
+                                                        "guard_action": "NOOP",
+                                                        "guard_target_uri": note_uri,
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                ],
+                            },
+                            {"name": "mcp_memory-palace_read_memory"},
+                            {"name": "mcp_memory-palace_search_memory"},
+                        ]
+                    },
+                    {
+                        "type": "gemini",
+                        "content": f"BLOCKED {note_uri}",
+                    },
+                ]
+            },
+        ),
+    )
+
+    result = evaluate_memory_palace_skill.smoke_gemini_live_suite()
+
+    assert result.status == "PASS"
+    assert "guard_message=BLOCKED notes://gemini_suite_4321" in result.details
 
 
 def test_extract_gemini_memory_palace_db_path_falls_back_to_repo_db_when_wrapper_is_bound(
@@ -1196,3 +1395,62 @@ def test_smoke_antigravity_fails_when_installed_workflow_drifts_from_canonical(
     assert result.status == "FAIL"
     assert "IDE Host 兼容检查失败" in result.summary
     assert "与 canonical 不一致" in result.summary
+
+
+def test_main_returns_non_zero_when_any_check_fails(monkeypatch, tmp_path: Path) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    report_path = tmp_path / "skill-report.md"
+
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_resolve_report_path",
+        lambda _env_name, _default_path: report_path,
+    )
+    monkeypatch.setattr(evaluate_memory_palace_skill, "_configure_console_utf8", lambda: None)
+
+    def passing() -> object:
+        return evaluate_memory_palace_skill.CheckResult("PASS", "ok")
+
+    def failing() -> object:
+        return evaluate_memory_palace_skill.CheckResult("FAIL", "broken")
+
+    monkeypatch.setattr(evaluate_memory_palace_skill, "check_structure", failing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "check_description_contract", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "check_mirrors", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "check_sync_script", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "check_gate_syntax", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "check_client_mcp_bindings", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "smoke_claude", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "smoke_codex", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "smoke_opencode", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "smoke_gemini", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "smoke_gemini_live_suite", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "smoke_cursor", passing)
+    monkeypatch.setattr(evaluate_memory_palace_skill, "mirror_only_status", lambda _name: passing())
+    monkeypatch.setattr(evaluate_memory_palace_skill, "smoke_antigravity", passing)
+
+    exit_code = evaluate_memory_palace_skill.main()
+
+    assert exit_code == 1
+    assert report_path.is_file()
+    assert "broken" in report_path.read_text(encoding="utf-8")
+
+
+def test_configure_console_utf8_reconfigures_supported_streams(monkeypatch) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    reconfigure_calls: list[tuple[str, str]] = []
+
+    def _stream(name: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            reconfigure=lambda **kwargs: reconfigure_calls.append(
+                (name, f"{kwargs.get('encoding')}:{kwargs.get('errors')}")
+            )
+        )
+
+    monkeypatch.setattr(evaluate_memory_palace_skill.sys, "stdout", _stream("stdout"))
+    monkeypatch.setattr(evaluate_memory_palace_skill.sys, "stderr", _stream("stderr"))
+
+    evaluate_memory_palace_skill._configure_console_utf8()
+
+    assert ("stdout", "utf-8:replace") in reconfigure_calls
+    assert ("stderr", "utf-8:replace") in reconfigure_calls

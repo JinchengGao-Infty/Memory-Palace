@@ -193,6 +193,18 @@ describe('MemoryBrowser', () => {
     });
   });
 
+  it('localizes the root badge label', async () => {
+    renderMemoryBrowser('/memory?domain=core');
+
+    expect(await screen.findByText('core://根')).toBeInTheDocument();
+
+    await act(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    await screen.findByText('core://root');
+  });
+
   it('does not refetch the current node when only the language changes', async () => {
     api.getMemoryNode.mockResolvedValueOnce(makeNodePayload('path-a', 'stable content'));
 

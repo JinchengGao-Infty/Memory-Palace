@@ -57,7 +57,8 @@ def test_check_gate_syntax_skips_when_workspace_gate_missing(monkeypatch, tmp_pa
 
     assert result.status == "SKIP"
     assert "run_post_change_checks.sh" in result.summary
-    assert "缺失" in result.summary
+    assert "公开仓校验范围" in result.summary
+    assert "跳过" in result.summary
 
 
 def test_check_gate_syntax_accepts_parent_workspace_gate(monkeypatch, tmp_path):

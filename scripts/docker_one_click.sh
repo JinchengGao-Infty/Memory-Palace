@@ -18,8 +18,61 @@ TEMP_DOCKER_ENV_FILE=""
 TEMP_DOCKER_ENV_FILE_AUTO=0
 compose_project_name=""
 
+normalize_project_root_for_compose_name() {
+  local raw_path="$1"
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -am "${raw_path}"
+    return 0
+  fi
+  if command -v wslpath >/dev/null 2>&1; then
+    case "${raw_path}" in
+      /mnt/[a-zA-Z]/*|/[a-zA-Z]/*)
+        wslpath -m "${raw_path}"
+        return 0
+        ;;
+    esac
+  fi
+  printf '%s\n' "${raw_path//\\//}"
+}
+
+compose_project_path_checksum() {
+  local normalized_path="$1"
+  if command -v python3 >/dev/null 2>&1; then
+    PROJECT_ROOT_HASH_INPUT="${normalized_path}" python3 - <<'PY'
+import hashlib
+import os
+
+print(hashlib.sha256(os.environ["PROJECT_ROOT_HASH_INPUT"].encode("utf-8")).hexdigest()[:8])
+PY
+    return 0
+  fi
+  if command -v python >/dev/null 2>&1; then
+    PROJECT_ROOT_HASH_INPUT="${normalized_path}" python - <<'PY'
+import hashlib
+import os
+
+print(hashlib.sha256(os.environ["PROJECT_ROOT_HASH_INPUT"].encode("utf-8")).hexdigest()[:8])
+PY
+    return 0
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "${normalized_path}" | sha256sum | awk '{print substr($1, 1, 8)}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "${normalized_path}" | shasum -a 256 | awk '{print substr($1, 1, 8)}'
+    return 0
+  fi
+  if command -v openssl >/dev/null 2>&1; then
+    printf '%s' "${normalized_path}" | openssl dgst -sha256 | awk '{print substr($NF, 1, 8)}'
+    return 0
+  fi
+  echo "Unable to derive default compose project name: need python, sha256sum, shasum, or openssl." >&2
+  return 1
+}
+
 default_compose_project_name() {
-  local project_slug path_checksum
+  local project_slug normalized_project_root path_checksum
   project_slug="$(
     basename "${PROJECT_ROOT}" \
       | tr '[:upper:]' '[:lower:]' \
@@ -28,9 +81,8 @@ default_compose_project_name() {
   if [[ -z "${project_slug}" ]]; then
     project_slug="memory-palace"
   fi
-  path_checksum="$(
-    printf '%s' "${PROJECT_ROOT}" | cksum | awk '{print $1}'
-  )"
+  normalized_project_root="$(normalize_project_root_for_compose_name "${PROJECT_ROOT}")"
+  path_checksum="$(compose_project_path_checksum "${normalized_project_root}")" || return 1
   echo "${project_slug}-${path_checksum}"
 }
 

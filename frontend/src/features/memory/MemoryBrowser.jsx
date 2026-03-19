@@ -374,7 +374,7 @@ export default function MemoryBrowser() {
           <div className="flex items-center gap-3">
              <div className="inline-flex items-center gap-2 rounded-full border border-white/40 bg-white/20 px-4 py-1.5 text-xs font-medium text-[color:var(--palace-muted)] backdrop-blur-md shadow-sm">
               <Sparkles size={13} className="text-[color:var(--palace-accent)]" />
-              {domain}://{path || 'root'}
+              {domain}://{path || t('memory.rootBreadcrumb')}
             </div>
           </div>
         </div>

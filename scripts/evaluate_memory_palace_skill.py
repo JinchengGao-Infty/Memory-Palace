@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import signal
@@ -54,7 +55,7 @@ REQUIRED_FILES = [
     Path("references/mcp-workflow.md"),
     Path("references/trigger-samples.md"),
 ]
-GEMINI_TEST_MODEL = "gemini-3.1-pro-preview"
+GEMINI_TEST_MODEL = "gemini-3-flash-preview"
 GEMINI_FALLBACK_MODEL = "gemini-3-flash-preview"
 SKIP_GEMINI_LIVE = os.getenv("MEMORY_PALACE_SKIP_GEMINI_LIVE", "").lower() in {"1", "true", "yes"}
 CODEX_SMOKE_TIMEOUT_SEC = int(os.getenv("MEMORY_PALACE_CODEX_SMOKE_TIMEOUT_SEC", "120"))
@@ -95,6 +96,24 @@ GEMINI_CHATS_DIR = Path.home() / ".gemini" / "tmp" / REPO_ROOT.name / "chats"
 ANTIGRAVITY_REFERENCE_PATHS = (
     "docs/skills/memory-palace/references/mcp-workflow.md",
     "docs/skills/memory-palace/references/trigger-samples.md",
+)
+GEMINI_LIVE_SIGNATURE_WORDS = (
+    "harbor",
+    "cinder",
+    "meadow",
+    "velvet",
+    "quartz",
+    "falcon",
+    "cobalt",
+    "lantern",
+    "thimble",
+    "orchard",
+    "marble",
+    "signal",
+    "tulip",
+    "anchor",
+    "ripple",
+    "compass",
 )
 
 
@@ -306,7 +325,10 @@ def run_gemini_prompt(prompt: str, *, timeout: int, model: str = GEMINI_TEST_MOD
     )
     capture.model = model
     merged = (capture.stdout + "\n" + capture.stderr).strip()
-    if model == GEMINI_TEST_MODEL and _gemini_capacity_error(merged):
+    should_fallback = model == GEMINI_TEST_MODEL and (
+        capture.timed_out or _gemini_capacity_error(merged)
+    )
+    if should_fallback and GEMINI_FALLBACK_MODEL != model:
         fallback = run_command_capture(
             [gemini_bin, "-m", GEMINI_FALLBACK_MODEL, "-p", prompt, "--output-format", "text"],
             cwd=REPO_ROOT,
@@ -490,6 +512,13 @@ def _iter_tool_calls(chat_payload: Any) -> list[dict[str, Any]]:
     return calls
 
 
+def _tool_name_matches(raw_name: Any, expected_name: str) -> bool:
+    if not isinstance(raw_name, str):
+        return False
+    normalized = raw_name.strip()
+    return normalized == expected_name or normalized.endswith(f"_{expected_name}")
+
+
 def _latest_gemini_message(chat_payload: Any) -> str:
     if isinstance(chat_payload, dict):
         messages = chat_payload.get("messages")
@@ -512,6 +541,30 @@ def _latest_gemini_message(chat_payload: Any) -> str:
                 if texts:
                     return "\n".join(texts)
     return ""
+
+
+def _gemini_live_signature(marker: str, *, count: int = 3) -> str:
+    digest = hashlib.sha256(marker.encode("utf-8")).digest()
+    words: list[str] = []
+    for index in range(count):
+        bucket = digest[index] % len(GEMINI_LIVE_SIGNATURE_WORDS)
+        words.append(GEMINI_LIVE_SIGNATURE_WORDS[bucket])
+    return "-".join(words)
+
+
+def _gemini_live_note_content(marker: str, unique_token: str) -> str:
+    signature = _gemini_live_signature(marker)
+    return (
+        f"Verification capsule {marker}. "
+        f"Nonce {unique_token}. "
+        f"Signature words {signature}. "
+        "For this exact session, reply in terse, clipped language without filler."
+    )
+
+
+def _gemini_live_updated_content(marker: str, unique_token: str) -> str:
+    base = _gemini_live_note_content(marker, unique_token)
+    return base + " Confirmed on the second pass."
 
 
 def yaml_frontmatter_ok(path: Path) -> tuple[bool, str]:
@@ -1034,8 +1087,8 @@ def smoke_gemini_live_suite() -> CheckResult:
     marker = f"gemini_suite_{int(time.time())}"
     unique_token = f"{marker}_nonce"
     note_uri = f"notes://{marker}"
-    note_content = f"Unique token {unique_token}. This note records one preference only: user prefers concise answers."
-    updated_content = f"Unique token {unique_token}. This note records one preference only: user prefers concise answers. Updated once."
+    note_content = _gemini_live_note_content(marker, unique_token)
+    updated_content = _gemini_live_updated_content(marker, unique_token)
 
     create_prompt = (
         f'Please save this durable note to Memory Palace at {note_uri}. Content: "{note_content}". '
@@ -1069,10 +1122,20 @@ def smoke_gemini_live_suite() -> CheckResult:
     guard_out = (guard_proc.stdout + "\n" + guard_proc.stderr).strip()
     guard_chat = _find_latest_gemini_chat(guard_marker)
     guard_calls: list[dict[str, Any]] = []
+    guard_message = ""
     if guard_chat is not None:
         _, payload = guard_chat
         guard_calls = _iter_tool_calls(payload)
+        guard_message = _latest_gemini_message(payload)
 
+    guard_create_index = next(
+        (
+            index
+            for index, call in enumerate(guard_calls)
+            if _tool_name_matches(call.get("name"), "create_memory")
+        ),
+        -1,
+    )
     create_ok = _gemini_live_write_verified(
         create_proc,
         verified_row=create_row,
@@ -1097,7 +1160,7 @@ def smoke_gemini_live_suite() -> CheckResult:
             create_verified_via_update = True
             create_row = update_row
 
-    guard_create = next((call for call in guard_calls if call.get("name") == "create_memory"), None)
+    guard_create = guard_calls[guard_create_index] if guard_create_index >= 0 else None
     guard_create_output = ""
     if isinstance(guard_create, dict):
         try:
@@ -1112,12 +1175,17 @@ def smoke_gemini_live_suite() -> CheckResult:
     except Exception:
         guard_target_uri = ""
     guard_has_block = any(token in guard_create_output for token in ['"guard_action": "NOOP"', '"guard_action": "UPDATE"', '"guard_action": "DELETE"'])
-    guard_has_followup = any(call.get("name") in {"read_memory", "update_memory"} for call in guard_calls[1:])
+    guard_followup_calls = guard_calls[guard_create_index + 1 :] if guard_create_index >= 0 else []
+    guard_has_followup = any(
+        _tool_name_matches(call.get("name"), expected_name)
+        for call in guard_followup_calls
+        for expected_name in ("read_memory", "update_memory", "search_memory")
+    )
     guard_duplicate_created = _memory_exists(db_path, guard_uri)
     guard_no_false_success = f"SUCCESS {guard_uri}" not in guard_proc.stdout and not guard_duplicate_created
     guard_resolved_to_existing_target = bool(guard_target_uri) and f"SUCCESS {guard_target_uri}" in guard_proc.stdout
     guard_user_visible_block = any(
-        token in guard_proc.stdout
+        token in (guard_proc.stdout + "\n" + guard_message)
         for token in [f"BLOCKED {note_uri}", note_uri, "duplicate", "already exists", "update", "noop", "guard"]
     )
 
@@ -1135,6 +1203,7 @@ def smoke_gemini_live_suite() -> CheckResult:
         f"guard_model={guard_proc.model or GEMINI_TEST_MODEL}",
         f"guard_timed_out={guard_proc.timed_out}",
         f"guard_stdout={guard_proc.stdout.strip()}",
+        f"guard_message={guard_message.strip()}",
         f"guard_duplicate_created={guard_duplicate_created}",
         f"guard_create_output={guard_create_output or 'missing'}",
         f"guard_target_uri={guard_target_uri or 'missing'}",
@@ -1299,7 +1368,20 @@ def generate_markdown(results: dict[str, CheckResult]) -> str:
     return "\n".join(lines)
 
 
+def _configure_console_utf8() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            continue
+
+
 def main() -> int:
+    _configure_console_utf8()
     report_path = _resolve_report_path("MEMORY_PALACE_SKILL_REPORT_PATH", DEFAULT_REPORT_PATH)
     checks = [
         ("structure", check_structure),
@@ -1331,7 +1413,7 @@ def main() -> int:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(markdown + "\n", encoding="utf-8")
     print(report_path)
-    return 0
+    return 1 if any(result.status == "FAIL" for result in results.values()) else 0
 
 
 if __name__ == "__main__":
