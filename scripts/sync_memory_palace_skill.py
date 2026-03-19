@@ -78,10 +78,11 @@ def run_check() -> int:
         return 1
 
     drift: list[str] = []
+    installed_any = False
     for mirror_dir in BUNDLE_MIRROR_DIRS:
         if not mirror_dir.is_dir():
-            drift.append(f"missing mirror directory: {mirror_dir.relative_to(REPO_ROOT)}")
             continue
+        installed_any = True
         for relative_path in BUNDLE_RELATIVE_FILES:
             source = CANONICAL_DIR / relative_path
             target = mirror_dir / relative_path
@@ -89,10 +90,16 @@ def run_check() -> int:
                 drift.append(f"{mirror_dir.relative_to(REPO_ROOT)}/{relative_path}")
 
     gemini_skill_file = GEMINI_WORKSPACE_DIR / "SKILL.md"
-    if not gemini_skill_file.is_file():
-        drift.append(f"missing mirror file: {gemini_skill_file.relative_to(REPO_ROOT)}")
-    elif not files_match(GEMINI_VARIANT_FILE, gemini_skill_file):
-        drift.append(f"mismatch: {gemini_skill_file.relative_to(REPO_ROOT)}")
+    if GEMINI_WORKSPACE_DIR.is_dir():
+        installed_any = True
+        if not gemini_skill_file.is_file():
+            drift.append(f"missing mirror file: {gemini_skill_file.relative_to(REPO_ROOT)}")
+        elif not files_match(GEMINI_VARIANT_FILE, gemini_skill_file):
+            drift.append(f"mismatch: {gemini_skill_file.relative_to(REPO_ROOT)}")
+
+    if not installed_any:
+        print("No workspace mirrors are installed yet. Run the sync command first if you need repo-local mirrors.")
+        return 0
 
     if drift:
         print("Drift detected:")

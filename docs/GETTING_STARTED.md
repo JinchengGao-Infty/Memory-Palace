@@ -230,7 +230,15 @@ VITE v7.x.x  ready in xxx ms
 
 > 当前前端默认英文；如果你更习惯中文，直接点右上角语言按钮即可切换，浏览器会记住你的选择。
 
-> 前端开发服务器通过 `vite.config.js` 中配置的 proxy 将 `/api` 路径代理到后端 `http://127.0.0.1:8000`，因此前后端无需手动配置 CORS。
+> 前端开发服务器通过 `vite.config.js` 中配置的 proxy 将 `/api` 代理到 `MEMORY_PALACE_API_PROXY_TARGET`（默认 `http://127.0.0.1:8000`）。
+>
+> 如果你还想在 **Vite 本机开发入口** 下顺手验证同源 SSE，请先单独启动 `run_sse.py`，再额外设置：
+>
+> ```bash
+> MEMORY_PALACE_SSE_PROXY_TARGET=http://127.0.0.1:8010
+> ```
+>
+> 这样 `/sse`、`/messages` 和 `/sse/messages` 也会一起代理到本机 SSE 进程；不需要再手动改 CORS。
 
 <p align="center">
   <img src="images/setup-assistant-zh.png" width="900" alt="Memory Palace 首启配置向导（中文模式）" />

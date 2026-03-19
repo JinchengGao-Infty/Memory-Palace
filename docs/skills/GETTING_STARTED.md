@@ -88,6 +88,11 @@ python scripts/sync_memory_palace_skill.py --check
 
 这一步只解决 **skill 自动发现**，还没解决 MCP。
 
+补一条这次已经按当前脚本口径收紧过的行为：
+
+- 如果你是刚 clone 下来的仓库、还没安装任何 workspace mirrors，`--check` 现在会直接说明“当前还没安装 mirrors”，并返回成功；它不再把“尚未安装”误报成 drift/fail。
+- 真正会让 `--check` 失败的，是“你已经装过了，但当前内容和 canonical 对不上”。
+
 ---
 
 ## 3. 第二步：先走更稳的 user-scope，再按需补 workspace 入口
@@ -328,6 +333,13 @@ docs/skills/TRIGGER_SMOKE_REPORT.md
 python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope user --with-mcp --force
 python scripts/evaluate_memory_palace_skill.py
 ```
+
+如果你看到的是：
+
+- `mcp_bindings = PARTIAL`
+- `claude/codex/gemini/opencode` 这些 user-scope 入口都已经是 `PASS`
+
+通常说明只是**可选的 workspace 入口还没安装**，或者 `cursor/agent/antigravity` 这类 IDE 宿主兼容投影还没补到当前仓库；不要先把它理解成主链路 MCP 绑定已经坏了。
 
 ### 真实 MCP 调用链
 

@@ -88,6 +88,11 @@ python scripts/sync_memory_palace_skill.py --check
 
 This step only resolves **skill auto-discovery**, not yet MCP.
 
+One more behavior detail is now tightened to match the current script contract:
+
+- On a freshly cloned repository where no workspace mirrors have been installed yet, `--check` now reports that mirrors are not installed yet and exits successfully; it no longer treats "not installed yet" as drift/failure.
+- A real `--check` failure now means "you already installed mirrors, but they no longer match the canonical source."
+
 ---
 
 ## 3. Step Two: Start with the more stable user-scope path, then add workspace entries if needed
@@ -331,6 +336,13 @@ If the report only shows `mcp_bindings` as failed, first rerun the unified `user
 python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope user --with-mcp --force
 python scripts/evaluate_memory_palace_skill.py
 ```
+
+If you instead see:
+
+- `mcp_bindings = PARTIAL`
+- and the installed user-scope entries for `claude/codex/gemini/opencode` are already `PASS`
+
+that usually means only **optional workspace-local entries** are still missing, or IDE-host compatibility projections such as `cursor/agent/antigravity` have not been installed into the current repository yet. Do not treat that as a broken mainline MCP binding by default.
 
 ### Real MCP Call Chain
 

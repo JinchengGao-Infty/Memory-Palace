@@ -336,7 +336,13 @@ cd <project-root>
 >
 > 同一 checkout 下的并发一键部署会被 deployment lock 串行化，避免共享 compose project / env 文件互相覆盖。
 >
-> 如果你对 `profile c/d` 开启 `--allow-runtime-env-injection`，脚本会把这次运行切到显式 API 模式，并额外强制 `RETRIEVAL_EMBEDDING_BACKEND=api`。当 `RETRIEVAL_EMBEDDING_API_*` / `RETRIEVAL_RERANKER_API_*` 没显式提供时，它会优先复用当前进程里的 `ROUTER_API_BASE/ROUTER_API_KEY` 作为兜底；如果你还设置了 `INTENT_LLM_*`，这条链路也会一并注入。
+> 如果你对 `profile c/d` 开启 `--allow-runtime-env-injection`，脚本会把这次运行切到显式 API 模式，并额外强制 `RETRIEVAL_EMBEDDING_BACKEND=api`。当前这条注入链路会一起覆盖：
+>
+> - 显式传入的 `RETRIEVAL_EMBEDDING_*`
+> - 显式传入的 `RETRIEVAL_RERANKER_ENABLED` / `RETRIEVAL_RERANKER_*`
+> - 可选的 `WRITE_GUARD_LLM_*`、`COMPACT_GIST_LLM_*`、`INTENT_LLM_*`
+>
+> 当 `RETRIEVAL_EMBEDDING_API_*` / `RETRIEVAL_RERANKER_API_*` 没显式提供时，它会优先复用当前进程里的 `ROUTER_API_BASE/ROUTER_API_KEY` 作为 embedding / reranker API base+key 的兜底；当 `RETRIEVAL_RERANKER_MODEL` 没显式提供时，也会优先复用 `ROUTER_RERANKER_MODEL`。
 
 ### 部署完成后的访问地址
 
@@ -421,6 +427,14 @@ cd <project-root>/frontend
 npm install
 MEMORY_PALACE_API_PROXY_TARGET=http://127.0.0.1:18000 npm run dev -- --host 127.0.0.1 --port 3000
 ```
+
+如果你还想让 Vite 本机开发入口一起代理同源 SSE，再补一项：
+
+```bash
+MEMORY_PALACE_SSE_PROXY_TARGET=http://127.0.0.1:8010
+```
+
+这样 `/sse`、`/messages` 和 `/sse/messages` 也会一起转发到本机 `run_sse.py`。
 
 ---
 

@@ -299,11 +299,14 @@ function Apply-ProfileRuntimeOverrides {
     $overrideKeys = @(
         'ROUTER_API_BASE',
         'ROUTER_API_KEY',
+        'ROUTER_CHAT_MODEL',
         'ROUTER_EMBEDDING_MODEL',
+        'ROUTER_RERANKER_MODEL',
         'RETRIEVAL_EMBEDDING_BACKEND',
         'RETRIEVAL_EMBEDDING_API_BASE',
         'RETRIEVAL_EMBEDDING_API_KEY',
         'RETRIEVAL_EMBEDDING_MODEL',
+        'RETRIEVAL_RERANKER_ENABLED',
         'RETRIEVAL_RERANKER_API_BASE',
         'RETRIEVAL_RERANKER_API_KEY',
         'RETRIEVAL_RERANKER_MODEL',
@@ -338,11 +341,13 @@ function Apply-ProfileRuntimeOverrides {
         $routerApiBase = [System.Environment]::GetEnvironmentVariable('ROUTER_API_BASE')
         $routerApiKey = [System.Environment]::GetEnvironmentVariable('ROUTER_API_KEY')
         $routerEmbeddingModel = [System.Environment]::GetEnvironmentVariable('ROUTER_EMBEDDING_MODEL')
+        $routerRerankerModel = [System.Environment]::GetEnvironmentVariable('ROUTER_RERANKER_MODEL')
         $embeddingApiBase = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_EMBEDDING_API_BASE')
         $embeddingApiKey = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_EMBEDDING_API_KEY')
         $embeddingModel = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_EMBEDDING_MODEL')
         $rerankerApiBase = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_RERANKER_API_BASE')
         $rerankerApiKey = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_RERANKER_API_KEY')
+        $rerankerModel = [System.Environment]::GetEnvironmentVariable('RETRIEVAL_RERANKER_MODEL')
 
         if ([string]::IsNullOrWhiteSpace($embeddingApiBase) -and -not [string]::IsNullOrWhiteSpace($routerApiBase)) {
             Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_EMBEDDING_API_BASE' -Value $routerApiBase
@@ -363,6 +368,10 @@ function Apply-ProfileRuntimeOverrides {
         if ([string]::IsNullOrWhiteSpace($rerankerApiKey) -and -not [string]::IsNullOrWhiteSpace($routerApiKey)) {
             Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_RERANKER_API_KEY' -Value $routerApiKey
             Write-Host "[override] RETRIEVAL_RERANKER_API_KEY copied from ROUTER_API_KEY for local profile $SelectedProfile runtime injection."
+        }
+        if ([string]::IsNullOrWhiteSpace($rerankerModel) -and -not [string]::IsNullOrWhiteSpace($routerRerankerModel)) {
+            Set-EnvValueInFile -FilePath $EnvFile -Key 'RETRIEVAL_RERANKER_MODEL' -Value $routerRerankerModel
+            Write-Host "[override] RETRIEVAL_RERANKER_MODEL copied from ROUTER_RERANKER_MODEL for local profile $SelectedProfile runtime injection."
         }
     }
 }

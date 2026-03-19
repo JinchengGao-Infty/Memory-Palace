@@ -340,7 +340,13 @@ cd <project-root>
 >
 > Concurrent one-click deployments under the same checkout will be serialized by a deployment lock to prevent shared compose projects/env files from overwriting each other.
 >
-> If you enable `--allow-runtime-env-injection` for `profile c/d`, the script will switch this run to explicit API mode and additionally force `RETRIEVAL_EMBEDDING_BACKEND=api`. When `RETRIEVAL_EMBEDDING_API_*` / `RETRIEVAL_RERANKER_API_*` are not explicitly provided, it will prioritize reusing the `ROUTER_API_BASE/ROUTER_API_KEY` from the current process as a fallback; if you have also set `INTENT_LLM_*`, that link will also be injected.
+> If you enable `--allow-runtime-env-injection` for `profile c/d`, the script switches that run to explicit API mode and additionally forces `RETRIEVAL_EMBEDDING_BACKEND=api`. The current injection path also carries:
+>
+> - explicit `RETRIEVAL_EMBEDDING_*`
+> - explicit `RETRIEVAL_RERANKER_ENABLED` / `RETRIEVAL_RERANKER_*`
+> - optional `WRITE_GUARD_LLM_*`, `COMPACT_GIST_LLM_*`, and `INTENT_LLM_*`
+>
+> When `RETRIEVAL_EMBEDDING_API_*` / `RETRIEVAL_RERANKER_API_*` are not explicitly provided, it prioritizes `ROUTER_API_BASE/ROUTER_API_KEY` from the current process as the fallback source for embedding / reranker API base+key. When `RETRIEVAL_RERANKER_MODEL` is not explicitly provided, it also falls back to `ROUTER_RERANKER_MODEL`.
 
 ### Access Addresses After Deployment
 
@@ -425,6 +431,14 @@ cd <project-root>/frontend
 npm install
 MEMORY_PALACE_API_PROXY_TARGET=http://127.0.0.1:18000 npm run dev -- --host 127.0.0.1 --port 3000
 ```
+
+If you also want the local Vite entry to proxy same-origin SSE, add:
+
+```bash
+MEMORY_PALACE_SSE_PROXY_TARGET=http://127.0.0.1:8010
+```
+
+This also forwards `/sse`, `/messages`, and `/sse/messages` to the local `run_sse.py` process.
 
 ---
 

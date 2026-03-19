@@ -13,6 +13,9 @@ def test_runtime_env_injection_covers_intent_llm_and_router_fallbacks() -> None:
     )
 
     for literal in (
+        "ROUTER_CHAT_MODEL",
+        "ROUTER_RERANKER_MODEL",
+        "RETRIEVAL_RERANKER_ENABLED",
         "INTENT_LLM_ENABLED",
         "INTENT_LLM_API_BASE",
         "INTENT_LLM_API_KEY",
@@ -24,9 +27,12 @@ def test_runtime_env_injection_covers_intent_llm_and_router_fallbacks() -> None:
         "RETRIEVAL_EMBEDDING_MODEL copied from ROUTER_EMBEDDING_MODEL",
         "RETRIEVAL_RERANKER_API_BASE copied from ROUTER_API_BASE",
         "RETRIEVAL_RERANKER_API_KEY copied from ROUTER_API_KEY",
+        "RETRIEVAL_RERANKER_MODEL copied from ROUTER_RERANKER_MODEL",
     ):
         assert literal in shell_text
         assert literal in ps1_text
+
+    assert "--no-build" in shell_text
 
     assert "wait_for_deployment_ready" in shell_text
     assert "Wait-DeploymentReady" in ps1_text
@@ -116,6 +122,8 @@ def test_compose_waits_for_healthy_sse_service() -> None:
     assert 'host.docker.internal:host-gateway' in backend_block
     assert "healthcheck:" in sse_block
     assert "http://127.0.0.1:8000/health" in sse_block
+    assert "X-MCP-API-Key" in sse_block
+    assert "os.getenv('MCP_API_KEY')" in sse_block
     assert 'host.docker.internal:host-gateway' in sse_block
     assert "sse:\n        condition: service_healthy" in frontend_block
 

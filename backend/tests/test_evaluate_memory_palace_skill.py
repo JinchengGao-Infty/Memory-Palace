@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 from pathlib import Path
 import sys
@@ -66,6 +67,7 @@ def test_repo_local_stdio_wrapper_rejects_docker_internal_database_url(
         cwd=project_root,
         capture_output=True,
         text=True,
+        env={key: value for key, value in os.environ.items() if key != "DATABASE_URL"},
         check=False,
     )
 
@@ -106,6 +108,7 @@ def test_repo_local_stdio_wrapper_rejects_quoted_docker_internal_database_url(
         cwd=project_root,
         capture_output=True,
         text=True,
+        env={key: value for key, value in os.environ.items() if key != "DATABASE_URL"},
         check=False,
     )
 
@@ -164,6 +167,69 @@ def test_check_gate_syntax_validates_first_existing_post_check_script(
     ]
     assert captured["cwd"] == tmp_path
     assert captured["timeout"] == 30
+
+
+def test_check_mirrors_returns_partial_when_workspace_mirrors_are_not_installed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    mirror_dir = tmp_path / ".codex" / "skills" / "memory-palace"
+    gemini_dir = tmp_path / ".gemini" / "skills" / "memory-palace"
+
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "MIRRORS",
+        {"codex": mirror_dir},
+    )
+    monkeypatch.setattr(evaluate_memory_palace_skill, "GEMINI_WORKSPACE_DIR", gemini_dir)
+
+    result = evaluate_memory_palace_skill.check_mirrors()
+
+    assert result.status == "PARTIAL"
+    assert "尚未同步" in result.summary
+    assert str(mirror_dir) in result.details
+
+
+def test_check_sync_script_returns_partial_when_workspace_mirrors_are_not_installed(
+    monkeypatch,
+) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+
+    def _fake_run_command(cmd, *, cwd, input_text=None, timeout=120):
+        _ = cmd, cwd, input_text, timeout
+
+        class _Result:
+            returncode = 0
+            stdout = "No workspace mirrors are installed yet. Run the sync command first if you need repo-local mirrors.\n"
+            stderr = ""
+
+        return _Result()
+
+    monkeypatch.setattr(evaluate_memory_palace_skill, "run_command", _fake_run_command)
+
+    result = evaluate_memory_palace_skill.check_sync_script()
+
+    assert result.status == "PARTIAL"
+    assert "尚未安装 workspace mirrors" in result.summary
+
+
+def test_check_client_mcp_bindings_returns_partial_when_bindings_are_not_installed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    home_dir = tmp_path / "home"
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+
+    monkeypatch.setattr(evaluate_memory_palace_skill, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(evaluate_memory_palace_skill.Path, "home", lambda: home_dir)
+
+    result = evaluate_memory_palace_skill.check_client_mcp_bindings()
+
+    assert result.status == "PARTIAL"
+    assert "尚未安装" in result.summary
 
 
 def test_terminate_process_tree_uses_taskkill_on_windows(monkeypatch) -> None:
@@ -900,20 +966,34 @@ def test_smoke_cursor_reports_authentication_required_as_partial(
     assert "登录/鉴权" in result.summary
 
 
-def test_mirror_only_status_requires_matching_agent_assets(
+def test_smoke_cursor_reports_partial_when_projection_is_not_installed(
+    monkeypatch, tmp_path: Path
+) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    cursor_mirror = tmp_path / ".cursor" / "skills" / "memory-palace"
+
+    monkeypatch.setitem(evaluate_memory_palace_skill.MIRRORS, "cursor", cursor_mirror)
+
+    result = evaluate_memory_palace_skill.smoke_cursor()
+
+    assert result.status == "PARTIAL"
+    assert "尚未安装" in result.summary
+    assert str(cursor_mirror) in result.details
+
+
+def test_mirror_only_status_reports_partial_when_agent_projection_is_not_installed(
     monkeypatch, tmp_path: Path
 ) -> None:
     evaluate_memory_palace_skill = _load_skill_eval_module()
     agent_mirror = tmp_path / ".agent" / "skills" / "memory-palace"
-    agent_mirror.mkdir(parents=True)
 
     monkeypatch.setitem(evaluate_memory_palace_skill.MIRRORS, "agent", agent_mirror)
 
     result = evaluate_memory_palace_skill.mirror_only_status("agent")
 
-    assert result.status == "FAIL"
-    assert "canonical" in result.summary
-    assert "missing file" in result.details
+    assert result.status == "PARTIAL"
+    assert "尚未安装" in result.summary
+    assert str(agent_mirror) in result.details
 
 
 def test_mirror_only_status_reports_partial_when_agent_assets_match_canonical(

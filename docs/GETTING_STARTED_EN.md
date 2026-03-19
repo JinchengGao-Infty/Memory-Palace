@@ -231,7 +231,15 @@ If you wish to view the Dashboard buttons, fields, and typical operation flows p
 
 > The frontend defaults to English; if you prefer Chinese, click the language button in the top right to switch, and the browser will remember your choice.
 
-> The frontend dev server proxies `/api` paths to the backend at `http://127.0.0.1:8000` via the configuration in `vite.config.js`, so no manual CORS configuration is needed between the front and back ends.
+> The frontend dev server proxies `/api` to `MEMORY_PALACE_API_PROXY_TARGET` (default: `http://127.0.0.1:8000`) via `vite.config.js`.
+>
+> If you also want to verify same-origin SSE from the **local Vite dev entry**, start `run_sse.py` separately first and additionally set:
+>
+> ```bash
+> MEMORY_PALACE_SSE_PROXY_TARGET=http://127.0.0.1:8010
+> ```
+>
+> With that in place, `/sse`, `/messages`, and `/sse/messages` are also proxied to the local SSE process, so you do not need to hand-wire CORS just for local debugging.
 
 <p align="center">
   <img src="images/setup-assistant-en.png" width="900" alt="Memory Palace first-run setup assistant (English mode)" />

@@ -6,6 +6,10 @@ const apiProxyTarget =
   process.env.MEMORY_PALACE_API_PROXY_TARGET ||
   process.env.NOCTURNE_API_PROXY_TARGET ||
   'http://127.0.0.1:8000'
+const sseProxyTarget =
+  process.env.MEMORY_PALACE_SSE_PROXY_TARGET ||
+  process.env.NOCTURNE_SSE_PROXY_TARGET ||
+  'http://127.0.0.1:8010'
 
 export default defineConfig({
   plugins: [react()],
@@ -17,6 +21,18 @@ export default defineConfig({
         target: apiProxyTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      '/sse/messages': {
+        target: sseProxyTarget,
+        changeOrigin: true
+      },
+      '/messages': {
+        target: sseProxyTarget,
+        changeOrigin: true
+      },
+      '/sse': {
+        target: sseProxyTarget,
+        changeOrigin: true
       }
     }
   }

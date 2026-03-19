@@ -695,8 +695,12 @@ def check_description_contract() -> CheckResult:
 
 
 def check_mirrors() -> CheckResult:
+    missing_targets: list[str] = []
     missing_or_mismatch: list[str] = []
-    for _, mirror_dir in MIRRORS.items():
+    for name, mirror_dir in MIRRORS.items():
+        if not mirror_dir.is_dir():
+            missing_targets.append(f"{name}: {mirror_dir}")
+            continue
         for rel in REQUIRED_FILES:
             expected = CANONICAL_DIR / rel
             actual = mirror_dir / rel
@@ -705,25 +709,36 @@ def check_mirrors() -> CheckResult:
             elif actual.read_bytes() != expected.read_bytes():
                 missing_or_mismatch.append(f"mismatch: {actual}")
     gemini_skill = GEMINI_WORKSPACE_DIR / "SKILL.md"
-    if not gemini_skill.is_file():
-        missing_or_mismatch.append(f"missing: {gemini_skill}")
-    elif gemini_skill.read_bytes() != GEMINI_VARIANT_FILE.read_bytes():
-        missing_or_mismatch.append(f"mismatch: {gemini_skill}")
-    if GEMINI_WORKSPACE_DIR.is_dir():
+    if not GEMINI_WORKSPACE_DIR.is_dir():
+        missing_targets.append(f"gemini: {GEMINI_WORKSPACE_DIR}")
+    else:
+        if not gemini_skill.is_file():
+            missing_or_mismatch.append(f"missing: {gemini_skill}")
+        elif gemini_skill.read_bytes() != GEMINI_VARIANT_FILE.read_bytes():
+            missing_or_mismatch.append(f"mismatch: {gemini_skill}")
         expected = {gemini_skill}
         actual = {path for path in GEMINI_WORKSPACE_DIR.rglob("*") if path.is_file()}
         for extra_path in sorted(actual - expected):
             missing_or_mismatch.append(f"unexpected extra file: {extra_path}")
     if missing_or_mismatch:
         return CheckResult("FAIL", "mirror 与 canonical 不一致", "\n".join(missing_or_mismatch))
+    if missing_targets:
+        return CheckResult(
+            "PARTIAL",
+            "workspace mirrors 尚未同步到当前仓库（可在需要时执行 sync）",
+            "\n".join(missing_targets),
+        )
     return CheckResult("PASS", "workspace mirrors match canonical bundle and Gemini variant")
 
 
 def check_sync_script() -> CheckResult:
     script = PROJECT_ROOT / "scripts" / "sync_memory_palace_skill.py"
     proc = run_command([_python_command(), "-B", str(script), "--check"], cwd=REPO_ROOT, timeout=60)
+    output = (proc.stdout + "\n" + proc.stderr).strip()
     if proc.returncode != 0:
-        return CheckResult("FAIL", "sync script --check 失败", (proc.stdout + "\n" + proc.stderr).strip())
+        return CheckResult("FAIL", "sync script --check 失败", output)
+    if "No workspace mirrors are installed yet." in output:
+        return CheckResult("PARTIAL", "sync script 检测到当前仓库尚未安装 workspace mirrors", output)
     return CheckResult("PASS", proc.stdout.strip() or "sync script --check passed")
 
 
@@ -803,49 +818,82 @@ def _check_command_binding(
     return False, f"{client_name}: {'；'.join(reasons)}（{config_path}）\ncommand={joined}\nenv={json.dumps(env_payload, ensure_ascii=False)}"
 
 
+def _binding_block_is_missing(
+    server_block: dict[str, Any] | None,
+    *,
+    command_is_sequence: bool = False,
+) -> bool:
+    if not isinstance(server_block, dict):
+        return True
+    command = server_block.get("command")
+    args = server_block.get("args") or []
+    env_payload = server_block.get("env") or {}
+    if command_is_sequence:
+        command_items = command if isinstance(command, list) else []
+        return not any(str(item).strip() for item in command_items) and not env_payload
+    return (
+        not str(command or "").strip()
+        and not any(str(item).strip() for item in args)
+        and not env_payload
+    )
+
+
 def check_client_mcp_bindings() -> CheckResult:
     details: list[str] = ["[workspace-local entrypoints]"]
     failures = 0
+    partials = 0
 
     workspace_claude = REPO_ROOT / ".mcp.json"
     if workspace_claude.is_file():
         try:
             payload = json.loads(workspace_claude.read_text(encoding="utf-8"))
             server_block = payload.get("mcpServers", {}).get("memory-palace", {})
-            command = [server_block.get("command", ""), *(server_block.get("args") or [])]
-            ok, message = _check_command_binding(
-                client_name="claude(workspace)",
-                config_path=workspace_claude,
-                command_parts=command,
-                env_payload=server_block.get("env") or {},
-                allow_relative_wrapper=True,
-            )
+            if _binding_block_is_missing(server_block):
+                ok, status, message = True, "INFO", f"claude(workspace): 当前仓库尚未安装 repo-local MCP 入口（{workspace_claude}）"
+                partials += 1
+            else:
+                command = [server_block.get("command", ""), *(server_block.get("args") or [])]
+                ok, message = _check_command_binding(
+                    client_name="claude(workspace)",
+                    config_path=workspace_claude,
+                    command_parts=command,
+                    env_payload=server_block.get("env") or {},
+                    allow_relative_wrapper=True,
+                )
+                status = "PASS" if ok else "FAIL"
         except Exception as exc:
-            ok, message = False, f"claude(workspace): 解析失败（{workspace_claude}）\n{exc}"
+            ok, status, message = False, "FAIL", f"claude(workspace): 解析失败（{workspace_claude}）\n{exc}"
     else:
-        ok, message = False, f"claude(workspace): 未找到配置文件（{workspace_claude}）"
+        ok, status, message = True, "INFO", f"claude(workspace): 未找到配置文件（{workspace_claude}），repo-local 入口按需安装"
+        partials += 1
     failures += 0 if ok else 1
-    details.append(("PASS " if ok else "FAIL ") + message)
+    details.append(f"{status} {message}")
 
     workspace_gemini = REPO_ROOT / ".gemini" / "settings.json"
     if workspace_gemini.is_file():
         try:
             payload = json.loads(workspace_gemini.read_text(encoding="utf-8"))
             server_block = payload.get("mcpServers", {}).get("memory-palace", {})
-            command = [server_block.get("command", ""), *(server_block.get("args") or [])]
-            ok, message = _check_command_binding(
-                client_name="gemini(project)",
-                config_path=workspace_gemini,
-                command_parts=command,
-                env_payload=server_block.get("env") or {},
-                allow_relative_wrapper=True,
-            )
+            if _binding_block_is_missing(server_block):
+                ok, status, message = True, "INFO", f"gemini(project): 当前仓库尚未安装 repo-local MCP 入口（{workspace_gemini}）"
+                partials += 1
+            else:
+                command = [server_block.get("command", ""), *(server_block.get("args") or [])]
+                ok, message = _check_command_binding(
+                    client_name="gemini(project)",
+                    config_path=workspace_gemini,
+                    command_parts=command,
+                    env_payload=server_block.get("env") or {},
+                    allow_relative_wrapper=True,
+                )
+                status = "PASS" if ok else "FAIL"
         except Exception as exc:
-            ok, message = False, f"gemini(project): 解析失败（{workspace_gemini}）\n{exc}"
+            ok, status, message = False, "FAIL", f"gemini(project): 解析失败（{workspace_gemini}）\n{exc}"
     else:
-        ok, message = False, f"gemini(project): 未找到配置文件（{workspace_gemini}）"
+        ok, status, message = True, "INFO", f"gemini(project): 未找到配置文件（{workspace_gemini}），repo-local 入口按需安装"
+        partials += 1
     failures += 0 if ok else 1
-    details.append(("PASS " if ok else "FAIL ") + message)
+    details.append(f"{status} {message}")
     details.append("INFO codex(workspace): 当前仓库依赖 user-scope MCP 配置，无稳定的 repo-local config.toml 入口")
     details.append("INFO opencode(workspace): 当前仓库依赖 user-scope MCP 配置，无稳定的 repo-local opencode.json 入口")
 
@@ -858,19 +906,25 @@ def check_client_mcp_bindings() -> CheckResult:
             payload = json.loads(claude_config.read_text(encoding="utf-8"))
             project_block = payload.get("projects", {}).get(str(REPO_ROOT))
             server_block = (project_block or {}).get("mcpServers", {}).get("memory-palace", {})
-            command = [server_block.get("command", ""), *(server_block.get("args") or [])]
-            ok, message = _check_command_binding(
-                client_name="claude(user)",
-                config_path=claude_config,
-                command_parts=command,
-                env_payload=server_block.get("env") or {},
-            )
+            if _binding_block_is_missing(server_block):
+                ok, status, message = True, "INFO", f"claude(user): 当前机器尚未为本仓库安装 memory-palace 入口（{claude_config}）"
+                partials += 1
+            else:
+                command = [server_block.get("command", ""), *(server_block.get("args") or [])]
+                ok, message = _check_command_binding(
+                    client_name="claude(user)",
+                    config_path=claude_config,
+                    command_parts=command,
+                    env_payload=server_block.get("env") or {},
+                )
+                status = "PASS" if ok else "FAIL"
         except Exception as exc:
-            ok, message = False, f"claude(user): 解析失败（{claude_config}）\n{exc}"
+            ok, status, message = False, "FAIL", f"claude(user): 解析失败（{claude_config}）\n{exc}"
     else:
-        ok, message = False, f"claude(user): 未找到配置文件（{claude_config}）"
+        ok, status, message = True, "INFO", f"claude(user): 未找到配置文件（{claude_config}）"
+        partials += 1
     failures += 0 if ok else 1
-    details.append(("PASS " if ok else "FAIL ") + message)
+    details.append(f"{status} {message}")
 
     codex_config = Path.home() / ".codex" / "config.toml"
     if codex_config.is_file() and tomllib is not None:
@@ -878,63 +932,87 @@ def check_client_mcp_bindings() -> CheckResult:
             with codex_config.open("rb") as handle:
                 payload = tomllib.load(handle)
             server_block = payload.get("mcp_servers", {}).get("memory-palace", {})
-            command = [server_block.get("command", ""), *(server_block.get("args") or [])]
-            ok, message = _check_command_binding(
-                client_name="codex(user)",
-                config_path=codex_config,
-                command_parts=command,
-                env_payload=server_block.get("env") or {},
-            )
+            if _binding_block_is_missing(server_block):
+                ok, status, message = True, "INFO", f"codex(user): 当前机器尚未为本仓库安装 memory-palace 入口（{codex_config}）"
+                partials += 1
+            else:
+                command = [server_block.get("command", ""), *(server_block.get("args") or [])]
+                ok, message = _check_command_binding(
+                    client_name="codex(user)",
+                    config_path=codex_config,
+                    command_parts=command,
+                    env_payload=server_block.get("env") or {},
+                )
+                status = "PASS" if ok else "FAIL"
         except Exception as exc:
-            ok, message = False, f"codex(user): 解析失败（{codex_config}）\n{exc}"
+            ok, status, message = False, "FAIL", f"codex(user): 解析失败（{codex_config}）\n{exc}"
     elif tomllib is None:
-        ok, message = False, "codex(user): 当前 Python 不支持 tomllib，无法审计 config.toml"
+        ok, status, message = False, "FAIL", "codex(user): 当前 Python 不支持 tomllib，无法审计 config.toml"
     else:
-        ok, message = False, f"codex(user): 未找到配置文件（{codex_config}）"
+        ok, status, message = True, "INFO", f"codex(user): 未找到配置文件（{codex_config}）"
+        partials += 1
     failures += 0 if ok else 1
-    details.append(("PASS " if ok else "FAIL ") + message)
+    details.append(f"{status} {message}")
 
     gemini_config = Path.home() / ".gemini" / "settings.json"
     if gemini_config.is_file():
         try:
             payload = json.loads(gemini_config.read_text(encoding="utf-8"))
             server_block = payload.get("mcpServers", {}).get("memory-palace", {})
-            command = [server_block.get("command", ""), *(server_block.get("args") or [])]
-            ok, message = _check_command_binding(
-                client_name="gemini(user)",
-                config_path=gemini_config,
-                command_parts=command,
-                env_payload=server_block.get("env") or {},
-            )
+            if _binding_block_is_missing(server_block):
+                ok, status, message = True, "INFO", f"gemini(user): 当前机器尚未为本仓库安装 memory-palace 入口（{gemini_config}）"
+                partials += 1
+            else:
+                command = [server_block.get("command", ""), *(server_block.get("args") or [])]
+                ok, message = _check_command_binding(
+                    client_name="gemini(user)",
+                    config_path=gemini_config,
+                    command_parts=command,
+                    env_payload=server_block.get("env") or {},
+                )
+                status = "PASS" if ok else "FAIL"
         except Exception as exc:
-            ok, message = False, f"gemini(user): 解析失败（{gemini_config}）\n{exc}"
+            ok, status, message = False, "FAIL", f"gemini(user): 解析失败（{gemini_config}）\n{exc}"
     else:
-        ok, message = False, f"gemini(user): 未找到配置文件（{gemini_config}）"
+        ok, status, message = True, "INFO", f"gemini(user): 未找到配置文件（{gemini_config}）"
+        partials += 1
     failures += 0 if ok else 1
-    details.append(("PASS " if ok else "FAIL ") + message)
+    details.append(f"{status} {message}")
 
     opencode_config = Path.home() / ".config" / "opencode" / "opencode.json"
     if opencode_config.is_file():
         try:
             payload = json.loads(opencode_config.read_text(encoding="utf-8"))
             server_block = payload.get("mcp", {}).get("memory-palace", {})
-            command = list(server_block.get("command") or [])
-            ok, message = _check_command_binding(
-                client_name="opencode(user)",
-                config_path=opencode_config,
-                command_parts=command,
-            )
+            if _binding_block_is_missing(server_block, command_is_sequence=True):
+                ok, status, message = True, "INFO", f"opencode(user): 当前机器尚未为本仓库安装 memory-palace 入口（{opencode_config}）"
+                partials += 1
+            else:
+                command = list(server_block.get("command") or [])
+                ok, message = _check_command_binding(
+                    client_name="opencode(user)",
+                    config_path=opencode_config,
+                    command_parts=command,
+                )
+                status = "PASS" if ok else "FAIL"
         except Exception as exc:
-            ok, message = False, f"opencode(user): 解析失败（{opencode_config}）\n{exc}"
+            ok, status, message = False, "FAIL", f"opencode(user): 解析失败（{opencode_config}）\n{exc}"
     else:
-        ok, message = False, f"opencode(user): 未找到配置文件（{opencode_config}）"
+        ok, status, message = True, "INFO", f"opencode(user): 未找到配置文件（{opencode_config}）"
+        partials += 1
     failures += 0 if ok else 1
-    details.append(("PASS " if ok else "FAIL ") + message)
+    details.append(f"{status} {message}")
 
     if failures:
         return CheckResult(
             "FAIL",
             "至少一个 repo-local 或 user-scope 的 memory-palace MCP 入口未指向当前项目",
+            "\n\n".join(details),
+        )
+    if partials:
+        return CheckResult(
+            "PARTIAL",
+            "当前仓库或当前机器的部分 memory-palace MCP 入口尚未安装，但已安装项未发现错误绑定",
             "\n\n".join(details),
         )
     return CheckResult(
@@ -1258,10 +1336,16 @@ def smoke_gemini_live_suite() -> CheckResult:
 
 
 def mirror_only_status(name: str) -> CheckResult:
+    mirror = MIRRORS[name]
+    if not mirror.is_dir():
+        return CheckResult(
+            "PARTIAL",
+            f"{name} 兼容投影尚未安装到当前仓库（按需同步即可）",
+            str(mirror),
+        )
     issues = _mirror_contract_issues(name)
     if issues:
         return CheckResult("FAIL", f"{name} mirror 缺失或与 canonical 不一致", "\n".join(issues))
-    mirror = MIRRORS[name]
     return CheckResult(
         "PARTIAL",
         f"{name} 兼容投影已对齐 canonical，但当前仍只有静态兼容检查",
@@ -1270,10 +1354,16 @@ def mirror_only_status(name: str) -> CheckResult:
 
 
 def smoke_cursor() -> CheckResult:
+    mirror = MIRRORS["cursor"]
+    if not mirror.is_dir():
+        return CheckResult(
+            "PARTIAL",
+            "Cursor IDE Host 兼容投影尚未安装到当前仓库（按需同步即可）",
+            str(mirror),
+        )
     issues = _mirror_contract_issues("cursor")
     if issues:
         return CheckResult("FAIL", "Cursor IDE Host 兼容检查失败：mirror 缺失或与 canonical 不一致", "\n".join(issues))
-    mirror = MIRRORS["cursor"]
     if not CURSOR_AGENT_BIN.is_file():
         return CheckResult("PARTIAL", "Cursor IDE Host 兼容检查通过静态契约，但本机未发现 cursor-agent runtime", str(mirror))
     try:

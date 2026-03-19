@@ -256,3 +256,33 @@ def test_sync_skill_check_ignores_legacy_extra_files_when_required_files_match(
     monkeypatch.setattr(module, "GEMINI_WORKSPACE_DIR", gemini_dir)
 
     assert module.run_check() == 0
+
+
+def test_sync_skill_check_accepts_clean_clone_without_workspace_mirrors(
+    monkeypatch, tmp_path
+):
+    module = _load_sync_skill_module()
+
+    repo_root = tmp_path / "Memory-Palace"
+    canonical_dir = repo_root / "docs" / "skills" / "memory-palace"
+    (canonical_dir / "references").mkdir(parents=True, exist_ok=True)
+    (canonical_dir / "agents").mkdir(parents=True, exist_ok=True)
+    (canonical_dir / "variants" / "gemini").mkdir(parents=True, exist_ok=True)
+    for relative_path, content in {
+        Path("SKILL.md"): _canonical_skill_text("canonical-skill\n"),
+        Path("references/mcp-workflow.md"): "canonical-workflow\n",
+        Path("references/trigger-samples.md"): "canonical-trigger\n",
+        Path("agents/openai.yaml"): "canonical-openai\n",
+        Path("variants/gemini/SKILL.md"): _canonical_skill_text("canonical-gemini\n"),
+    }.items():
+        path = canonical_dir / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+    monkeypatch.setattr(module, "REPO_ROOT", repo_root)
+    monkeypatch.setattr(module, "CANONICAL_DIR", canonical_dir)
+    monkeypatch.setattr(module, "GEMINI_VARIANT_FILE", canonical_dir / "variants" / "gemini" / "SKILL.md")
+    monkeypatch.setattr(module, "BUNDLE_MIRROR_DIRS", [repo_root / ".codex" / "skills" / "memory-palace"])
+    monkeypatch.setattr(module, "GEMINI_WORKSPACE_DIR", repo_root / ".gemini" / "skills" / "memory-palace")
+
+    assert module.run_check() == 0

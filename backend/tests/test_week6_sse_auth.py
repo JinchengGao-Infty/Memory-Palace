@@ -203,6 +203,17 @@ def test_sse_health_endpoint_is_public(monkeypatch) -> None:
     assert response.json() == {"status": "ok", "service": "memory-palace-sse"}
 
 
+def test_sse_health_endpoint_stays_public_when_api_key_is_configured(monkeypatch) -> None:
+    monkeypatch.setenv("MCP_API_KEY", "week6-sse-secret")
+    monkeypatch.delenv("MCP_API_KEY_ALLOW_INSECURE_LOCAL", raising=False)
+
+    with TestClient(create_sse_app()) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "service": "memory-palace-sse"}
+
+
 def test_sse_auth_does_not_raise_on_streaming_disconnect(tmp_path) -> None:
     backend_dir = Path(__file__).resolve().parents[1]
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:

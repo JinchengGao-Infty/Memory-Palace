@@ -393,11 +393,14 @@ apply_profile_runtime_overrides() {
   local override_keys=(
     "ROUTER_API_BASE"
     "ROUTER_API_KEY"
+    "ROUTER_CHAT_MODEL"
     "ROUTER_EMBEDDING_MODEL"
+    "ROUTER_RERANKER_MODEL"
     "RETRIEVAL_EMBEDDING_BACKEND"
     "RETRIEVAL_EMBEDDING_API_BASE"
     "RETRIEVAL_EMBEDDING_API_KEY"
     "RETRIEVAL_EMBEDDING_MODEL"
+    "RETRIEVAL_RERANKER_ENABLED"
     "RETRIEVAL_RERANKER_API_BASE"
     "RETRIEVAL_RERANKER_API_KEY"
     "RETRIEVAL_RERANKER_MODEL"
@@ -448,6 +451,10 @@ apply_profile_runtime_overrides() {
     if [[ -z "${RETRIEVAL_RERANKER_API_KEY:-}" && -n "${ROUTER_API_KEY:-}" ]]; then
       upsert_env_value_in_file "${env_file}" "RETRIEVAL_RERANKER_API_KEY" "${ROUTER_API_KEY}"
       echo "[override] RETRIEVAL_RERANKER_API_KEY copied from ROUTER_API_KEY for local profile ${selected_profile} runtime injection."
+    fi
+    if [[ -z "${RETRIEVAL_RERANKER_MODEL:-}" && -n "${ROUTER_RERANKER_MODEL:-}" ]]; then
+      upsert_env_value_in_file "${env_file}" "RETRIEVAL_RERANKER_MODEL" "${ROUTER_RERANKER_MODEL}"
+      echo "[override] RETRIEVAL_RERANKER_MODEL copied from ROUTER_RERANKER_MODEL for local profile ${selected_profile} runtime injection."
     fi
   fi
 }
@@ -697,7 +704,7 @@ if [[ ${no_build} -eq 1 ]]; then
     NOCTURNE_BACKEND_PORT="${backend_port}" \
     NOCTURNE_DATA_VOLUME="${data_volume}" \
     NOCTURNE_SNAPSHOTS_VOLUME="${snapshots_volume}" \
-    "${compose_cmd[@]}" "${compose_env_file_args[@]}" -f docker-compose.yml up -d --wait --wait-timeout 120 --force-recreate --remove-orphans; then
+    "${compose_cmd[@]}" "${compose_env_file_args[@]}" -f docker-compose.yml up -d --no-build --wait --wait-timeout 120 --force-recreate --remove-orphans; then
     if ! compose_project_has_any_container backend \
       && ! compose_project_has_any_container sse \
       && ! compose_project_has_any_container frontend; then
