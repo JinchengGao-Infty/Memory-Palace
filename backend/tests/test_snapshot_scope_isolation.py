@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 from db.snapshot import SnapshotManager
@@ -102,3 +103,70 @@ def test_snapshot_manager_hides_legacy_unscoped_sessions_when_database_scope_is_
     assert manager.list_sessions() == []
     assert manager.list_snapshots("legacy-session") == []
     assert manager.get_snapshot("legacy-session", "notes://legacy") is None
+
+
+def test_snapshot_manager_serializes_same_session_manifest_updates(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    manager = SnapshotManager(str(tmp_path / "snapshots"))
+    session_id = "shared-session"
+    first_save_started = threading.Event()
+    release_first_save = threading.Event()
+    second_save_started = threading.Event()
+    save_call_count = 0
+    save_call_guard = threading.Lock()
+    original_save_manifest = manager._save_manifest
+    failures: list[Exception] = []
+    results: dict[str, bool] = {}
+
+    def delayed_save_manifest(target_session_id: str, manifest: dict[str, object]) -> None:
+        nonlocal save_call_count
+        with save_call_guard:
+            save_call_count += 1
+            current_call = save_call_count
+        if target_session_id == session_id and current_call == 1:
+            first_save_started.set()
+            assert release_first_save.wait(timeout=2)
+        elif target_session_id == session_id and current_call == 2:
+            second_save_started.set()
+        original_save_manifest(target_session_id, manifest)
+
+    def create_named_snapshot(name: str) -> None:
+        try:
+            results[name] = manager.create_snapshot(
+                session_id,
+                f"notes://{name}",
+                "path",
+                {
+                    "uri": f"notes://{name}",
+                    "operation_type": "create",
+                },
+            )
+        except Exception as exc:  # pragma: no cover - surfaced by assertion below
+            failures.append(exc)
+
+    monkeypatch.setattr(manager, "_save_manifest", delayed_save_manifest)
+
+    first_thread = threading.Thread(target=create_named_snapshot, args=("alpha",))
+    second_thread = threading.Thread(target=create_named_snapshot, args=("beta",))
+
+    first_thread.start()
+    assert first_save_started.wait(timeout=2)
+
+    second_thread.start()
+    assert not second_save_started.wait(timeout=0.3)
+
+    release_first_save.set()
+    first_thread.join(timeout=2)
+    second_thread.join(timeout=2)
+
+    assert failures == []
+    assert results == {"alpha": True, "beta": True}
+
+    manifest = json.loads(
+        (tmp_path / "snapshots" / session_id / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert set(manifest["resources"]) == {"notes://alpha", "notes://beta"}

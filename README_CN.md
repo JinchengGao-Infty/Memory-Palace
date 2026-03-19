@@ -68,6 +68,8 @@
 
 现在 Dashboard 树形编辑也遵循同一条规则：`POST /browse/node`、`PUT /browse/node`、`DELETE /browse/node` 在真正改数据前也会先写 Review snapshot，所以 Review 页面里能看到并回滚这些修改。
 
+现在同一个 `session_id` 下的快照写入也会做串行化，`manifest.json` 和单个快照 JSON 文件都会通过原子替换方式落盘。用人话说就是：如果多个本地进程共用同一个仓库 checkout，并且刚好写到同一个 Review session，这条快照记录链更不容易丢条目，也不容易留下半写入的 JSON 文件。
+
 ### 🔍 统一检索引擎
 
 三种检索模式——`keyword`（关键词）、`semantic`（语义）、`hybrid`（混合）——支持自动降级。当外部 Embedding 服务不可用时，系统自动回退到关键词搜索，并在发生降级时于响应中报告 `degrade_reasons`。
@@ -178,7 +180,7 @@
 
 1. **Write Guard（写入守卫）** — 每次 `create_memory` / `update_memory` 调用都先经过 Write Guard（`sqlite_client.py`）。在规则模式下，守卫以 **语义匹配 → 关键词匹配 → LLM（可选）** 的顺序判定核心动作 `ADD`、`UPDATE`、`NOOP`、`DELETE`；`BYPASS` 由上层流程在 metadata-only 更新场景标注。当设置 `WRITE_GUARD_LLM_ENABLED=true` 时，可选 LLM 通过 OpenAI 兼容 API 参与决策。
 
-2. **Snapshot（快照）** — 在任何修改前，系统都会先记录当前记忆状态的快照。MCP 工具链路使用 `mcp_server.py` 中的快照 helper；Dashboard 的 `/browse/node` 写入也遵循同样的 path/content 快照语义，并按当前数据库作用域写入到 dashboard 专属 session。这样 Review 仪表盘里的差异对比和一键回滚才能正常工作。
+2. **Snapshot（快照）** — 在任何修改前，系统都会先记录当前记忆状态的快照。MCP 工具链路使用 `mcp_server.py` 中的快照 helper；Dashboard 的 `/browse/node` 写入也遵循同样的 path/content 快照语义，并按当前数据库作用域写入到 dashboard 专属 session。同一个 session 的快照写路径现在会串行化，`manifest.json` 和单个快照 JSON 文件也会通过原子替换方式写入，所以本地多进程共用同一个 checkout 时，不容易丢 Review 条目或留下半写入的快照文件。这样 Review 仪表盘里的差异对比和一键回滚才能正常工作。
 
 3. **Write Lane（写入车道）** — 写入进入序列化队列（`runtime_state.py` → `WriteLanes`），可配置并发度（`RUNTIME_WRITE_GLOBAL_CONCURRENCY`）。这防止了单 SQLite 文件上的竞态条件。
 

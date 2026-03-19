@@ -37,7 +37,7 @@ backend/
 ├── db/
 │   ├── __init__.py        # 客户端工厂（get_sqlite_client / close_sqlite_client）
 │   ├── sqlite_client.py   # 核心数据库层（CRUD、检索、write_guard、gist、vitality、embedding、rerank）
-│   ├── snapshot.py        # 快照管理器（按 session 记录写操作的前置状态，并按当前数据库过滤 Review 可见会话）
+│   ├── snapshot.py        # 快照管理器（按 session 记录写操作的前置状态、串行化同一 session 的快照写入，并按当前数据库过滤 Review 可见会话）
 │   ├── migration_runner.py# 自动数据库迁移执行器
 │   └── migrations/        # SQL 迁移脚本目录
 ├── models/
@@ -91,6 +91,7 @@ backend/
 
 - snapshot 文件仍然位于仓库级 `snapshots/` 目录；
 - 但会话列表、快照列表和快照读取会按**当前数据库作用域**过滤，避免你在同一 checkout 下切换 `DATABASE_URL`、临时 SQLite 文件或 Docker 数据卷后，把另一份库的 rollback 会话混进当前审查列表；
+- 同一个 `session_id` 下的 snapshot 写路径现在会串行化，`manifest.json` 和单个快照 JSON 文件也会通过原子替换落盘；所以多个本地进程共用同一个 checkout 时，同一条 Review session 的快照元数据更不容易丢条目，也不容易出现半写入 JSON；
 - 没有数据库作用域标记的 legacy snapshot 会话，默认不会继续暴露在当前 Review 列表里。
 
 | 方法 | 路径 | 说明 |

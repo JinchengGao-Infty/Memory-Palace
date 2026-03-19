@@ -37,7 +37,7 @@ backend/
 ├── db/
 │   ├── __init__.py        # Client factory (get_sqlite_client / close_sqlite_client)
 │   ├── sqlite_client.py   # Core database layer (CRUD, retrieval, write_guard, gist, vitality, embedding, rerank)
-│   ├── snapshot.py        # Snapshot manager (records pre-state by session and filters Review visibility by current database scope)
+│   ├── snapshot.py        # Snapshot manager (records pre-state by session, serializes same-session snapshot writes, and filters Review visibility by current database scope)
 │   ├── migration_runner.py# Automatic database migration executor
 │   └── migrations/        # SQL migration script directory
 ├── models/
@@ -91,6 +91,7 @@ One implementation boundary to keep in mind:
 
 - snapshot files still live under the repo-level `snapshots/` directory;
 - however, session listing, snapshot listing, and snapshot reads are filtered by the **current database scope**, so changing `DATABASE_URL`, switching to another temporary SQLite file, or pointing Docker at another data volume does not mix rollback sessions from a different database into the current Review queue;
+- within the same `session_id`, snapshot writes are serialized, and both `manifest.json` and per-resource snapshot JSON files are written through atomic replace; this keeps same-session Review metadata much less likely to lose entries or expose half-written JSON when multiple local processes share the same checkout;
 - legacy snapshot sessions that were created before scope metadata existed are hidden by default instead of being exposed under the wrong database context.
 
 | Method | Path | Description |

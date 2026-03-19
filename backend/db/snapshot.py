@@ -18,11 +18,14 @@ Design Principles:
             └── {safe_resource_id}.json
 """
 
-import os
 import json
 import hashlib
+import os
 import shutil
 import stat
+import tempfile
+import time
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pathlib import Path
@@ -36,6 +39,9 @@ DEFAULT_SNAPSHOT_DIR = os.path.join(
 )
 
 _SQLITE_URL_PREFIXES = ("sqlite+aiosqlite:///", "sqlite:///")
+_SESSION_LOCK_STALE_SECONDS = 1.0
+_SESSION_LOCK_WAIT_SECONDS = 5.0
+_SESSION_LOCK_POLL_INTERVAL_SECONDS = 0.05
 
 
 def _resolve_current_database_scope() -> Dict[str, str]:
@@ -100,6 +106,29 @@ def _force_remove(path: str):
             os.remove(path)
         except FileNotFoundError:
             pass
+
+
+def _write_json_atomic(path: str, payload: Dict[str, Any]) -> None:
+    """Write JSON through a temp file and atomically replace the target."""
+    parent_dir = os.path.dirname(path)
+    if parent_dir:
+        Path(parent_dir).mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{Path(path).name}.",
+        suffix=".tmp",
+        dir=parent_dir or None,
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            _force_remove(tmp_path)
 
 
 class SnapshotManager:
@@ -180,6 +209,73 @@ class SnapshotManager:
         """Get the snapshot file path for a specific resource."""
         safe_id = self._sanitize_resource_id(resource_id)
         return os.path.join(self._get_resources_dir(session_id), f"{safe_id}.json")
+
+    def _get_session_lock_dir(self, session_id: str) -> str:
+        """Store per-session write locks outside the session tree."""
+        safe_session_id = self._validate_session_id(session_id)
+        return os.path.join(self.snapshot_dir, ".locks", f"{safe_session_id}.lockdir")
+
+    @staticmethod
+    def _pid_is_alive(pid: int) -> bool:
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+        return True
+
+    @contextmanager
+    def _session_write_lock(self, session_id: str):
+        """Serialize write paths for one session across processes."""
+        self._ensure_dir_exists(os.path.join(self.snapshot_dir, ".locks"))
+        lock_dir = self._get_session_lock_dir(session_id)
+        owner_file = os.path.join(lock_dir, "owner_pid")
+        deadline = time.monotonic() + _SESSION_LOCK_WAIT_SECONDS
+
+        while True:
+            try:
+                os.mkdir(lock_dir)
+                with open(owner_file, "w", encoding="utf-8") as handle:
+                    handle.write(f"{os.getpid()}\n")
+                break
+            except FileExistsError:
+                owner_pid = ""
+                try:
+                    with open(owner_file, "r", encoding="utf-8") as handle:
+                        owner_pid = handle.read().strip()
+                except FileNotFoundError:
+                    owner_pid = ""
+
+                should_reclaim = False
+                if owner_pid:
+                    try:
+                        should_reclaim = not self._pid_is_alive(int(owner_pid))
+                    except ValueError:
+                        should_reclaim = True
+                else:
+                    try:
+                        should_reclaim = (
+                            time.time() - os.path.getmtime(lock_dir)
+                        ) >= _SESSION_LOCK_STALE_SECONDS
+                    except OSError:
+                        should_reclaim = True
+
+                if should_reclaim:
+                    _force_remove(lock_dir)
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"Timed out waiting for snapshot session lock: {session_id}"
+                    )
+                time.sleep(_SESSION_LOCK_POLL_INTERVAL_SECONDS)
+
+        try:
+            yield
+        finally:
+            _force_remove(lock_dir)
     
     def _load_manifest(self, session_id: str) -> Dict[str, Any]:
         """Load or create session manifest."""
@@ -218,9 +314,20 @@ class SnapshotManager:
         scope = _resolve_current_database_scope()
         manifest.setdefault("database_fingerprint", scope["database_fingerprint"])
         manifest.setdefault("database_label", scope["database_label"])
-        
-        with open(manifest_path, 'w', encoding='utf-8') as f:
-            json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+        _write_json_atomic(manifest_path, manifest)
+
+    def _clear_session_unlocked(
+        self, session_id: str, manifest: Optional[Dict[str, Any]] = None
+    ) -> int:
+        """Delete one session tree while the caller already owns the write lock."""
+        session_dir = self._get_session_dir(session_id)
+        if not os.path.exists(session_dir):
+            return 0
+        payload = manifest if manifest is not None else self._load_manifest(session_id)
+        count = len(payload.get("resources", {}))
+        _force_remove(session_dir)
+        return count
     
     def has_snapshot(self, session_id: str, resource_id: str) -> bool:
         """Check if a snapshot exists for this resource in this session."""
@@ -288,37 +395,44 @@ class SnapshotManager:
         Returns:
             True if snapshot was created, False if it already existed (and force=False)
         """
-        # Check if snapshot already exists
-        if not force and self.has_snapshot(session_id, resource_id):
-            return False
-        
-        # Ensure directories exist
-        self._ensure_dir_exists(self._get_resources_dir(session_id))
-        
-        # Create snapshot file
-        snapshot = {
-            "resource_id": resource_id,
-            "resource_type": resource_type,
-            "snapshot_time": datetime.now().isoformat(),
-            "data": snapshot_data
-        }
-        
-        snapshot_path = self._get_snapshot_path(session_id, resource_id)
-        with open(snapshot_path, 'w', encoding='utf-8') as f:
-            json.dump(snapshot, f, ensure_ascii=False, indent=2)
-        
-        # Update manifest
-        manifest = self._load_manifest(session_id)
-        manifest["resources"][resource_id] = {
-            "resource_type": resource_type,
-            "snapshot_time": snapshot["snapshot_time"],
-            "operation_type": snapshot_data.get("operation_type", "modify"),
-            "file": os.path.basename(snapshot_path),
-            "uri": snapshot_data.get("uri")  # For display (path snapshots use URI as resource_id; memory snapshots store it in data)
-        }
-        self._save_manifest(session_id, manifest)
-        
-        return True
+        with self._session_write_lock(session_id):
+            manifest = self._load_manifest(session_id)
+            snapshot_path = self._get_snapshot_path(session_id, resource_id)
+            if not force and (
+                resource_id in manifest.get("resources", {}) or os.path.exists(snapshot_path)
+            ):
+                return False
+            if (
+                not force
+                and resource_type == "memory"
+                and isinstance(snapshot_data.get("uri"), str)
+            ):
+                for existing_id, meta in manifest.get("resources", {}).items():
+                    if (
+                        existing_id != resource_id
+                        and meta.get("resource_type") == "memory"
+                        and meta.get("uri") == snapshot_data.get("uri")
+                    ):
+                        return False
+
+            self._ensure_dir_exists(self._get_resources_dir(session_id))
+            snapshot = {
+                "resource_id": resource_id,
+                "resource_type": resource_type,
+                "snapshot_time": datetime.now().isoformat(),
+                "data": snapshot_data,
+            }
+            _write_json_atomic(snapshot_path, snapshot)
+
+            manifest["resources"][resource_id] = {
+                "resource_type": resource_type,
+                "snapshot_time": snapshot["snapshot_time"],
+                "operation_type": snapshot_data.get("operation_type", "modify"),
+                "file": os.path.basename(snapshot_path),
+                "uri": snapshot_data.get("uri"),
+            }
+            self._save_manifest(session_id, manifest)
+            return True
     
     def get_snapshot(self, session_id: str, resource_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -362,6 +476,8 @@ class SnapshotManager:
             return sessions
         
         for session_id in os.listdir(self.snapshot_dir):
+            if session_id.startswith("."):
+                continue
             session_dir = self._get_session_dir(session_id)
             if os.path.isdir(session_dir):
                 manifest = self._load_manifest(session_id)
@@ -414,36 +530,31 @@ class SnapshotManager:
         Returns:
             True if deleted, False if not found
         """
-        # First, check manifest for the actual filename (handles legacy snapshots)
-        manifest = self._load_manifest(session_id)
-        resource_meta = manifest.get("resources", {}).get(resource_id)
-        
-        if resource_meta and resource_meta.get("file"):
-            # Use the filename recorded in manifest
-            snapshot_path = os.path.join(
-                self._get_resources_dir(session_id), 
-                resource_meta["file"]
-            )
-        else:
-            # Fallback to computed path
-            snapshot_path = self._get_snapshot_path(session_id, resource_id)
-        
-        if not os.path.exists(snapshot_path):
-            return False
-        
-        _force_remove(snapshot_path)
-        
-        # Update manifest
-        if resource_id in manifest.get("resources", {}):
-            del manifest["resources"][resource_id]
-            
-            # If no resources left, remove the entire session to prevent clutter
-            if not manifest["resources"]:
-                self.clear_session(session_id)
+        with self._session_write_lock(session_id):
+            manifest = self._load_manifest(session_id)
+            resource_meta = manifest.get("resources", {}).get(resource_id)
+
+            if resource_meta and resource_meta.get("file"):
+                snapshot_path = os.path.join(
+                    self._get_resources_dir(session_id),
+                    resource_meta["file"],
+                )
             else:
-                self._save_manifest(session_id, manifest)
-        
-        return True
+                snapshot_path = self._get_snapshot_path(session_id, resource_id)
+
+            if not os.path.exists(snapshot_path):
+                return False
+
+            _force_remove(snapshot_path)
+
+            if resource_id in manifest.get("resources", {}):
+                del manifest["resources"][resource_id]
+                if not manifest["resources"]:
+                    self._clear_session_unlocked(session_id, manifest)
+                else:
+                    self._save_manifest(session_id, manifest)
+
+            return True
     
     def clear_session(self, session_id: str) -> int:
         """
@@ -452,19 +563,8 @@ class SnapshotManager:
         Returns:
             Number of snapshots deleted
         """
-        session_dir = self._get_session_dir(session_id)
-        
-        if not os.path.exists(session_dir):
-            return 0
-        
-        # Count resources before deletion
-        manifest = self._load_manifest(session_id)
-        count = len(manifest.get("resources", {}))
-        
-        # Remove the entire session directory tree (manifest + resources)
-        _force_remove(session_dir)
-        
-        return count
+        with self._session_write_lock(session_id):
+            return self._clear_session_unlocked(session_id)
 
 
 # Global singleton

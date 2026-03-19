@@ -72,6 +72,8 @@ Every memory write passes through a strict pipeline: **Write Guard pre-check →
 
 The same rule now applies to Dashboard tree writes as well: `POST /browse/node`, `PUT /browse/node`, and `DELETE /browse/node` also create Review snapshots before modifying data, so the Review page can see and roll them back under the current database scope.
 
+Within the same `session_id`, snapshot writes are now serialized as well, and both `manifest.json` and individual snapshot JSON files are written through atomic replace. In plain terms: if multiple local processes share one repo checkout and touch the same Review session, the snapshot ledger is much less likely to lose entries or leave behind half-written JSON files.
+
 ### 🔍 Unified Retrieval Engine
 
 Three retrieval modes — `keyword`, `semantic`, and `hybrid` — with automatic degradation. When external embedding services are unavailable, the system gracefully falls back to keyword search and reports `degrade_reasons` when degradation occurs.
@@ -182,7 +184,7 @@ If you want a page-by-page walkthrough of the Dashboard, see [Dashboard User Gui
 
 1. **Write Guard** — Every `create_memory` / `update_memory` call first passes through the Write Guard (`sqlite_client.py`). In rule-based mode, the guard evaluates in this order: **semantic matching → keyword matching → optional LLM**, and outputs core actions `ADD`, `UPDATE`, `NOOP`, or `DELETE`; `BYPASS` is marked by upper-layer flow for metadata-only updates. When `WRITE_GUARD_LLM_ENABLED=true`, an optional LLM participates via an OpenAI-compatible chat API.
 
-2. **Snapshot** — Before any modification, the system creates snapshots for the current memory state. The MCP tool path uses the snapshot helpers in `mcp_server.py`, and Dashboard `/browse/node` writes follow the same path/content snapshot semantics under a database-scoped dashboard session. This enables full diff comparison and one-click rollback in the Review dashboard.
+2. **Snapshot** — Before any modification, the system creates snapshots for the current memory state. The MCP tool path uses the snapshot helpers in `mcp_server.py`, and Dashboard `/browse/node` writes follow the same path/content snapshot semantics under a database-scoped dashboard session. Same-session snapshot writes are serialized, and both `manifest.json` and per-resource snapshot JSON files are written via atomic replace, so local multi-process use is less likely to lose Review entries or expose half-written snapshot files. This enables full diff comparison and one-click rollback in the Review dashboard.
 
 3. **Write Lane** — Writes enter a serialized queue (`runtime_state.py` → `WriteLanes`) with configurable concurrency (`RUNTIME_WRITE_GLOBAL_CONCURRENCY`). This prevents race conditions on the single SQLite file.
 
