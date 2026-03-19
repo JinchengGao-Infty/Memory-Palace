@@ -202,9 +202,18 @@ output_dir.mkdir(parents=True, exist_ok=True)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 dest_file = output_dir / f"memory_palace_backup_{timestamp}.db"
 
-with sqlite3.connect(sqlite_path) as source_conn:
-    with sqlite3.connect(dest_file) as target_conn:
-        source_conn.backup(target_conn)
+try:
+    with sqlite3.connect(sqlite_path, timeout=30.0) as source_conn:
+        source_conn.execute("PRAGMA busy_timeout = 30000")
+        with sqlite3.connect(dest_file, timeout=30.0) as target_conn:
+            target_conn.execute("PRAGMA busy_timeout = 30000")
+            source_conn.backup(target_conn, pages=256, sleep=0.05)
+except (OSError, sqlite3.Error) as exc:
+    try:
+        dest_file.unlink(missing_ok=True)
+    except OSError:
+        pass
+    fail(f"SQLite backup failed: {exc}")
 
 print("Backup completed.")
 print(f"Source: {sqlite_path}")

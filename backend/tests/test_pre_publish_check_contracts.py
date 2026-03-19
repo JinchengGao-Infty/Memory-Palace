@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import subprocess
 
@@ -116,6 +117,60 @@ def test_apply_profile_shell_accepts_linux_alias_and_maps_to_macos_profile(
     assert "<your-user>" not in database_url_line
     assert database_url_line.startswith("DATABASE_URL=sqlite+aiosqlite:////")
     assert database_url_line.endswith("demo.db")
+
+
+def test_apply_profile_shell_falls_back_to_python_when_openssl_is_unusable(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "repo"
+    script_path = project_root / "scripts" / "apply_profile.sh"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+
+    source_wrapper = (
+        PROJECT_ROOT / "scripts" / "apply_profile.sh"
+    ).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "")
+    with script_path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(source_wrapper)
+    script_path.chmod(0o755)
+
+    (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
+    profile_path = project_root / "deploy" / "profiles" / "docker" / "profile-a.env"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(
+        "SEARCH_DEFAULT_MODE=keyword\n"
+        "RETRIEVAL_EMBEDDING_BACKEND=none\n"
+        "RETRIEVAL_RERANKER_ENABLED=false\n",
+        encoding="utf-8",
+    )
+
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    (fake_bin / "openssl").write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+    (fake_bin / "python3").write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+    (fake_bin / "python").write_text(
+        "#!/usr/bin/env bash\n"
+        "printf 'python-fallback-token\\n'\n",
+        encoding="utf-8",
+    )
+    for executable in ("openssl", "python3", "python"):
+        (fake_bin / executable).chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", "scripts/apply_profile.sh", "docker", "a", ".env.generated"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    generated_lines = (project_root / ".env.generated").read_text(encoding="utf-8").splitlines()
+    mcp_api_key_line = next(line for line in generated_lines if line.startswith("MCP_API_KEY="))
+    assert mcp_api_key_line == "MCP_API_KEY=python-fallback-token"
 
 
 def test_repo_ignore_rules_cover_local_review_reports_and_local_scan_artifacts() -> None:

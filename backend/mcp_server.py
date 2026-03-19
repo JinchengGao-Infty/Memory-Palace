@@ -1162,23 +1162,35 @@ def _merge_session_global_results(
     *, session_results: List[Dict[str, Any]], global_results: List[Dict[str, Any]]
 ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     merged: List[Dict[str, Any]] = []
-    seen = set()
+    index_by_key: Dict[Any, int] = {}
+    source_by_key: Dict[Any, str] = {}
     dedup_dropped = 0
     session_contributed = 0
     global_contributed = 0
+    session_replaced_by_global = 0
 
     for index, item in enumerate(session_results + global_results):
         source_bucket = "session" if index < len(session_results) else "global"
         key = _search_result_identity(item)
-        if key in seen:
-            dedup_dropped += 1
+        if key not in index_by_key:
+            index_by_key[key] = len(merged)
+            source_by_key[key] = source_bucket
+            merged.append(item)
+            if source_bucket == "session":
+                session_contributed += 1
+            else:
+                global_contributed += 1
             continue
-        seen.add(key)
-        merged.append(item)
-        if source_bucket == "session":
-            session_contributed += 1
-        else:
+
+        if source_bucket == "global" and source_by_key.get(key) == "session":
+            merged[index_by_key[key]] = item
+            source_by_key[key] = "global"
+            session_contributed = max(0, session_contributed - 1)
             global_contributed += 1
+            session_replaced_by_global += 1
+            continue
+
+        dedup_dropped += 1
     return merged, {
         "session_candidates": len(session_results),
         "global_candidates": len(global_results),
@@ -1186,6 +1198,7 @@ def _merge_session_global_results(
         "dedup_dropped": dedup_dropped,
         "session_contributed": session_contributed,
         "global_contributed": global_contributed,
+        "session_replaced_by_global": session_replaced_by_global,
     }
 
 
@@ -1200,6 +1213,86 @@ def _search_result_identity(item: Dict[str, Any]) -> Any:
         item.get("memory_id"),
         item.get("chunk_id"),
     )
+
+
+async def _revalidate_search_results(
+    *,
+    client: Any,
+    results: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """
+    Revalidate merged search results against current path state.
+
+    Session-first cache entries are intentionally fast and ephemeral, so they can
+    outlive a delete/update in another session. Re-checking the resolved URI
+    keeps the final payload from surfacing already-removed memories, and refreshes
+    session-cache snippets with the current content when the path still exists.
+    """
+    validated: List[Dict[str, Any]] = []
+    dropped_missing = 0
+    refreshed_session_entries = 0
+    path_state_cache: Dict[str, Optional[Dict[str, Any]]] = {}
+    get_memory_by_path = getattr(client, "get_memory_by_path", None)
+
+    if not callable(get_memory_by_path):
+        return list(results), {
+            "stale_result_dropped": 0,
+            "session_queue_refreshed": 0,
+        }
+
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+
+        uri_value = str(item.get("uri") or "").strip()
+        if not uri_value:
+            validated.append(item)
+            continue
+
+        if uri_value not in path_state_cache:
+            try:
+                domain, path = parse_uri(uri_value)
+            except ValueError:
+                path_state_cache[uri_value] = None
+            else:
+                try:
+                    path_state_cache[uri_value] = await get_memory_by_path(path, domain)
+                except Exception:
+                    path_state_cache[uri_value] = None
+                    validated.append(item)
+                    continue
+
+        current_memory = path_state_cache.get(uri_value)
+        if not current_memory:
+            dropped_missing += 1
+            continue
+
+        normalized = dict(item)
+        current_memory_id = current_memory.get("id")
+        if isinstance(current_memory_id, int):
+            normalized["memory_id"] = current_memory_id
+
+        current_priority = current_memory.get("priority")
+        if current_priority is not None:
+            normalized["priority"] = current_priority
+
+        current_timestamp = current_memory.get("created_at")
+        if current_timestamp:
+            normalized["updated_at"] = current_timestamp
+
+        if normalized.get("match_type") == "session_queue":
+            normalized["snippet"] = _event_preview(
+                str(current_memory.get("content", "")),
+                300,
+            )
+            refreshed_session_entries += 1
+
+        validated.append(normalized)
+
+    return validated, {
+        "stale_result_dropped": dropped_missing,
+        "session_queue_refreshed": refreshed_session_entries,
+    }
 
 
 async def _ensure_parent_path_exists(
@@ -4209,7 +4302,12 @@ async def search_memory(
             session_results=session_results,
             global_results=filtered_results,
         )
-        final_results = merged_results[:resolved_max_results]
+        revalidated_results, revalidation_metrics = await _revalidate_search_results(
+            client=client,
+            results=merged_results,
+        )
+        session_first_metrics.update(revalidation_metrics)
+        final_results = revalidated_results[:resolved_max_results]
         session_before = int(session_first_metrics.get("session_contributed") or 0)
         global_before = int(session_first_metrics.get("global_contributed") or 0)
         merged_before = int(session_first_metrics.get("merged_candidates") or 0)

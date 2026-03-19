@@ -89,15 +89,15 @@
 
 ---
 
-## 1.2 本地 stdio MCP 一启动就断开，或错误里出现 `/app/data`
+## 1.2 本地 stdio MCP 一启动就断开，或错误里出现 `/app/data` / `/data`
 
 **常见现象**：
 
 - 客户端里看到 `connection closed: initialize response`
 - 或启动日志里出现 `Read-only file system: '/app'`
-- 或直接报本地 `.env` 里的 `DATABASE_URL` 指向 `/app/data/...`
+- 或直接报本地 `.env` 里的 `DATABASE_URL` 指向 `/app/data/...` 或 `/data/...`
 
-**这通常不是 MCP 协议坏了**。更常见的原因是：你把 Docker / GHCR 路径里的 `sqlite+aiosqlite:////app/data/...` 写进了本地 `.env`。
+**这通常不是 MCP 协议坏了**。更常见的原因是：你把 Docker / GHCR 路径里的 `sqlite+aiosqlite:////app/data/...`，或其他 `/data/...` 这类容器内 sqlite 路径，写进了本地 `.env`。
 
 repo-local `scripts/run_memory_palace_mcp_stdio.sh` 只服务于：
 
@@ -105,7 +105,7 @@ repo-local `scripts/run_memory_palace_mcp_stdio.sh` 只服务于：
 - 当前 checkout 下的本地 `.env`
 - 当前 checkout 下的本地 `backend/.venv`
 
-它不会复用 Docker 容器里的 `/app/data`。现在如果它发现本地 `.env` 仍在用容器路径，会直接拒绝启动，而不是再假装握手成功。
+它不会复用 Docker 容器里的 `/app/data`，也不会把 `/data/...` 这类容器内 sqlite 路径当成本机路径。现在如果它发现本地 `.env` 仍在用容器路径，会直接拒绝启动，而不是再假装握手成功。
 
 **处理方式**：
 

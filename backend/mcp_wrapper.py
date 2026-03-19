@@ -7,7 +7,7 @@ entrypoint instead of the bash launcher. It also keeps the runtime behavior
 aligned with scripts/run_memory_palace_mcp_stdio.sh:
 
 - reuse the repo .env / DATABASE_URL when present
-- reject Docker-internal /app/... database paths for repo-local stdio
+- reject Docker-internal sqlite database paths such as /app/... or /data/...
 - fall back to demo.db only when neither .env nor .env.docker exists
 - run the backend with the repo-local virtualenv interpreter
 - normalize CRLF on stdio for hosts with Windows line-ending quirks
@@ -30,6 +30,7 @@ DOCKER_ENV_FILE = PROJECT_ROOT / ".env.docker"
 DEFAULT_DB_PATH = PROJECT_ROOT / "demo.db"
 WINDOWS_VENV_PYTHON = BACKEND_DIR / ".venv" / "Scripts" / "python.exe"
 POSIX_VENV_PYTHON = BACKEND_DIR / ".venv" / "bin" / "python"
+DOCKER_INTERNAL_SQLITE_PREFIXES = ("/app/", "/data/")
 
 
 def read_env_value(file_path: Path, key: str) -> str:
@@ -55,8 +56,10 @@ def normalize_database_url(value: str | None) -> str:
 
 def is_docker_internal_database_url(value: str | None) -> bool:
     normalized = normalize_database_url(value)
-    return normalized.startswith("sqlite+aiosqlite:////app/") or normalized.startswith(
-        "sqlite+aiosqlite:///app/"
+    return any(
+        normalized.startswith(f"sqlite+aiosqlite:///{prefix}")
+        or normalized.startswith(f"sqlite+aiosqlite://{prefix}")
+        for prefix in DOCKER_INTERNAL_SQLITE_PREFIXES
     )
 
 
@@ -97,7 +100,8 @@ def build_runtime_env() -> dict[str, str]:
             file=sys.stderr,
         )
         print(
-            "The current .env points to /app/... which only exists inside the Docker container.",
+            "The current .env points to a container-only sqlite path "
+            "(for example /app/... or /data/...).",
             file=sys.stderr,
         )
         print(

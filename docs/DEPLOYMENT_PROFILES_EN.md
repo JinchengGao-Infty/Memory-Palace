@@ -301,7 +301,7 @@ This path is for **running the service quickly**:
 - Unlike `docker_one_click.sh/.ps1`, this path does **not** auto-adjust ports. Set `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT` explicitly if the defaults are occupied.
 - If a containerized C / D setup still needs to reach a **model service running on your host machine**, do not use `127.0.0.1` as the host-side address from inside the container. From the container's point of view, `127.0.0.1` loops back to the container itself, not your host. Prefer `host.docker.internal` (or your actual reachable host address). The compose files now add `host.docker.internal:host-gateway`, so this also works on modern Linux Docker.
 - Do **not** assume the repo-local stdio wrapper shares container data automatically. `scripts/run_memory_palace_mcp_stdio.sh` needs a host-side local repository `.env` and the local `backend/.venv`; it does not reuse container data from `/app/data`.
-- If you later switch back to a local `stdio` client, your local `.env` must contain a host-accessible absolute path. If `.env` is missing while `.env.docker` exists, or if `.env` / an explicit `DATABASE_URL` still points to `/app/...`, the wrapper refuses to start and tells you to use a host path or Docker `/sse` instead.
+- If you later switch back to a local `stdio` client, your local `.env` must contain a host-accessible absolute path. If `.env` is missing while `.env.docker` exists, or if `.env` / an explicit `DATABASE_URL` still points to `/app/...` or `/data/...`, the wrapper refuses to start and tells you to use a host path or Docker `/sse` instead.
 
 The rest of this section describes the **local build / maintainer path** using `docker_one_click.sh/.ps1`.
 
@@ -410,7 +410,7 @@ bash scripts/apply_profile.sh macos b
 >
 > `apply_profile.sh/.ps1` currently deduplicates env keys after generation to prevent inconsistent behavior across different parsers for keys that appear multiple times.
 >
-> Treat `deploy/profiles/*/*.env` as **Profile template inputs**, not as final `.env` files to copy by hand. For example, the macOS templates intentionally keep a placeholder `DATABASE_URL` first, then let `apply_profile.*` rewrite it for the current checkout. In particular, do not copy Docker template values like `sqlite+aiosqlite:////app/data/...` into a local `.env`; that is a container path, and the repo-local stdio wrapper treats it as a misconfiguration and refuses to start.
+> Treat `deploy/profiles/*/*.env` as **Profile template inputs**, not as final `.env` files to copy by hand. For example, the macOS templates intentionally keep a placeholder `DATABASE_URL` first, then let `apply_profile.*` rewrite it for the current checkout. In particular, do not copy Docker template values like `sqlite+aiosqlite:////app/data/...`, or any `/data/...`-style container-only sqlite path, into a local `.env`; that is a container path, and the repo-local stdio wrapper treats it as a misconfiguration and refuses to start.
 >
 > If you are just running the repository manually for the first time, Profile B is the safest start; switch to Profile C only when the embedding / reranker links are available.
 

@@ -99,7 +99,7 @@ In other words:
 - client integration is still host-side configuration
 - if you later connect a client manually to `http://localhost:3000/sse`, `<YOUR_MCP_API_KEY>` normally means the `MCP_API_KEY` in the `.env.docker` file you just generated
 - do **not** assume `scripts/run_memory_palace_mcp_stdio.sh` will reuse container data, because that wrapper needs a host-side local `.env` plus `backend/.venv` and does not reuse `/app/data`
-- if you later switch back to a local `stdio` client, your local `.env` must contain a host-accessible absolute path; if `.env` is missing while `.env.docker` exists, or if `.env` / an explicit `DATABASE_URL` still points to `/app/...`, the wrapper refuses to start and tells you to use a host path or Docker `/sse` instead
+- if you later switch back to a local `stdio` client, your local `.env` must contain a host-accessible absolute path; if `.env` is missing while `.env.docker` exists, or if `.env` / an explicit `DATABASE_URL` still points to `/app/...` or `/data/...`, the wrapper refuses to start and tells you to use a host path or Docker `/sse` instead
 
 If you also want to wire clients into this repository, continue with:
 

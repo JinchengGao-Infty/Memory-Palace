@@ -83,17 +83,45 @@ set_env_value() {
 }
 
 generate_random_mcp_api_key() {
+  local generated=""
+
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -hex 24 | tr -d '\r\n'
-    return 0
+    generated="$(openssl rand -hex 24 2>/dev/null | tr -d '\r\n' || true)"
+    if [[ -n "${generated}" ]]; then
+      printf '%s\n' "${generated}"
+      return 0
+    fi
   fi
 
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import secrets; print(secrets.token_hex(24))'
-    return 0
+  local python_candidate
+  for python_candidate in python3 python; do
+    if ! command -v "${python_candidate}" >/dev/null 2>&1; then
+      continue
+    fi
+    generated="$("${python_candidate}" -c 'import secrets; print(secrets.token_hex(24))' 2>/dev/null || true)"
+    generated="$(printf '%s' "${generated}" | tr -d '\r\n')"
+    if [[ -n "${generated}" ]]; then
+      printf '%s\n' "${generated}"
+      return 0
+    fi
+  done
+
+  if command -v py >/dev/null 2>&1; then
+    for python_candidate in "-3" ""; do
+      if [[ -n "${python_candidate}" ]]; then
+        generated="$(py "${python_candidate}" -c 'import secrets; print(secrets.token_hex(24))' 2>/dev/null || true)"
+      else
+        generated="$(py -c 'import secrets; print(secrets.token_hex(24))' 2>/dev/null || true)"
+      fi
+      generated="$(printf '%s' "${generated}" | tr -d '\r\n')"
+      if [[ -n "${generated}" ]]; then
+        printf '%s\n' "${generated}"
+        return 0
+      fi
+    done
   fi
 
-  echo "Failed to generate MCP_API_KEY: neither openssl nor python3 is available." >&2
+  echo "Failed to generate MCP_API_KEY: no usable openssl/python3/python/py runtime is available." >&2
   return 1
 }
 

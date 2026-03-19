@@ -303,7 +303,7 @@ Important boundaries:
 - If you do **not** want the repo-local install path, any MCP client that supports remote SSE can still be configured manually to connect to `http://localhost:3000/sse` with the matching API key / auth header. For this GHCR path, that key normally means the `MCP_API_KEY` written into the freshly generated `.env.docker`.
 - If a Dockerized C / D setup still needs to reach a model service on your host machine, use `host.docker.internal`. The compose files now add `host.docker.internal:host-gateway`, so this path also works on modern Linux Docker instead of only Docker Desktop.
 - Do **not** assume the repo-local stdio wrapper shares container data automatically. `scripts/run_memory_palace_mcp_stdio.sh` needs a host-side local repository `.env` and the local `backend/.venv`; it does not reuse container data from `/app/data`.
-- If you later switch back to a local `stdio` client, your local `.env` must contain a host-accessible absolute path. If `.env` is missing while `.env.docker` exists, the wrapper refuses to fall back to `demo.db`; if `.env` or an explicit `DATABASE_URL` still points to `/app/...`, it also refuses to start and tells you to use a host path or Docker `/sse` instead.
+- If you later switch back to a local `stdio` client, your local `.env` must contain a host-accessible absolute path. If `.env` is missing while `.env.docker` exists, the wrapper refuses to fall back to `demo.db`; if `.env` or an explicit `DATABASE_URL` still points to `/app/...` or `/data/...`, it also refuses to start and tells you to use a host path or Docker `/sse` instead.
 - Unlike `docker_one_click.sh/.ps1`, the GHCR compose path does **not** auto-adjust ports. If `3000` / `18000` are already occupied, set `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT` yourself before `docker compose up`.
 
 Stop services:
@@ -348,7 +348,7 @@ DATABASE_URL=sqlite+aiosqlite:////absolute/path/to/demo.db
 DATABASE_URL=sqlite+aiosqlite:///C:/absolute/path/to/demo.db
 ```
 
-> Do not copy the Docker / GHCR value `sqlite+aiosqlite:////app/data/...` into a local `.env`. `/app/...` is a container-internal path, not a real file path on your host machine; the repo-local `stdio` wrapper now refuses this configuration explicitly. For local `stdio`, use a host absolute path instead. If you actually want the Docker-side data and service, connect to the Docker-exposed `/sse` endpoint instead.
+> Do not copy the Docker / GHCR value `sqlite+aiosqlite:////app/data/...`, or any other container-only sqlite path such as `/data/...`, into a local `.env`. `/app/...` and `/data/...` are container-internal paths, not real file paths on your host machine; the repo-local `stdio` wrapper now refuses this configuration explicitly. For local `stdio`, use a host absolute path instead. If you actually want the Docker-side data and service, connect to the Docker-exposed `/sse` endpoint instead.
 
 If you want to use the Dashboard or call `/browse` / `/review` / `/maintenance` locally right away, add **one** of these lines to your `.env` before starting the backend:
 
@@ -374,7 +374,7 @@ This generates a Profile B-based `.env` using the platform-specific template at 
 
 Treat `deploy/profiles/*/*.env` as **Profile template inputs**, not as final `.env` files you should copy by hand. Some template values intentionally keep placeholder paths until `apply_profile.*` rewrites them for the current repository location.
 
-If you previously generated `.env.docker`, do not simply rename that Docker file to `.env`. The Docker profile uses `/app/data/...` for containers; local `stdio` MCP needs a host-side absolute path instead.
+If you previously generated `.env.docker`, do not simply rename that Docker file to `.env`. The Docker profile uses container-only paths such as `/app/data/...`; if you customized the mount to `/data/...`, that is still container-only. Local `stdio` MCP needs a host-side absolute path instead.
 
 On **macOS / Windows local setup**, the generated file still leaves `MCP_API_KEY` empty by default. If you want the Dashboard, `/browse` / `/review` / `/maintenance`, or `/sse` / `/messages` to work immediately, add either:
 
@@ -499,11 +499,11 @@ python run_sse.py
 > - native Windows: prefer `backend/mcp_wrapper.py`
 > - macOS / Linux / Git Bash / WSL: prefer `scripts/run_memory_palace_mcp_stdio.sh`
 >
-> Both launchers use the repository `backend/.venv`, read the repository `.env` first, and only fall back to the repo's default SQLite path when neither `DATABASE_URL` nor `.env` is present. If `.env` is missing but `.env.docker` exists, or if a local `.env` still points `DATABASE_URL` at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db`, the wrapper now refuses to start on purpose because the repo-local stdio path does **not** reuse the container's `/app/data` database path. In a Docker-only setup, connect the client to `/sse` instead of assuming the wrapper will pick up container data.
+> Both launchers use the repository `backend/.venv`, read the repository `.env` first, and only fall back to the repo's default SQLite path when neither `DATABASE_URL` nor `.env` is present. If `.env` is missing but `.env.docker` exists, or if a local `.env` still points `DATABASE_URL` at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db` or a `/data/...` variant, the wrapper now refuses to start on purpose because the repo-local stdio path does **not** reuse container-only sqlite paths. In a Docker-only setup, connect the client to `/sse` instead of assuming the wrapper will pick up container data.
 >
 > One more detail rechecked in the current validation round: if a client or IDE host passes `DATABASE_URL` as an empty string, these wrappers still treat that as “not set” and keep reusing the repository `.env` value. They do not misclassify that case as a missing repo-local configuration just because the variable name exists.
 >
-> The same rule now applies when `.env` itself is wrong: if `.env` or an explicit `DATABASE_URL` still points to `/app/...`, the wrapper refuses to start on purpose. That is a local path configuration error, not an MCP protocol failure.
+> The same rule now applies when `.env` itself is wrong: if `.env` or an explicit `DATABASE_URL` still points to `/app/...` or `/data/...`, the wrapper refuses to start on purpose. That is a local path configuration error, not an MCP protocol failure.
 >
 > `python run_sse.py` also defaults to loopback (`127.0.0.1:8000`) unless you override `HOST` and `PORT`. This `HOST=127.0.0.1` example is intentionally loopback-only. If you really need remote access, switch `HOST` to `0.0.0.0` (or your bind address). That opens the listener for remote clients, but it does **not** remove the normal safety requirements — you still need your own API key, firewall, reverse proxy, and transport security controls.
 

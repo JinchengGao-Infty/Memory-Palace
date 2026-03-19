@@ -91,7 +91,7 @@ cp .env.example .env
 >
 > The slash count is platform-specific: absolute paths on `macOS / Linux` are usually `sqlite+aiosqlite:////...`, while `Windows` drive-letter paths are usually `sqlite+aiosqlite:///C:/...`. If you edit `.env` manually, do not mix these two forms.
 >
-> Another very common misconfiguration: do not copy the Docker / GHCR value `sqlite+aiosqlite:////app/data/...` into a local `.env`. `/app/...` is a container-internal path, not the database file on your host machine; the repo-local `stdio` wrapper now refuses this configuration explicitly. For local `stdio`, use a host absolute path instead. If you actually want to reuse the Docker-side data and service, connect to the Docker-exposed `/sse` endpoint instead.
+> Another very common misconfiguration: do not copy the Docker / GHCR value `sqlite+aiosqlite:////app/data/...`, or any other container-only sqlite path such as `/data/...`, into a local `.env`. `/app/...` and `/data/...` are container-internal paths, not the database file on your host machine; the repo-local `stdio` wrapper now refuses this configuration explicitly. For local `stdio`, use a host absolute path instead. If you actually want to reuse the Docker-side data and service, connect to the Docker-exposed `/sse` endpoint instead.
 
 You can also use the Profile script to quickly generate an `.env` with default configurations:
 
@@ -112,7 +112,7 @@ bash scripts/apply_profile.sh macos b
 >
 > Note: **The profile-b `.env` generated locally for macOS / Windows will not automatically fill in `MCP_API_KEY`**. If you are about to open the Dashboard, or directly call `/browse` / `/review` / `/maintenance`, `/sse`, or `/messages`, please supplement `MCP_API_KEY` yourself, or set `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true` for local loopback debugging only. Only the `docker` platform profile script will automatically generate a local key if the key is empty.
 >
-> One easy mistake to avoid: do not copy the `DATABASE_URL` from `.env.docker`, or any `/app/data/...` Docker container path, into your local `.env`. That path only exists inside the container; local `stdio` MCP on the host will fail with it.
+> One easy mistake to avoid: do not copy the `DATABASE_URL` from `.env.docker`, or any container-only sqlite path such as `/app/data/...` or `/data/...`, into your local `.env`. Those paths only exist inside the container; local `stdio` MCP on the host will fail with them.
 
 #### Key Configuration Items
 
@@ -293,7 +293,7 @@ What this path does and does not do:
 - Unlike `docker_one_click.sh/.ps1`, this GHCR compose path does **not** auto-adjust ports. If `3000` / `18000` are occupied, set `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT` explicitly before `docker compose up`.
 - If the container still needs to reach a **model service running on your host machine**, do not write `127.0.0.1` as the host-side address from inside the container. For the container, `127.0.0.1` points back to the container itself, not your host. Prefer `host.docker.internal` (or your actual reachable host address). The compose files now add `host.docker.internal:host-gateway`, so this path also works on modern Linux Docker.
 - Do **not** assume the repo-local stdio wrapper reuses container data automatically. `scripts/run_memory_palace_mcp_stdio.sh` needs a host-side local repository `.env` and the local `backend/.venv`; it does not reuse container data from `/app/data`.
-- If you later switch back to a local `stdio` client, your local `.env` must contain a host-accessible absolute path. If `.env` is missing while `.env.docker` exists, or if `.env` / an explicit `DATABASE_URL` still points to `/app/...`, the wrapper refuses to start and tells you to use a host path or Docker `/sse` instead.
+- If you later switch back to a local `stdio` client, your local `.env` must contain a host-accessible absolute path. If `.env` is missing while `.env.docker` exists, or if `.env` / an explicit `DATABASE_URL` still points to `/app/...` or `/data/...`, the wrapper refuses to start and tells you to use a host path or Docker `/sse` instead.
 
 Stop services:
 
@@ -395,7 +395,7 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups
 
 > Backup files are written to `backups/` by default. If you are preparing to share the repository or package it for delivery, you usually don't need to include them.
 >
-> Both backup scripts read `DATABASE_URL` from the selected env file, strip optional query / fragment suffixes such as `?mode=...` or `#...`, and then back up the resolved SQLite file. On native Windows, prefer `backup_memory.ps1`; on `Git Bash` / `WSL`, `backup_memory.sh` is fine.
+> Both backup scripts read `DATABASE_URL` from the selected env file, strip optional query / fragment suffixes such as `?mode=...` or `#...`, and then back up the resolved SQLite file. On native Windows, prefer `backup_memory.ps1`; on `Git Bash` / `WSL`, `backup_memory.sh` is fine. The current `backup_memory.sh` also adds `busy_timeout`, copies in small page batches, and removes a partial backup file if the run fails halfway, so a failed backup does not leave behind a misleading artifact.
 >
 > If you only want to see the usage first, run `bash scripts/backup_memory.sh --help` or `.\scripts\backup_memory.ps1 -?`. On native Windows, the PowerShell script now checks the repo `backend/.venv` first and then falls back to common launchers such as `python3` / `py`, so a normal local repo setup usually does not need a special PATH tweak before backup.
 
@@ -522,7 +522,7 @@ python mcp_server.py
 > - native Windows: `python backend/mcp_wrapper.py`
 > - macOS / Linux / Git Bash / WSL: `bash scripts/run_memory_palace_mcp_stdio.sh`
 >
-> These repo-local wrappers keep the same boundary conditions: they depend on the local `backend/.venv`, reuse the current repository `.env` / `DATABASE_URL` first, and only fall back to the repo's default SQLite path when neither a local `.env` nor `.env.docker` exists. If the repository only has `.env.docker`, or if a local `.env` / explicit `DATABASE_URL` still points at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db`, they refuse to start on purpose. In a Docker-only setup, prefer the exposed `/sse` endpoint instead.
+> These repo-local wrappers keep the same boundary conditions: they depend on the local `backend/.venv`, reuse the current repository `.env` / `DATABASE_URL` first, and only fall back to the repo's default SQLite path when neither a local `.env` nor `.env.docker` exists. If the repository only has `.env.docker`, or if a local `.env` / explicit `DATABASE_URL` still points at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db` or a `/data/...` variant, they refuse to start on purpose. In a Docker-only setup, prefer the exposed `/sse` endpoint instead.
 
 ### 6.2 SSE Mode
 
@@ -779,7 +779,7 @@ MCP_API_KEY_ALLOW_INSECURE_LOCAL=true
 |---|---|
 | `ModuleNotFoundError` when starting backend | Most common cause is not using `backend/.venv` or not installing dependencies in that environment. Execute `source .venv/bin/activate && pip install -r requirements.txt` first; if it's local stdio MCP, prioritize using `./.venv/bin/python mcp_server.py` (Windows: `.\.venv\Scripts\python.exe mcp_server.py`). |
 | `DATABASE_URL` error | Absolute paths are recommended, and it must have the `sqlite+aiosqlite:///` prefix. Example: `sqlite+aiosqlite:////absolute/path/to/memory_palace.db`. |
-| Local stdio MCP in a client fails with `startup failed`, `initialize response`, or a similar startup interruption | Check whether `.env` or an explicit `DATABASE_URL` points to `/app/...`. That is a Docker container path; `scripts/run_memory_palace_mcp_stdio.sh` now refuses to start with it on purpose. Use a host-accessible absolute path instead, or keep using Docker `/sse`. |
+| Local stdio MCP in a client fails with `startup failed`, `initialize response`, or a similar startup interruption | Check whether `.env` or an explicit `DATABASE_URL` points to `/app/...` or `/data/...`. That is a Docker container path; `scripts/run_memory_palace_mcp_stdio.sh` now refuses to start with it on purpose. Use a host-accessible absolute path instead, or keep using Docker `/sse`. |
 | Frontend accessing API returns `502` or `Network Error` | Confirm the backend has started and is running on port `8000`. Check if the proxy target in `vite.config.js` matches the backend port. |
 | Protected interface returns `401` | Local manual startup: configure `MCP_API_KEY` or set `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`; Docker: confirm if using the Docker env file generated by `apply_profile.*` / `docker_one_click.*`. |
 | SSE `/messages` returns `429` or `413` | `429` means one SSE session is posting too many messages in a short window; check for duplicate retries or retry loops first. `413` means one request body exceeds `SSE_MESSAGE_MAX_BODY_BYTES`, so reduce the payload size or raise the backend limit intentionally. |

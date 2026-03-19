@@ -9,6 +9,7 @@ WINDOWS_VENV_PYTHON="${BACKEND_DIR}/.venv/Scripts/python.exe"
 ENV_FILE="${PROJECT_ROOT}/.env"
 DOCKER_ENV_FILE="${PROJECT_ROOT}/.env.docker"
 DEFAULT_DB_PATH="${PROJECT_ROOT}/demo.db"
+DOCKER_INTERNAL_SQLITE_PREFIXES=("/app/" "/data/")
 
 read_env_value() {
   local file_path="$1"
@@ -36,7 +37,15 @@ normalize_database_url() {
 is_docker_internal_database_url() {
   local value
   value="$(normalize_database_url "${1:-}")"
-  [[ "${value}" == sqlite+aiosqlite:////app/* || "${value}" == sqlite+aiosqlite:///app/* ]]
+  local prefix
+  for prefix in "${DOCKER_INTERNAL_SQLITE_PREFIXES[@]}"; do
+    case "${value}" in
+      "sqlite+aiosqlite:///${prefix}"*|"sqlite+aiosqlite://${prefix}"*)
+        return 0
+        ;;
+    esac
+  done
+  return 1
 }
 
 VENV_PYTHON=""
@@ -64,7 +73,7 @@ fi
 
 if is_docker_internal_database_url "${effective_database_url}"; then
   echo "Refusing to start repo-local stdio MCP with Docker-internal DATABASE_URL: ${effective_database_url}" >&2
-  echo "The current .env points to /app/... which only exists inside the Docker container." >&2
+  echo "The current .env points to a container-only sqlite path (for example /app/... or /data/...)." >&2
   echo "For local stdio, regenerate .env with 'bash scripts/apply_profile.sh macos b' or set DATABASE_URL to a host absolute path." >&2
   echo "If you want the containerized database/service, connect your client to the Docker /sse endpoint instead." >&2
   exit 1

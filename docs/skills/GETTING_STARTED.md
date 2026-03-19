@@ -10,7 +10,7 @@
 >
 > **先补一个边界说明**：当前仓库里的 repo-local MCP 启动链路已经分成两条。原生 Windows 默认走 `backend/mcp_wrapper.py`；macOS / Linux / `Git Bash` / `WSL` 仍走 `scripts/run_memory_palace_mcp_stdio.sh`。它们都会优先复用当前仓库的本地 `.env` 和本地 `backend/.venv`。所以下面这些 shell 示例，默认更接近 POSIX 路径；如果你是原生 Windows，请优先用安装脚本生成的 MCP 配置，不要把这些 `bash` 示例硬当成“PowerShell 直接可用”。
 >
-> **再补一条很容易踩坑的边界**：这个 wrapper 只服务于“当前 checkout + 本地 `.env` + 本地 `backend/.venv`”这条 repo-local 路径，不会复用 Docker 容器里的 `/app/data`。如果仓库里只有 `.env.docker` 而没有本地 `.env`，它会明确拒绝回退到 `demo.db`；如果你把 `.env.docker` 里的 `DATABASE_URL` 原样抄进本地 `.env`，或者显式 `DATABASE_URL` 仍是 `/app/...` 这类容器路径，它也会直接拒绝启动，并提示你改成本机绝对路径或 Docker `/sse`。
+> **再补一条很容易踩坑的边界**：这个 wrapper 只服务于“当前 checkout + 本地 `.env` + 本地 `backend/.venv`”这条 repo-local 路径，不会复用 Docker 容器里的 `/app/data`。如果仓库里只有 `.env.docker` 而没有本地 `.env`，它会明确拒绝回退到 `demo.db`；如果你把 `.env.docker` 里的 `DATABASE_URL` 原样抄进本地 `.env`，或者显式 `DATABASE_URL` 仍是 `/app/...` 或 `/data/...` 这类容器路径，它也会直接拒绝启动，并提示你改成本机绝对路径或 Docker `/sse`。
 >
 > **再补一条范围说明**：这份主要写给 `Claude Code / Gemini CLI / Codex / OpenCode` 这类 CLI 客户端。`Cursor / Windsurf / VSCode-host / Antigravity` 这类 IDE 宿主，请直接看 `IDE_HOSTS.md`。
 
@@ -178,7 +178,7 @@ macOS / Linux / Git Bash / WSL -> scripts/run_memory_palace_mcp_stdio.sh
 - 优先复用当前仓库 `.env` 里的 `DATABASE_URL`
 - 如果宿主或客户端把 `DATABASE_URL` 显式传成空字符串，也会按“没设置”处理，继续回退到当前仓库 `.env` 的有效值
 - 如果仓库里只有 `.env.docker` 而没有本地 `.env`，就停止并提示改走 Docker `/sse`
-- 如果 `.env` / 显式 `DATABASE_URL` 仍写成 `/app/...` 这类容器路径，也会停止并提示改成本机绝对路径或 Docker `/sse`
+- 如果 `.env` / 显式 `DATABASE_URL` 仍写成 `/app/...` 或 `/data/...` 这类容器路径，也会停止并提示改成本机绝对路径或 Docker `/sse`
 
 这两条 wrapper 的边界保持一致，所以你在 Dashboard / HTTP API 里看到的库，和 MCP 客户端实际读写的库，默认就是同一份。
 
@@ -226,7 +226,7 @@ python scripts/install_skill.py \
 - 先读当前仓库 `.env`
 - 再决定实际 `DATABASE_URL`
 - 没有本地 `.env` 且仓库里只有 `.env.docker` 时，不会偷偷改用 `demo.db`
-- 如果 `.env` / 显式 `DATABASE_URL` 仍是 `/app/...` 容器路径，也会直接拒绝启动
+- 如果 `.env` / 显式 `DATABASE_URL` 仍是 `/app/...` 或 `/data/...` 容器路径，也会直接拒绝启动
 
 如果你想换到另一份数据库，优先改这个仓库自己的 `.env`，不要手工在不同客户端里各写一套不同的数据库路径。
 

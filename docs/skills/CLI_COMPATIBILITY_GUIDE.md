@@ -59,7 +59,7 @@
 
 - 这个 wrapper 会优先复用当前仓库 `.env` 里的 `DATABASE_URL`
 - 如果某个客户端把 `DATABASE_URL` 传成空字符串，它也会按“没设置”处理，继续回退到当前仓库 `.env` 的有效值
-- 如果那份 `.env` 还是 Docker 用的 `/app/...` 容器路径，wrapper 也会直接拒绝启动
+- 如果那份 `.env` 还是 Docker 用的 `/app/...` 或 `/data/...` 容器路径，wrapper 也会直接拒绝启动
 - 也就是说，只要你别手工乱改客户端命令，Dashboard / HTTP API / MCP 默认就是同一份数据库
 
 ## Current Local Baseline After Sync / Install

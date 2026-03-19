@@ -207,3 +207,14 @@ def test_backup_memory_sh_accepts_database_url_suffixes(tmp_path: Path) -> None:
     backups = _backup_files(output_dir)
     assert len(backups) == 1
     _assert_backup_has_sample(backups[0])
+
+
+def test_backup_memory_sh_uses_incremental_backup_and_cleans_partial_file() -> None:
+    script_text = BACKUP_SH.read_text(encoding="utf-8")
+
+    assert 'sqlite3.connect(sqlite_path, timeout=30.0)' in script_text
+    assert 'source_conn.execute("PRAGMA busy_timeout = 30000")' in script_text
+    assert 'target_conn.execute("PRAGMA busy_timeout = 30000")' in script_text
+    assert "source_conn.backup(target_conn, pages=256, sleep=0.05)" in script_text
+    assert "dest_file.unlink(missing_ok=True)" in script_text
+    assert 'fail(f"SQLite backup failed: {exc}")' in script_text

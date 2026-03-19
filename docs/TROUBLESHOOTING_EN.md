@@ -89,15 +89,15 @@ If the first-run setup assistant opens before you can touch the page body, you d
 
 ---
 
-## 1.2 Local stdio MCP disconnects immediately, or the error mentions `/app/data`
+## 1.2 Local stdio MCP disconnects immediately, or the error mentions `/app/data` / `/data`
 
 **Common symptoms**:
 
 - The client shows `connection closed: initialize response`
 - Or the startup log contains `Read-only file system: '/app'`
-- Or the local `.env` clearly points `DATABASE_URL` at `/app/data/...`
+- Or the local `.env` clearly points `DATABASE_URL` at `/app/data/...` or `/data/...`
 
-**This usually does not mean the MCP protocol itself is broken**. The more common cause is that a Docker / GHCR value such as `sqlite+aiosqlite:////app/data/...` was copied into the local `.env`.
+**This usually does not mean the MCP protocol itself is broken**. The more common cause is that a Docker / GHCR value such as `sqlite+aiosqlite:////app/data/...`, or another container-only sqlite path such as `/data/...`, was copied into the local `.env`.
 
 The repo-local `scripts/run_memory_palace_mcp_stdio.sh` path only serves:
 
@@ -105,7 +105,7 @@ The repo-local `scripts/run_memory_palace_mcp_stdio.sh` path only serves:
 - the local `.env` in that checkout
 - the local `backend/.venv` in that checkout
 
-It does not reuse Docker container `/app/data`. If it detects that the local `.env` still uses a container path, it now refuses to start explicitly instead of pretending the handshake can continue.
+It does not reuse Docker container `/app/data`, and it also treats `/data/...`-style container sqlite paths as the same local misconfiguration. If it detects that the local `.env` still uses a container path, it now refuses to start explicitly instead of pretending the handshake can continue.
 
 **How to fix it**:
 

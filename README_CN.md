@@ -301,7 +301,7 @@ docker compose -f docker-compose.ghcr.yml up -d
 - 如果你还想用当前仓库现成的 repo-local skill + MCP 自动化安装链路，保留这个 checkout，再继续看 [docs/skills/GETTING_STARTED.md](docs/skills/GETTING_STARTED.md)。
 - 如果你不走 repo-local 安装链路，也可以手工把支持远程 SSE 的 MCP 客户端指到 `http://localhost:3000/sse`，并配置同一把 API key / 鉴权头。这里的 `<YOUR_MCP_API_KEY>` 默认就读刚生成的 `.env.docker` 里的 `MCP_API_KEY`。
 - `scripts/run_memory_palace_mcp_stdio.sh` 不是 Docker 客户端入口。它依赖本地 `bash` 和 `backend/.venv`，只会复用宿主机上的本地 `.env` / `DATABASE_URL`，不会复用容器里的 `/app/data`。
-- 如果你后面要切回本机 `stdio` 客户端，本地 `.env` 必须写宿主机可访问的绝对路径。仓库里只有 `.env.docker` 而没有本地 `.env` 时，它会明确拒绝回退到 `demo.db`；如果 `.env` 或显式 `DATABASE_URL` 仍写成 `/app/...` 这类容器路径，它也会直接拒绝启动，并提示你改成本机路径或走 Docker 暴露的 `/sse`。
+- 如果你后面要切回本机 `stdio` 客户端，本地 `.env` 必须写宿主机可访问的绝对路径。仓库里只有 `.env.docker` 而没有本地 `.env` 时，它会明确拒绝回退到 `demo.db`；如果 `.env` 或显式 `DATABASE_URL` 仍写成 `/app/...` 或 `/data/...` 这类容器路径，它也会直接拒绝启动，并提示你改成本机路径或走 Docker 暴露的 `/sse`。
 - 和 `docker_one_click.sh/.ps1` 不同，GHCR compose 路径**不会自动换端口**。如果 `3000` / `18000` 已被占用，请在启动前自己设置 `MEMORY_PALACE_FRONTEND_PORT` / `MEMORY_PALACE_BACKEND_PORT`。
 - 如果容器需要访问你宿主机上的本地模型服务，优先使用 `host.docker.internal`。当前 compose 已显式补 `host.docker.internal:host-gateway`，Linux Docker 也可以沿这条路径访问宿主机服务。
 
@@ -347,7 +347,7 @@ DATABASE_URL=sqlite+aiosqlite:////absolute/path/to/demo.db
 DATABASE_URL=sqlite+aiosqlite:///C:/absolute/path/to/demo.db
 ```
 
-> 不要把 Docker / GHCR 路径里的 `sqlite+aiosqlite:////app/data/...` 直接写进本地 `.env`。`/app/...` 是容器内路径，不是你宿主机上的真实文件路径；repo-local `stdio` wrapper 现在会明确拒绝这种配置。本地 `stdio` 请改成宿主机绝对路径；如果你就是要复用 Docker 那边的数据和服务，请直接改连 Docker 暴露的 `/sse`。
+> 不要把 Docker / GHCR 路径里的 `sqlite+aiosqlite:////app/data/...`，或任何 `/data/...` 这类容器内 sqlite 路径，直接写进本地 `.env`。`/app/...`、`/data/...` 都是容器内路径，不是你宿主机上的真实文件路径；repo-local `stdio` wrapper 现在会明确拒绝这种配置。本地 `stdio` 请改成宿主机绝对路径；如果你就是要复用 Docker 那边的数据和服务，请直接改连 Docker 暴露的 `/sse`。
 
 如果你想立刻在本地使用 Dashboard，或者直接调用 `/browse` / `/review` / `/maintenance`，请先把下面二选一写进 `.env`，再启动后端：
 
@@ -373,7 +373,7 @@ bash scripts/apply_profile.sh macos b
 
 把 `deploy/profiles/*/*.env` 理解成 **Profile 模板输入**，不要直接手抄某个模板文件当成最终 `.env`。有些模板值会先保留占位路径，再由 `apply_profile.*` 按当前仓库位置自动改写。
 
-如果你前面已经生成过 `.env.docker`，也不要直接把那份 Docker 文件改名成 `.env`。Docker profile 里的 `/app/data/...` 只对容器有效；本机 `stdio` MCP 需要宿主机自己的绝对路径。
+如果你前面已经生成过 `.env.docker`，也不要直接把那份 Docker 文件改名成 `.env`。Docker profile 里的 `/app/data/...` 这类容器路径只对容器有效；如果你自己把挂载点改成 `/data/...`，本机 `stdio` MCP 也一样不能直接拿来用，还是需要宿主机自己的绝对路径。
 
 但要注意：
 
@@ -499,11 +499,11 @@ python run_sse.py
 > - 原生 Windows：优先 `backend/mcp_wrapper.py`
 > - macOS / Linux / Git Bash / WSL：优先 `scripts/run_memory_palace_mcp_stdio.sh`
 >
-> 这两条 launcher 都会优先复用当前仓库的 `backend/.venv` 和 `.env` / `DATABASE_URL`；只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` 里的 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`），它都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。
+> 这两条 launcher 都会优先复用当前仓库的 `backend/.venv` 和 `.env` / `DATABASE_URL`；只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` 里的 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`，或你自己改成 `/data/...` 的变体），它都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。
 >
 > 再补一个这轮实测过的细节：如果某个客户端 / IDE host 把 `DATABASE_URL` 传成了空字符串，这两条 wrapper 也会把它当成“没设置”，继续回退到当前仓库 `.env` 里的有效值；不会因为“变量名存在但值为空”就把 repo-local 启动误判成缺配置。
 >
-> 同样地，如果 `.env` 或你显式传入的 `DATABASE_URL` 仍是 `/app/...` 这类 Docker 容器路径，wrapper 现在也会直接拒绝启动。这不是 MCP 协议故障，而是本机路径配置错了；改成宿主机绝对路径，或者继续走 Docker `/sse`。
+> 同样地，如果 `.env` 或你显式传入的 `DATABASE_URL` 仍是 `/app/...` 或 `/data/...` 这类 Docker 容器路径，wrapper 现在也会直接拒绝启动。这不是 MCP 协议故障，而是本机路径配置错了；改成宿主机绝对路径，或者继续走 Docker `/sse`。
 >
 > 上面这个 `HOST=127.0.0.1` 是**只给本机访问**的写法；即使你直接运行 `python run_sse.py`，默认也仍是回环地址。真要给远程客户端访问，请改成 `HOST=0.0.0.0`（或你的实际绑定地址）。这一步只是把监听范围放开，**不等于**跳过安全控制；API Key、防火墙、反向代理和传输安全仍然要自己补齐。
 
