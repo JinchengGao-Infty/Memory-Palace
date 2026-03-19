@@ -12,12 +12,16 @@ platform="$(printf '%s' "${platform_input}" | tr '[:upper:]' '[:lower:]')"
 profile="$(printf '%s' "${profile_input}" | tr '[:upper:]' '[:lower:]')"
 
 case "${platform}" in
-  macos|windows|docker) ;;
+  macos|linux|windows|docker) ;;
   *)
-    echo "Unsupported platform: ${platform}. Expected one of: macos | windows | docker" >&2
+    echo "Unsupported platform: ${platform}. Expected one of: macos | linux | windows | docker" >&2
     exit 2
     ;;
 esac
+
+if [[ "${platform}" == "linux" ]]; then
+  platform="macos"
+fi
 
 case "${profile}" in
   a|b|c|d) ;;

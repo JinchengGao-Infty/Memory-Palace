@@ -31,6 +31,7 @@ def test_apply_profile_shell_accepts_crlf_windows_placeholder_lines() -> None:
     )
 
     assert r"agent_memory\\.db\r?$" in script_text
+    assert "macos|linux|windows|docker" in script_text
 
 
 def test_apply_profile_shell_generates_docker_api_key_from_crlf_base_template(
@@ -69,3 +70,48 @@ def test_apply_profile_shell_generates_docker_api_key_from_crlf_base_template(
     generated_lines = (project_root / ".env.generated").read_text(encoding="utf-8").splitlines()
     mcp_api_key_line = next(line for line in generated_lines if line.startswith("MCP_API_KEY="))
     assert mcp_api_key_line != "MCP_API_KEY="
+
+
+def test_apply_profile_shell_accepts_linux_alias_and_maps_to_macos_profile(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "repo"
+    script_path = project_root / "scripts" / "apply_profile.sh"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+
+    source_wrapper = (
+        PROJECT_ROOT / "scripts" / "apply_profile.sh"
+    ).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "")
+    with script_path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(source_wrapper)
+    script_path.chmod(0o755)
+
+    (project_root / ".env.example").write_bytes(
+        b"DATABASE_URL=sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db\r\n"
+    )
+    profile_path = project_root / "deploy" / "profiles" / "macos" / "profile-b.env"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_bytes(
+        b"PROFILE_MARKER=macos_b\r\n"
+        b"SEARCH_DEFAULT_MODE=keyword\r\n"
+        b"RETRIEVAL_EMBEDDING_BACKEND=hash\r\n"
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/apply_profile.sh", "linux", "b", ".env.generated"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "Generated" in result.stdout
+    generated_lines = (project_root / ".env.generated").read_text(encoding="utf-8").splitlines()
+    assert "PROFILE_MARKER=macos_b" in generated_lines
+    database_url_line = next(
+        line for line in generated_lines if line.startswith("DATABASE_URL=")
+    )
+    assert "<your-user>" not in database_url_line
+    assert database_url_line.startswith("DATABASE_URL=sqlite+aiosqlite:////")
+    assert database_url_line.endswith("demo.db")

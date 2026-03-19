@@ -97,7 +97,7 @@ cp .env.example .env
 
 ```bash
 # macOS / Linux —— 参数：平台 档位 [目标文件]
-# 当前脚本接受的模板值是 macos|windows|docker；Linux 本地也使用 macos 这套模板。
+# 当前脚本接受的模板值是 macos|linux|windows|docker；其中 `linux` 会在内部映射到 `macos` 这套本地模板。
 bash scripts/apply_profile.sh macos b
 
 # Windows PowerShell

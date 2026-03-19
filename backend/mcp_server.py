@@ -2783,7 +2783,7 @@ async def _generate_memory_index_view() -> str:
 
         lines = []
         lines.append("# Memory Index")
-        lines.append(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"# Generated: {_utc_iso_now()}")
         lines.append(f"# Total entries: {len(paths)}")
         lines.append(
             "# Legend: [#ID] = Memory ID (same ID = alias), [★N] = priority (lower = higher priority)"
@@ -2844,7 +2844,7 @@ async def _generate_recent_memories_view(limit: int = 10) -> str:
 
         lines = []
         lines.append("# Recently Modified Memories")
-        lines.append(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"# Generated: {_utc_iso_now()}")
         lines.append(
             f"# Showing: {len(results)} most recent entries (requested: {limit})"
         )

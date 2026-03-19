@@ -97,7 +97,7 @@ You can also use the Profile script to quickly generate an `.env` with default c
 
 ```bash
 # macOS / Linux —— Parameters: Platform Profile [Target File]
-# Current script accepted template values are macos|windows|docker; Linux local also uses the macos template.
+# Current script accepted template values are macos|linux|windows|docker; `linux` maps internally to the same local template as `macos`.
 bash scripts/apply_profile.sh macos b
 
 # Windows PowerShell

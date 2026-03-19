@@ -94,6 +94,8 @@ async def test_write_lane_metrics_track_outcomes_and_latency_percentiles() -> No
     assert status["global_wait_ms_p95"] > 0
     assert status["duration_ms_p95"] > 0
     assert status["last_error"] == "write_failed_for_test"
+    assert coordinator._session_locks == {}
+    assert coordinator._session_waiting == {}
 
 
 @pytest.mark.asyncio
@@ -167,6 +169,8 @@ async def test_write_lane_metrics_count_cancelled_global_wait_as_failure(
     assert status["writes_failed"] == 1
     assert status["failure_rate"] == pytest.approx(1 / 3)
     assert status["last_error"] == "cancelled"
+    assert coordinator._session_locks == {}
+    assert coordinator._session_waiting == {}
 
 
 @pytest.mark.asyncio
