@@ -94,7 +94,7 @@
 
 当前前端默认英文，点右上角语言按钮即可切到中文或切回英文。浏览器会记住你的选择，常见界面文案、日期/数字格式和一部分错误提示会跟随切换。
 
-当浏览器里既没有已保存的 Dashboard 鉴权，也没有运行时注入的 Dashboard 鉴权时，前端会自动打开首启配置向导。它可以把 Dashboard `MCP_API_KEY` 保存到当前浏览器里，并且在应用直接连本地 checkout 时，把常见本地运行参数写进 `.env`，不需要手动编辑文件。涉及后端运行链路的改动仍然需要重启服务。
+当浏览器里既没有已保存的 Dashboard 鉴权，也没有运行时注入的 Dashboard 鉴权时，前端会自动打开首启配置向导。它可以把 Dashboard `MCP_API_KEY` 保存到当前浏览器里，并且在应用直接连本地 checkout 时，把常见本地运行参数写进 `.env`，不需要手动编辑文件。如果你走的是“保存到本地 `.env`”这条路径，并且同时填写了 Dashboard key，向导仍然需要浏览器本地存储来记住这把 key；如果浏览器拦住了本地存储，页面现在会明确提示保存失败，不再假装整套配置都已经成功。涉及后端运行链路的改动仍然需要重启服务。
 
 如果你想看一份按页面拆开的使用说明，可以直接打开 [中文仪表盘使用指南](docs/DASHBOARD_GUIDE_CN.md)。
 
@@ -461,6 +461,8 @@ curl -s "http://127.0.0.1:8000/browse/node?domain=core&path=" | python -m json.t
 > 如果你配置了 `MCP_API_KEY`，打开页面后请点右上角 `设置 API 密钥`（英文模式下会显示 `Set API key`）打开首启向导；你可以只把同一把 key 保存到当前浏览器，也可以在“本地 checkout + 非 Docker 运行”的场景下，把常见运行参数一起写进 `.env`。如果你启用了 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`，直连本机回环地址（`127.0.0.1` / `::1` / `localhost`，且不带 forwarded headers）的请求可直接访问这些受保护数据请求。
 >
 > 如果你选择的是“只保存 Dashboard 密钥”，这把 key 会一直保留在当前浏览器里，直到你手动清除。向导里的 `Profile C/D` 预设现在已经按文档口径走 `router + reranker` 路线；如果你本机的 router 还没准备好，就手动把检索字段切回直连 API 模式排障。
+>
+> 如果你选择的是“保存到本地 `.env`”，并且同时填了 Dashboard key，要记住 `.env` 写入和浏览器 key 持久化是两步。现在只要浏览器本地存储失败，向导就会直接报保存失败，不再给出误导性的成功提示。实际使用时，这通常意味着 `.env` 可能已经写进去了，但浏览器侧鉴权还没准备好；先看右上角状态，再决定是否重试。
 >
 > 这个向导不会假装自己能热更新 Docker 容器里的 env / 代理配置。只要涉及 embedding / reranker / write_guard / intent 这类后端侧参数，保存之后仍然需要按实际部署方式重启对应服务。
 
@@ -914,7 +916,7 @@ curl -fsS http://127.0.0.1:8000/health
 
 <img src="docs/images/setup-assistant-zh.png" width="900" alt="Memory Palace — 首启配置向导（中文模式）" />
 
-这个向导可以把 Dashboard key 保存到浏览器里，并且在“非 Docker 的本地 checkout”场景下，把常见运行参数直接写进 `.env`。涉及后端运行链路的改动仍然需要重启服务。
+这个向导可以把 Dashboard key 保存到浏览器里，并且在“非 Docker 的本地 checkout”场景下，把常见运行参数直接写进 `.env`。如果浏览器本地存储没成功，页面现在会明确提示保存失败，不再把它显示成成功；所以请把 `.env` 写入和浏览器鉴权保存理解成两步。涉及后端运行链路的改动仍然需要重启服务。
 </details>
 
 <details>

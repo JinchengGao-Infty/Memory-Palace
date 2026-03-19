@@ -180,6 +180,58 @@ describe('App routing', () => {
     expect(screen.getByRole('button', { name: i18n.t('app.auth.setApiKey') })).toBeInTheDocument();
   });
 
+  it('shows an error instead of a false success when server save succeeds but browser auth persistence fails', async () => {
+    const user = userEvent.setup();
+    const originalStorage = window.localStorage;
+    window.history.pushState({}, '', '/memory');
+    setupApi.saveSetupConfig.mockResolvedValueOnce({
+      ok: true,
+      target_label: '.env',
+      restart_targets: ['backend', 'sse'],
+    });
+
+    render(<App />);
+
+    await user.click(screen.getByRole('button', { name: i18n.t('app.auth.setApiKey') }));
+    const dialog = await screen.findByRole('dialog', { name: i18n.t('setup.title') });
+    await user.type(
+      within(dialog).getByPlaceholderText(i18n.t('setup.dashboard.apiKeyPlaceholder')),
+      'stored-key'
+    );
+
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: originalStorage.getItem.bind(originalStorage),
+        setItem: (key, value) => {
+          if (key === 'memory-palace.dashboardAuth') {
+            throw new Error('quota');
+          }
+          return originalStorage.setItem(key, value);
+        },
+        removeItem: originalStorage.removeItem.bind(originalStorage),
+        clear: originalStorage.clear.bind(originalStorage),
+      },
+    });
+
+    try {
+      await user.click(screen.getByRole('button', { name: i18n.t('setup.actions.saveEnv') }));
+
+      expect((await screen.findAllByText(i18n.t('setup.messages.saveFailed'))).length).toBeGreaterThan(0);
+      expect(screen.queryByText(i18n.t('setup.messages.serverSaved', { target: '.env' }))).not.toBeInTheDocument();
+      expect(screen.getByRole('dialog', { name: i18n.t('setup.title') })).toBeInTheDocument();
+      expect(window.localStorage.getItem('memory-palace.dashboardAuth')).toBeNull();
+      expect(setupApi.saveSetupConfig).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        writable: true,
+        value: originalStorage,
+      });
+    }
+  });
+
   it('remounts routes after stored auth changes without depending on raw key text', async () => {
     const user = userEvent.setup();
     window.history.pushState({}, '', '/memory');

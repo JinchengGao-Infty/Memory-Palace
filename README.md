@@ -98,7 +98,7 @@ A React-powered dashboard with four views: **Memory Browser**, **Review & Rollba
 
 The current frontend now defaults to English. Use the top-right language button to switch between English and Chinese; the browser remembers your choice and applies it to common UI copy, date/number formatting, and common API error hints.
 
-When neither runtime Dashboard auth nor stored browser Dashboard auth is available, the frontend auto-opens a first-run setup assistant. It can save the Dashboard `MCP_API_KEY` in the current browser and, when the app is running directly against a local checkout, write the common local runtime fields into `.env` without hand-editing the file. Backend-side changes still require a restart.
+When neither runtime Dashboard auth nor stored browser Dashboard auth is available, the frontend auto-opens a first-run setup assistant. It can save the Dashboard `MCP_API_KEY` in the current browser and, when the app is running directly against a local checkout, write the common local runtime fields into `.env` without hand-editing the file. If you use the local `.env` save path and also enter a Dashboard key, the assistant still needs browser storage for that key; if the browser blocks local storage, the page now shows a save failure instead of pretending the whole setup succeeded. Backend-side changes still require a restart.
 
 If you want a page-by-page walkthrough of the Dashboard, see [Dashboard User Guide (English)](docs/DASHBOARD_GUIDE_EN.md).
 
@@ -461,6 +461,8 @@ Open your browser at **<http://localhost:5173>** — you should see the Memory P
 > If you set `MCP_API_KEY`, click `Set API key` to open the setup assistant, then either save the same key to the current browser or, on a local non-Docker checkout, write it into `.env` together with the other common runtime fields. If you enabled `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`, direct loopback requests (`127.0.0.1` / `::1` / `localhost`, without forwarded headers) can load those protected requests without manually entering a key.
 >
 > If you choose **Save dashboard key only**, that key stays in the current browser until you clear it manually. The setup assistant's `Profile C/D` presets now follow the documented `router + reranker` path; if your local router is not ready yet, switch the retrieval fields manually to direct API mode for debugging.
+>
+> If you choose **Save local `.env` settings** and also fill a Dashboard key, remember that `.env` writing and browser key storage are two separate steps. If the browser blocks local storage, the assistant now shows a save failure instead of a false success. In practice that usually means the `.env` change may already be written, but the browser-side auth is still not ready; check the top-right auth state and retry if needed.
 >
 > The setup assistant stays in guidance mode when the frontend is talking to Docker containers. It does not pretend that container env / proxy changes can be persisted or hot-reloaded from the browser.
 
@@ -910,7 +912,7 @@ than part of the public user package.
 
 <img src="docs/images/setup-assistant-en.png" width="900" alt="Memory Palace — First-run setup assistant (English mode)" />
 
-Use the assistant to save the Dashboard key in the browser and, on a local non-Docker checkout, write the common `.env` fields without hand-editing the file. Backend-side changes still require a restart.
+Use the assistant to save the Dashboard key in the browser and, on a local non-Docker checkout, write the common `.env` fields without hand-editing the file. If the browser cannot persist the Dashboard key locally, the page now shows a save failure instead of a success message, so treat `.env` writing and browser auth storage as separate steps. Backend-side changes still require a restart.
 </details>
 
 <details>

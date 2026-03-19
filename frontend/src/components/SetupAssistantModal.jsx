@@ -296,10 +296,13 @@ export default function SetupAssistantModal({
         ...form,
       };
       const response = await saveSetupConfig(payload);
+      let authSaveFailed = false;
       if (String(form.dashboard_api_key || '').trim()) {
         const saved = saveStoredMaintenanceAuth(form.dashboard_api_key, authState?.mode ?? 'header');
         if (saved) {
           onAuthUpdated?.(saved);
+        } else {
+          authSaveFailed = true;
         }
       }
       setSetupStatus((current) => ({
@@ -307,6 +310,13 @@ export default function SetupAssistantModal({
         ...response,
         apply_supported: current?.apply_supported ?? true,
       }));
+      if (authSaveFailed) {
+        setSaveErrorState({
+          error: null,
+          fallbackKey: 'setup.messages.saveFailed',
+        });
+        return;
+      }
       setSaveSuccess({
         kind: 'server',
         targetLabel: response.target_label || '.env',

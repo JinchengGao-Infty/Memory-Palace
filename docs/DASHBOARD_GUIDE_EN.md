@@ -48,6 +48,8 @@ If the Dashboard shell opens but protected data does not load, the usual fix is:
 
 > **Save dashboard key only** stores the Dashboard key in the current browser until you clear it manually. The assistant's `Profile C/D` presets follow the documented `router + reranker` path; if your local router is not ready yet, switch the retrieval fields manually to direct API mode.
 
+> If you choose **Save local `.env` settings** and also fill a Dashboard key, remember that the `.env` write and the browser key save are two separate steps. If the browser blocks local storage, the assistant now shows a save failure instead of a false success. In practice that usually means the `.env` change may already be written, but the browser-side auth is still not ready yet.
+
 > The `.env` write path is only enabled when the app is running directly against a non-Docker local checkout. If the page is talking to Docker containers, the assistant stays in guidance mode instead of pretending it can persist container env / proxy changes.
 
 > If you hit the assistant first and it opens in English, that is still fine on fresh first-run: the assistant has its own language toggle in the upper right corner.
@@ -345,7 +347,7 @@ Lists running or recently completed index tasks. Each task can be:
 
 ### Q: The page loads but shows no data?
 
-This usually means **the API key hasn't been configured**. Click **Set API key** in the top-right corner to open the setup assistant, enter the `MCP_API_KEY` value from your `.env` file, and first use the browser-only save path so the Dashboard can authenticate. Only use the `.env` write path when you are on a non-Docker local checkout.
+This usually means **the API key hasn't been configured**. Click **Set API key** in the top-right corner to open the setup assistant, enter the `MCP_API_KEY` value from your `.env` file, and first use the browser-only save path so the Dashboard can authenticate. Only use the `.env` write path when you are on a non-Docker local checkout. If **Save local `.env` settings** reports a failure, a common case is that the backend-side `.env` write already succeeded but the browser still could not save the Dashboard key locally.
 
 ### Q: I clicked "Store Memory" and it says "Skipped"?
 
