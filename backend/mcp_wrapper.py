@@ -122,7 +122,7 @@ def build_runtime_env() -> dict[str, str]:
             raise SystemExit(1)
         runtime_env["DATABASE_URL"] = sqlite_database_url(DEFAULT_DB_PATH)
 
-    runtime_env.setdefault("RETRIEVAL_REMOTE_TIMEOUT_SEC", "1")
+    runtime_env.setdefault("RETRIEVAL_REMOTE_TIMEOUT_SEC", "8")
     runtime_env.setdefault("PYTHONIOENCODING", "utf-8")
     runtime_env.setdefault("PYTHONUTF8", "1")
     return runtime_env

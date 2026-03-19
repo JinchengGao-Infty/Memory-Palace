@@ -100,6 +100,68 @@ describe('ObservabilityPage', () => {
     expect(api.runObservabilitySearch).not.toHaveBeenCalled();
   });
 
+  it('localizes dynamic runtime, job, and diagnostic tokens in zh-CN', async () => {
+    const user = userEvent.setup();
+    await i18n.changeLanguage('zh-CN');
+    api.getObservabilitySummary.mockResolvedValue(
+      buildSummary({
+        recentJobs: [
+          {
+            job_id: 'job-zh',
+            status: 'failed',
+            task_type: 'rebuild_index',
+            reason: 'retry-later',
+          },
+        ],
+        smLite: {
+          storage: 'runtime_ephemeral',
+          promotion_path: 'compact_context + auto_flush',
+          session_cache: { session_count: 2, total_hits: 6 },
+          flush_tracker: { session_count: 1, pending_events: 3 },
+          degraded: true,
+          reason: 'session queue pressure',
+        },
+      }),
+    );
+    api.runObservabilitySearch.mockResolvedValue({
+      latency_ms: 12.3,
+      mode_applied: 'semantic',
+      intent_applied: 'temporal',
+      strategy_template_applied: 'temporal_time_filtered',
+      degraded: false,
+      counts: { session: 1, global: 2, returned: 1 },
+      results: [
+        {
+          uri: 'core://agent/zh-check',
+          memory_id: 7,
+          snippet: 'localized result',
+          metadata: {
+            source: 'session_queue',
+            priority: 0,
+            updated_at: '2026-01-01T00:00:00Z',
+          },
+          scores: { final: 0.88 },
+        },
+      ],
+    });
+
+    render(<ObservabilityPage />);
+
+    expect(await screen.findByText('状态：正常')).toBeInTheDocument();
+    expect(screen.getByText('索引降级：否')).toBeInTheDocument();
+    expect(screen.getByText('sm-lite 降级：是')).toBeInTheDocument();
+    expect(screen.getByText('索引重建')).toBeInTheDocument();
+    expect(screen.getByText('失败')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '执行诊断搜索' }));
+
+    expect(await screen.findByText('模式 语义')).toBeInTheDocument();
+    expect(screen.getByText('意图 时序型')).toBeInTheDocument();
+    expect(screen.getByText('策略 时序过滤')).toBeInTheDocument();
+    expect(screen.getByText('降级 否')).toBeInTheDocument();
+    expect(screen.getByText('会话队列')).toBeInTheDocument();
+  });
+
   it('uses unified retry endpoint when retry API is available', async () => {
     const failedJob = {
       job_id: 'job-unified',

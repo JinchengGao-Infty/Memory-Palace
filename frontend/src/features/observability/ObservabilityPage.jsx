@@ -63,6 +63,26 @@ const formatDateTime = (value, lng) => {
   }) || value;
 };
 
+const normalizeObservabilityToken = (value) => {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+};
+
+const translateObservabilityToken = (t, group, value, fallback = '-') => {
+  const normalized = normalizeObservabilityToken(value);
+  if (!normalized) return fallback;
+  const key = `observability.${group}.${normalized}`;
+  const translated = t(key);
+  return translated && translated !== key ? translated : String(value);
+};
+
+const translateObservabilityBoolean = (t, value) =>
+  t(`observability.booleans.${value ? 'true' : 'false'}`);
+
 const parseOptionalNonNegativeInteger = (rawValue, label, t) => {
   const normalized = String(rawValue ?? '').trim();
   if (!normalized) return null;
@@ -188,6 +208,7 @@ function ResultCard({ item }) {
   const snippet = item?.snippet || t('observability.result.emptySnippet');
   const metadata = item?.metadata || {};
   const source = metadata.source || metadata.match_type || 'global';
+  const sourceLabel = translateObservabilityToken(t, 'sources', source, source);
 
   return (
     <article className="rounded-2xl border border-[color:var(--palace-line)] bg-[rgba(255,250,244,0.9)] p-4 shadow-[var(--palace-shadow-sm)] transition duration-200 hover:border-[color:var(--palace-accent-2)] hover:shadow-[var(--palace-shadow-md)]">
@@ -195,7 +216,7 @@ function ResultCard({ item }) {
         <code className="break-all text-xs text-[color:var(--palace-accent-2)]">{uri}</code>
         <div className="flex items-center gap-2">
           <Badge tone="neutral">{t('observability.result.score', { value: scoreText })}</Badge>
-          <Badge tone={source === 'session_queue' ? 'good' : 'neutral'}>{source}</Badge>
+          <Badge tone={source === 'session_queue' ? 'good' : 'neutral'}>{sourceLabel}</Badge>
         </div>
       </header>
       <p className="mb-3 whitespace-pre-wrap text-sm leading-relaxed text-[color:var(--palace-ink)]">{snippet}</p>
@@ -562,6 +583,12 @@ export default function ObservabilityPage() {
     const breakdown = searchStats.strategy_hit_breakdown || {};
     return Object.entries(breakdown);
   }, [searchStats.strategy_hit_breakdown]);
+  const runtimeStatusLabel = translateObservabilityToken(
+    t,
+    'statusValues',
+    summary?.status,
+    t('common.states.unknown'),
+  );
 
   return (
     <div className="palace-harmonized flex h-full flex-col overflow-hidden bg-[color:var(--palace-bg)] text-[color:var(--palace-ink)] selection:bg-[rgba(179,133,79,0.28)] selection:text-[color:var(--palace-ink)]">
@@ -867,18 +894,18 @@ export default function ObservabilityPage() {
                   ) : (
                     <AlertTriangle size={13} className="text-[color:var(--palace-accent-2)]" />
                   )}
-                  {t('observability.runtime.status', { value: summary?.status || 'unknown' })}
+                  {t('observability.runtime.status', { value: runtimeStatusLabel })}
                 </p>
-                <p>{t('observability.runtime.indexDegraded', { value: String(Boolean(indexHealth.degraded)) })}</p>
+                <p>{t('observability.runtime.indexDegraded', { value: translateObservabilityBoolean(t, Boolean(indexHealth.degraded)) })}</p>
                 <p>{t('observability.runtime.queueDepth', { value: worker.queue_depth ?? '-' })}</p>
                 <p>{t('observability.runtime.activeJob', { value: worker.active_job_id || '-' })}</p>
                 <p>{t('observability.runtime.cancellingJobs', { value: worker.cancelling_jobs ?? 0 })}</p>
                 <p>{t('observability.runtime.lastWorkerError', { value: worker.last_error || '-' })}</p>
-                <p>{t('observability.runtime.sleepPending', { value: String(Boolean(worker.sleep_pending)) })}</p>
+                <p>{t('observability.runtime.sleepPending', { value: translateObservabilityBoolean(t, Boolean(worker.sleep_pending)) })}</p>
                 <p>{t('observability.runtime.sleepLastReason', { value: sleepConsolidation.reason || '-' })}</p>
                 <p>{t('observability.runtime.smLiteSessions', { value: smSession.session_count ?? '-' })}</p>
                 <p>{t('observability.runtime.smLitePendingEvents', { value: smFlush.pending_events ?? '-' })}</p>
-                <p>{t('observability.runtime.smLiteDegraded', { value: String(Boolean(smLite.degraded)) })}</p>
+                <p>{t('observability.runtime.smLiteDegraded', { value: translateObservabilityBoolean(t, Boolean(smLite.degraded)) })}</p>
                 <p>{t('observability.runtime.smLiteReason', { value: smLite.reason || '-' })}</p>
                 <p>{t('observability.runtime.cleanupQueries', { value: formatNumber(cleanupQueryStats.total_queries, i18n.resolvedLanguage) })}</p>
                 <p>{t('observability.runtime.updatedAt', { value: summary?.timestamp || '-' })}</p>
@@ -905,6 +932,8 @@ export default function ObservabilityPage() {
                   const jobId = String(activeJob.job_id || detailJobId);
                   const status = String(activeJob.status || 'unknown');
                   const taskType = String(activeJob.task_type || 'unknown');
+                  const statusLabel = translateObservabilityToken(t, 'statusValues', status, status);
+                  const taskTypeLabel = translateObservabilityToken(t, 'taskTypes', taskType, taskType);
                   const canCancel = ['queued', 'running', 'cancelling'].includes(status);
                   const canRetry = ['failed', 'dropped', 'cancelled'].includes(status);
                   const cancelPending = jobActionKey === `cancel:${jobId}`;
@@ -920,8 +949,8 @@ export default function ObservabilityPage() {
                           {viewingActiveJob ? t('observability.job.active') : t('observability.job.detail')}
                         </Badge>
                         <code className="text-[11px] text-[color:var(--palace-accent-2)]">{jobId}</code>
-                        <Badge tone={getJobStatusTone(status)}>{status}</Badge>
-                        <Badge tone="neutral">{taskType}</Badge>
+                        <Badge tone={getJobStatusTone(status)}>{statusLabel}</Badge>
+                        <Badge tone="neutral">{taskTypeLabel}</Badge>
                       </div>
                       <div className="space-y-1">
                         <p>{t('observability.job.reason', { value: activeJob?.reason || '-' })}</p>
@@ -976,6 +1005,8 @@ export default function ObservabilityPage() {
                     const jobId = String(job?.job_id || 'unknown-job');
                     const status = String(job?.status || 'unknown');
                     const taskType = String(job?.task_type || 'unknown');
+                    const statusLabel = translateObservabilityToken(t, 'statusValues', status, status);
+                    const taskTypeLabel = translateObservabilityToken(t, 'taskTypes', taskType, taskType);
                     const canCancel = ['queued', 'running', 'cancelling'].includes(status);
                     const canRetry = ['failed', 'dropped', 'cancelled'].includes(status);
                     const cancelPending = jobActionKey === `cancel:${jobId}`;
@@ -989,8 +1020,8 @@ export default function ObservabilityPage() {
                       >
                         <div className="mb-2 flex flex-wrap items-center gap-2">
                           <code className="text-[11px] text-[color:var(--palace-accent-2)]">{jobId}</code>
-                          <Badge tone={getJobStatusTone(status)}>{status}</Badge>
-                          <Badge tone="neutral">{taskType}</Badge>
+                          <Badge tone={getJobStatusTone(status)}>{statusLabel}</Badge>
+                          <Badge tone="neutral">{taskTypeLabel}</Badge>
                         </div>
                         <div className="space-y-1">
                           <p>{t('observability.job.reason', { value: job?.reason || '-' })}</p>
@@ -1040,7 +1071,7 @@ export default function ObservabilityPage() {
                 <div className="flex flex-wrap gap-2">
                   {modeBreakdown.map(([mode, count]) => (
                     <Badge key={mode} tone="neutral">
-                      {mode}: {count}
+                      {translateObservabilityToken(t, 'modes', mode, mode)}: {count}
                     </Badge>
                   ))}
                 </div>
@@ -1053,7 +1084,7 @@ export default function ObservabilityPage() {
                 <div className="flex flex-wrap gap-2">
                   {intentBreakdown.map(([intent, count]) => (
                     <Badge key={intent} tone="neutral">
-                      {intent}: {count}
+                      {translateObservabilityToken(t, 'intents', intent, intent)}: {count}
                     </Badge>
                   ))}
                 </div>
@@ -1066,7 +1097,7 @@ export default function ObservabilityPage() {
                 <div className="flex flex-wrap gap-2">
                   {strategyBreakdown.map(([strategy, count]) => (
                     <Badge key={strategy} tone="neutral">
-                      {strategy}: {count}
+                      {translateObservabilityToken(t, 'strategies', strategy, strategy)}: {count}
                     </Badge>
                   ))}
                 </div>
@@ -1085,19 +1116,39 @@ export default function ObservabilityPage() {
                 <div className="space-y-3 text-xs text-[color:var(--palace-muted)]">
                   <div className="flex flex-wrap gap-2">
                     <Badge tone="neutral">{t('observability.diagnostics.latency', { value: formatMs(searchResult.latency_ms) })}</Badge>
-                    <Badge tone="neutral">{t('observability.diagnostics.mode', { value: searchResult.mode_applied })}</Badge>
+                    <Badge tone="neutral">{t('observability.diagnostics.mode', {
+                      value: translateObservabilityToken(t, 'modes', searchResult.mode_applied, searchResult.mode_applied || 'unknown'),
+                    })}</Badge>
                     <Badge tone="neutral">
                       {t('observability.diagnostics.intent', {
-                        value: searchResult.intent_applied || searchResult.intent || 'unknown',
+                        value: translateObservabilityToken(
+                          t,
+                          'intents',
+                          searchResult.intent_applied || searchResult.intent || 'unknown',
+                          searchResult.intent_applied || searchResult.intent || 'unknown',
+                        ),
                       })}
                     </Badge>
                     <Badge tone="neutral">
                       {t('observability.diagnostics.strategy', {
-                        value: searchResult.strategy_template_applied || searchResult.strategy_template || searchResult.intent_profile?.strategy_template || 'default',
+                        value: translateObservabilityToken(
+                          t,
+                          'strategies',
+                          searchResult.strategy_template_applied
+                            || searchResult.strategy_template
+                            || searchResult.intent_profile?.strategy_template
+                            || 'default',
+                          searchResult.strategy_template_applied
+                            || searchResult.strategy_template
+                            || searchResult.intent_profile?.strategy_template
+                            || 'default',
+                        ),
                       })}
                     </Badge>
                     <Badge tone={searchResult.degraded ? 'warn' : 'good'}>
-                      {t('observability.diagnostics.degraded', { value: String(Boolean(searchResult.degraded)) })}
+                      {t('observability.diagnostics.degraded', {
+                        value: translateObservabilityBoolean(t, Boolean(searchResult.degraded)),
+                      })}
                     </Badge>
                     <Badge tone="neutral">
                       {t('observability.diagnostics.counts', {

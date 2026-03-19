@@ -381,6 +381,11 @@ compact_context(
 3. `sentence_fallback` — Sentence-level fallback
 4. `truncate_fallback` — Truncation fallback
 
+**Practical Note:**
+
+- In the current verified path, both repo-local stdio and Docker `/sse` can persist `llm_gist` end-to-end
+- If the remote chat path times out or is unavailable, `compact_context` degrades to the next fallback instead of pretending the LLM step succeeded
+
 **Response Fields:**
 
 | Field | Description |

@@ -67,7 +67,7 @@ def test_build_runtime_env_sets_demo_db_when_no_env_exists(
     runtime_env = module.build_runtime_env()
 
     assert runtime_env["DATABASE_URL"] == f"sqlite+aiosqlite:///{demo_db.as_posix()}"
-    assert runtime_env["RETRIEVAL_REMOTE_TIMEOUT_SEC"] == "1"
+    assert runtime_env["RETRIEVAL_REMOTE_TIMEOUT_SEC"] == "8"
 
 
 def test_build_runtime_env_treats_empty_database_url_as_missing_when_no_env_exists(

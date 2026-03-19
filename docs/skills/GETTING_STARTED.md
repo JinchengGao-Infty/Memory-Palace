@@ -99,6 +99,12 @@ python scripts/sync_memory_palace_skill.py --check
 - `--check`
   - 检查当前安装结果是否与 canonical 和当前仓库绑定一致
 
+再补一条很实用的边界：
+
+- 如果你省略 `--targets`，当前默认只会安装 CLI 目标：`claude,codex,opencode`
+- `gemini` 仍然推荐，但要你在命令里显式加上
+- `cursor/agent/antigravity` 这类 IDE 宿主兼容投影，已经不在默认 target 集合里
+
 补一条很实用的细节：
 
 - 如果脚本准备改写现有配置文件（例如 `.mcp.json`、`.gemini/settings.json`、`~/.gemini/policies/memory-palace-overrides.toml`、`~/.codex/config.toml`），现在会先在同目录生成一个 `*.bak` 备份
@@ -121,7 +127,7 @@ python scripts/install_skill.py \
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --force
@@ -131,11 +137,13 @@ python scripts/install_skill.py \
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --check
 ```
+
+如果你要补 workspace 级 MCP，`install_skill.py` 当前只会为 `Claude Code` 和 `Gemini CLI` 写稳定的 repo-local 绑定；`Codex/OpenCode` 继续走 user-scope MCP 更稳。
 
 如果你看到的是：
 
@@ -152,10 +160,11 @@ python scripts/install_skill.py \
    - `Gemini CLI` → `.gemini/settings.json`
    - `Gemini CLI` → `.gemini/policies/memory-palace-overrides.toml`
 
-这两个入口现在都会统一调用：
+这两个入口会按平台调用 repo-local wrapper：
 
 ```text
-scripts/run_memory_palace_mcp_stdio.sh
+native Windows  -> backend/mcp_wrapper.py
+macOS / Linux / Git Bash / WSL -> scripts/run_memory_palace_mcp_stdio.sh
 ```
 
 它的作用很简单：
@@ -165,9 +174,9 @@ scripts/run_memory_palace_mcp_stdio.sh
 - 如果仓库里只有 `.env.docker` 而没有本地 `.env`，就停止并提示改走 Docker `/sse`
 - 如果 `.env` / 显式 `DATABASE_URL` 仍写成 `/app/...` 这类容器路径，也会停止并提示改成本机绝对路径或 Docker `/sse`
 
-这样你在 Dashboard / HTTP API 里看到的库，和 MCP 客户端实际读写的库，默认就是同一份。
+这两条 wrapper 的边界保持一致，所以你在 Dashboard / HTTP API 里看到的库，和 MCP 客户端实际读写的库，默认就是同一份。
 
-也就是说：`Claude / Codex / Gemini / OpenCode` 这些 repo-local `stdio` 入口最终都会走这一个 wrapper。你改这个仓库 `.env`，等于一起改了这些客户端默认连到的库。
+也就是说：`Claude / Codex / Gemini / OpenCode` 这些 repo-local `stdio` 入口最终都会走**当前平台对应的 wrapper**。你改这个仓库 `.env`，等于一起改了这些客户端默认连到的库。
 
 注意：
 
@@ -282,7 +291,7 @@ python scripts/install_skill.py \
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --check
@@ -312,6 +321,7 @@ docs/skills/TRIGGER_SMOKE_REPORT.md
 
 这条检查会串行调用多种 CLI；如果你的机器上已经装了 `claude`、`codex`、`opencode`、`gemini`，完整跑完通常要几分钟，不建议看到几十秒无输出就直接当成“挂死”。
 另外它默认还会尝试 `gemini_live`：如果当前 Gemini 配置能反推出真实数据库路径，会对那份库做一轮 `create/update/guard` 验证，并可能留下 `notes://gemini_suite_*` 这类测试记忆；只想做普通 smoke 时，可显式设置 `MEMORY_PALACE_SKIP_GEMINI_LIVE=1`。
+如果这轮 live 验证撞上共享真实数据库，或者有另一条 Gemini live 会话先改了同一条记忆，它也可能停在 `PARTIAL`；先把它理解成 live 宿主侧的验证边界，不要直接等同于主链路 skill/MCP 已坏。
 如果这条报告里只有 `mcp_bindings` 失败，优先先重跑一次统一的 `user-scope` 安装，再重新执行 smoke：
 
 ```bash
@@ -335,6 +345,7 @@ docs/skills/MCP_LIVE_E2E_REPORT.md
 同样地，这份报告默认也是“运行后才会出现”的本地产物；公开 GitHub 仓库里暂时没有，不代表接法有问题。
 如果你在并行 review 或 CI 里不想覆盖默认文件，也可以先设置 `MEMORY_PALACE_MCP_E2E_REPORT_PATH`，把 e2e 报告改写到别的本地路径。
 它默认使用隔离临时库，不会碰你的正式库；但失败时仍可能把 stderr、日志或临时目录路径写进报告。准备转发给别人前，先自己看一遍内容。
+现在这条脚本会跟用户实际连接时一样，优先走 repo-local wrapper。按当前验证链路，它也会把 wrapper 行为和 `compact_context` 的 gist 持久化一起带上复核，而不只是检查工具清单。
 
 这两份报告主要用来复核当前环境的结果，不是主入口文档。
 

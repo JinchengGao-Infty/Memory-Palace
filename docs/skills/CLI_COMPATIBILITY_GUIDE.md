@@ -111,6 +111,12 @@ docs/skills/memory-palace/
   - 检查 skill 是否与 canonical 一致
   - 如果同时传了 `--with-mcp`，还会检查 MCP 绑定是否到位
 
+再补一条很实用的边界：
+
+- 如果你省略 `--targets`，当前默认只会安装 CLI 目标：`claude,codex,opencode`
+- `gemini` 仍然推荐，但要你在命令里显式加上
+- IDE 宿主兼容投影已经不在默认 target 集合里
+
 当前还有两个和“少踩坑”直接相关的行为：
 
 - 如果脚本要覆盖已有配置，会先在原目录留一份 `*.bak`
@@ -136,7 +142,7 @@ python scripts/sync_memory_palace_skill.py --check
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --force
@@ -146,11 +152,13 @@ python scripts/install_skill.py \
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --check
 ```
+
+如果你要补 workspace 级 MCP，`install_skill.py` 当前只会为 `Claude Code` 和 `Gemini CLI` 写稳定的 repo-local 绑定；`Codex/OpenCode` 继续走 user-scope MCP 更稳。
 
 如果 `workspace --check` 已经通过，但 `user --check` 还在报 `SKILL FAIL / mismatch`，先优先怀疑你 home 目录里残留了旧版镜像或旧的 MCP 配置。通常直接重跑同一条 `--scope user --with-mcp --force` 就够了；脚本现在会先生成 `*.bak`，不会上来就把原文件静默覆盖掉。
 
@@ -297,7 +305,7 @@ python scripts/render_ide_host_config.py --host antigravity --launcher python-wr
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --check
@@ -325,6 +333,7 @@ docs/skills/TRIGGER_SMOKE_REPORT.md
 如果你准备把它转发给别人，先自己看一遍内容；这类本地报告可能会带上你机器上的路径、客户端配置路径或其他环境痕迹。`evaluate_memory_palace_skill.py` 现在只要任一检查是 `FAIL` 就会返回非零退出码；`SKIP` / `PARTIAL` / `MANUAL` 不会单独让进程失败，当前默认的 Gemini smoke 模型是 `gemini-3-flash-preview`。
 如果你在并行 review 或 CI 里不想覆盖默认文件，也可以先设置 `MEMORY_PALACE_SKILL_REPORT_PATH`，把 smoke 报告改写到别的本地路径。
 另外，这条脚本默认还会尝试 `gemini_live`。如果 Gemini 当前配置能反推出真实数据库路径，它会对那份库做一轮 `create/update/guard` 验证，并可能留下 `notes://gemini_suite_*` 测试记忆；只想做普通 smoke 时，可显式设置 `MEMORY_PALACE_SKIP_GEMINI_LIVE=1`。
+如果这轮 live 验证撞上共享真实数据库，或者有另一条 Gemini live 会话先改了同一条记忆，它也可能停在 `PARTIAL`；先把它理解成 live 宿主侧的验证边界，不要直接等同于主链路 skill/MCP 已坏。
 如果当前机器没有 `Antigravity` 宿主 runtime，这一项更适合看成“目标宿主上的手工补验还没做”，不要先把它理解成仓库主链路失败。
 如果你看到的失败项只剩 `mcp_bindings`，先不要急着怀疑仓库本身。更常见的情况是你机器上的 user-scope MCP 条目还没同步到当前 checkout；优先先重跑：
 
@@ -349,6 +358,7 @@ docs/skills/MCP_LIVE_E2E_REPORT.md
 这两份报告主要用来补做验证，不作为主入口文档。它们默认都是“运行后才出现”的本地产物，所以公开 GitHub 仓库里暂时没有也正常。
 如果你在并行 review 或 CI 里不想覆盖默认文件，也可以先设置 `MEMORY_PALACE_MCP_E2E_REPORT_PATH`，把 e2e 报告改写到别的本地路径。
 `MCP_LIVE_E2E_REPORT.md` 默认使用隔离临时库，不会碰你的正式库；但失败时仍可能把 stderr、日志或临时目录路径带进报告，转发前同样建议先自己看一遍内容。
+现在这条 live e2e 会跟用户实际连接时一样，优先走 repo-local wrapper。按当前验证链路，它也会把 wrapper 行为和 `compact_context` 的 gist 持久化一起带上复核，而不只是检查工具清单。
 
 ## 正向 / 反向 prompt
 

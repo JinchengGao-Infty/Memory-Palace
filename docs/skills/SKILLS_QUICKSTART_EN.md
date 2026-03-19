@@ -64,7 +64,7 @@ In a nutshell:
 >
 > - **Smoke tests** for `Claude / Codex / Gemini` all have passing results in the recent validation environment; for `Codex`, the default assumption is that `user-scope --with-mcp` has already been installed.
 > - For `OpenCode`, the more accurate public wording is: the repo-local skill is in place, and `mcp list` can confirm that `memory-palace` is connected; a real `run` still depends on the current provider credentials.
-> - `Gemini live` is not yet at a stage to be described as "fully passing"; more accurately: if the Gemini configuration cannot resolve the database path, it stops at `PARTIAL`.
+> - `Gemini live` is not yet at a stage to be described as "fully passing"; more accurately: if the Gemini configuration cannot resolve the database path, or if a shared live database is mutated by another Gemini live session first, it stops at `PARTIAL`.
 > - `Cursor / Windsurf / VSCode-host / Antigravity` are now grouped as **IDE Hosts**; their primary path is `AGENTS.md + MCP snippet`, not hidden skill mirrors.
 >
 > **A prerequisite for Windows users**:

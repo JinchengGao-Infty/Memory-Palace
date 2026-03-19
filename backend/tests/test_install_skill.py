@@ -276,6 +276,15 @@ def test_python_command_prefers_repo_backend_venv(monkeypatch, tmp_path: Path) -
     assert module._python_command() == str(venv_python)
 
 
+def test_parse_args_defaults_to_cli_targets_only(monkeypatch) -> None:
+    module = _load_install_skill_module()
+    monkeypatch.setattr(module.sys, "argv", ["install_skill.py"])
+
+    args = module.parse_args()
+
+    assert module.resolve_targets(args.targets) == ["claude", "codex", "opencode"]
+
+
 def test_codex_server_block_uses_python_wrapper_on_windows(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -290,6 +299,28 @@ def test_codex_server_block_uses_python_wrapper_on_windows(
 
     assert 'command = "C:\\\\Python313\\\\python.exe"' in rendered
     assert str(project_root / "backend" / "mcp_wrapper.py").replace("\\", "\\\\") in rendered
+
+
+def test_check_mcp_binding_codex_falls_back_without_tomllib(
+    monkeypatch, tmp_path: Path
+) -> None:
+    module = _load_install_skill_module()
+    project_root = tmp_path / "Memory-Palace"
+    home_dir = tmp_path / "home"
+    config_path = home_dir / ".codex" / "config.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(module, "project_root", lambda: project_root)
+    monkeypatch.setattr(module.Path, "home", lambda: home_dir)
+    monkeypatch.setattr(module, "tomllib", None)
+    monkeypatch.setattr(module.sys, "executable", "/usr/bin/python3")
+
+    config_path.write_text(module._codex_server_block_text(), encoding="utf-8")
+
+    ok, message = module.check_mcp_binding("codex", scope="user")
+
+    assert ok is True
+    assert message == str(config_path)
 
 
 def test_wrapper_binding_ok_accepts_python_wrapper_paths(

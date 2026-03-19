@@ -225,7 +225,7 @@ def _normalize_session_fragment(
 
 
 def _build_context_session_id() -> Optional[str]:
-    """Build a request-aware session id from FastMCP context when available."""
+    """Build a session-stable id from FastMCP context when available."""
     try:
         ctx = mcp.get_context()
     except Exception:
@@ -257,15 +257,17 @@ def _build_context_session_id() -> Optional[str]:
     if session_obj is not None:
         session_seed = f"{type(session_obj).__name__}-{id(session_obj):x}"
     session_fragment = _normalize_session_fragment(session_seed, default="session")
-    request_seed = request_id
-    if not request_seed and request_obj is not None:
-        request_seed = f"{type(request_obj).__name__}-{id(request_obj):x}"
-    request_fragment = _normalize_session_fragment(
-        request_seed,
-        default="request",
-        max_len=32,
-    )
-    return f"mcp_ctx_{client_fragment}_{session_fragment}_{request_fragment}"
+    if session_obj is None:
+        request_seed = request_id
+        if not request_seed and request_obj is not None:
+            request_seed = f"{type(request_obj).__name__}-{id(request_obj):x}"
+        session_fragment = _normalize_session_fragment(
+            request_seed,
+            default="session",
+            max_len=32,
+        )
+
+    return f"mcp_ctx_{client_fragment}_{session_fragment}"
 
 
 def get_session_id() -> str:

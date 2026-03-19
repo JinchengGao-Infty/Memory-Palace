@@ -125,7 +125,9 @@ async def test_add_alias_rejects_system_domain_writes(monkeypatch) -> None:
     assert "read-only" in raw
 
 
-def test_get_session_id_uses_request_aware_context(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_session_id_stays_stable_within_shared_context_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _FakeRequestContext:
         def __init__(self, session_obj, request_obj) -> None:
             self.session = session_obj
@@ -172,6 +174,56 @@ def test_get_session_id_uses_request_aware_context(monkeypatch: pytest.MonkeyPat
         client_id="client-A",
         request_id="req-002",
         session_obj=shared_session,
+        request_obj=object(),
+    )
+
+    monkeypatch.setattr(mcp_server.mcp, "get_context", lambda: ctx_a)
+    session_a = mcp_server.get_session_id()
+    monkeypatch.setattr(mcp_server.mcp, "get_context", lambda: ctx_b)
+    session_b = mcp_server.get_session_id()
+
+    assert session_a.startswith("mcp_ctx_")
+    assert session_b.startswith("mcp_ctx_")
+    assert session_a == session_b
+
+
+def test_get_session_id_falls_back_to_request_fragment_when_session_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeRequestContext:
+        def __init__(self, request_obj) -> None:
+            self.request = request_obj
+
+    class _FakeContext:
+        def __init__(self, *, client_id: str, request_id: str, request_obj) -> None:
+            self._client_id = client_id
+            self._request_id = request_id
+            self._request_context = _FakeRequestContext(request_obj)
+
+        @property
+        def client_id(self):
+            return self._client_id
+
+        @property
+        def request_id(self):
+            return self._request_id
+
+        @property
+        def session(self):
+            return None
+
+        @property
+        def request_context(self):
+            return self._request_context
+
+    ctx_a = _FakeContext(
+        client_id="client-A",
+        request_id="req-001",
+        request_obj=object(),
+    )
+    ctx_b = _FakeContext(
+        client_id="client-A",
+        request_id="req-002",
         request_obj=object(),
     )
 

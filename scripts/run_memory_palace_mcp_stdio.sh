@@ -78,6 +78,6 @@ if [[ -z "${DATABASE_URL:-}" && ! -f "${ENV_FILE}" ]]; then
   fi
   export DATABASE_URL="sqlite+aiosqlite:////${DEFAULT_DB_PATH#/}"
 fi
-export RETRIEVAL_REMOTE_TIMEOUT_SEC="${RETRIEVAL_REMOTE_TIMEOUT_SEC:-1}"
+export RETRIEVAL_REMOTE_TIMEOUT_SEC="${RETRIEVAL_REMOTE_TIMEOUT_SEC:-8}"
 
 exec "${VENV_PYTHON}" mcp_server.py

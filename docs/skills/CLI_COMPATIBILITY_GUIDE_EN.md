@@ -110,6 +110,12 @@ It also supports:
   - Checks if the skill is consistent with the canonical version.
   - If `--with-mcp` is also passed, it checks if the MCP binding is in place.
 
+One more practical boundary:
+
+- If you omit `--targets`, the current default is the CLI-only set: `claude,codex,opencode`
+- `gemini` is still recommended, but you should add it explicitly in the command
+- IDE-host compatibility projections are no longer part of the default target set
+
 There are two behaviors directly related to "avoiding pitfalls":
 
 - If the script is about to overwrite an existing configuration, it will first leave a `*.bak` file in the original directory.
@@ -147,7 +153,7 @@ This step will:
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --force
@@ -157,11 +163,13 @@ Check:
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --check
 ```
+
+For workspace-local MCP, `install_skill.py` only manages stable repo-local bindings for `Claude Code` and `Gemini CLI`. Keep `Codex/OpenCode` on the user-scope MCP path.
 
 If `workspace --check` has passed, but `user --check` is still reporting `SKILL FAIL / mismatch`, first suspect that old mirrors or old MCP configurations remain in your home directory. Usually, rerunning the same `--scope user --with-mcp --force` is enough; the script will now generate `*.bak` first and won't silently overwrite the original files.
 
@@ -308,7 +316,7 @@ See also:
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --check
@@ -336,6 +344,7 @@ If this file is temporarily missing from a newly cloned GitHub repository, it is
 If you plan to forward it to others, read the content yourself first; these local reports might include paths on your machine, client configuration paths, or other environment traces. `evaluate_memory_palace_skill.py` now returns a non-zero exit code whenever any check is `FAIL`; `SKIP` / `PARTIAL` / `MANUAL` do not fail the process by themselves, and the current default Gemini smoke model is `gemini-3-flash-preview`.
 If you do not want to overwrite the default file during parallel review or CI, set `MEMORY_PALACE_SKILL_REPORT_PATH` first and write the smoke report to another local path.
 Additionally, this script defaults to attempting `gemini_live`. If the Gemini configuration can infer the real database path, it will perform a round of `create/update/guard` verification on that database and might leave `notes://gemini_suite_*` test memories; if you only want to do a normal smoke test, you can explicitly set `MEMORY_PALACE_SKIP_GEMINI_LIVE=1`.
+If that live round hits a shared real database or a neighboring Gemini live session mutates the same note first, it can also stop at `PARTIAL`; treat that as a live-host verification limit before assuming the isolated mainline skill/MCP path is broken.
 If the current machine simply does not have the `Antigravity` host runtime, treat that item as "manual verification on the target host still pending" rather than a repository-mainline failure.
 If the only remaining failed item is `mcp_bindings`, do not assume the repository is broken first. A more common cause is that your local user-scope MCP entries have not yet been synchronized to the current checkout. Rerun:
 
@@ -360,6 +369,7 @@ docs/skills/MCP_LIVE_E2E_REPORT.md
 These two reports are mainly used for supplemental verification and are not intended as primary entry documentation. They are local products that "appear only after running" by default, so it's normal if they aren't in the public GitHub repository.
 If you do not want to overwrite the default file during parallel review or CI, set `MEMORY_PALACE_MCP_E2E_REPORT_PATH` first and write the e2e report to another local path.
 `MCP_LIVE_E2E_REPORT.md` defaults to using an isolated temporary database and won't touch your official database; however, upon failure, it might still include stderr, logs, or temporary directory paths in the report, so it's also recommended to review the content yourself before forwarding.
+This live e2e now follows the same repo-local wrapper path that users actually connect to. In the current verified path, it also covers wrapper behavior and `compact_context` gist persistence instead of only checking the bare tool inventory.
 
 ## Positive / Negative Prompts
 

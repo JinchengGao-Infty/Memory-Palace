@@ -25,17 +25,36 @@ def _resolve_report_path() -> Path:
     return path
 
 
-def _maybe_reexec_with_backend_python() -> None:
-    backend_venv = (BACKEND_ROOT / ".venv").resolve()
-    if Path(sys.prefix).resolve() == backend_venv:
-        return
-    candidates = (
+def _backend_python_candidates() -> tuple[Path, ...]:
+    return (
         BACKEND_ROOT / ".venv" / "bin" / "python",
         BACKEND_ROOT / ".venv" / "Scripts" / "python.exe",
     )
-    for candidate in candidates:
+
+
+def _resolve_backend_python() -> Path | None:
+    for candidate in _backend_python_candidates():
         if candidate.is_file():
-            os.execv(str(candidate), [str(candidate), str(Path(__file__).resolve()), *sys.argv[1:]])
+            return candidate
+    return None
+
+
+def _repo_local_stdio_command() -> tuple[str, list[str]]:
+    if os.name == "nt":
+        return sys.executable or "python", [str(BACKEND_ROOT / "mcp_wrapper.py")]
+    return "bash", [str(PROJECT_ROOT / "scripts" / "run_memory_palace_mcp_stdio.sh")]
+
+
+def _maybe_reexec_with_backend_python() -> None:
+    backend_python = _resolve_backend_python()
+    if backend_python is None:
+        return
+    if Path(sys.executable).resolve() == backend_python.resolve():
+        return
+    os.execv(
+        str(backend_python),
+        [str(backend_python), str(Path(__file__).resolve()), *sys.argv[1:]],
+    )
 
 
 try:
@@ -99,10 +118,11 @@ async def run_suite() -> tuple[list[StepResult], str]:
         }
     )
 
+    command, args = _repo_local_stdio_command()
     server = StdioServerParameters(
-        command=sys.executable,
-        args=["mcp_server.py"],
-        cwd=str(BACKEND_ROOT),
+        command=command,
+        args=args,
+        cwd=str(PROJECT_ROOT),
         env=env,
     )
 

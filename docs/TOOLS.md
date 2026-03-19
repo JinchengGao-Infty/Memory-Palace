@@ -381,6 +381,11 @@ compact_context(
 3. `sentence_fallback` — 句子级降级
 4. `truncate_fallback` — 截断降级
 
+**实用说明：**
+
+- 按当前验证链路，repo-local stdio 和 Docker `/sse` 都能把 `llm_gist` 真正落到持久化结果里
+- 如果远程 chat 路径超时或不可用，`compact_context` 会继续按后续 fallback 降级，不会假装 LLM 已经成功
+
 **响应字段：**
 
 | 字段 | 说明 |

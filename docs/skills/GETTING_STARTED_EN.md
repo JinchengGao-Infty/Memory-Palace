@@ -99,6 +99,12 @@ This step only resolves **skill auto-discovery**, not yet MCP.
 - `--check`
   - Checks if the current installation results are consistent with the canonical source and current repository binding
 
+One more practical boundary:
+
+- If you omit `--targets`, the current default is the CLI-only set: `claude,codex,opencode`
+- `gemini` is still recommended, but you should add it explicitly in the command
+- IDE-host compatibility projections such as `cursor/agent/antigravity` are no longer part of the default target set
+
 A very useful detail:
 
 - If the script is about to overwrite existing configuration files (e.g., `.mcp.json`, `.gemini/settings.json`, `~/.gemini/policies/memory-palace-overrides.toml`, `~/.codex/config.toml`), it will first create a `*.bak` backup in the same directory.
@@ -121,7 +127,7 @@ If you also want the **current repository** to get an extra project-level entry,
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --force
@@ -131,11 +137,13 @@ Check:
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --check
 ```
+
+For workspace-local MCP, `install_skill.py` only manages stable repo-local bindings for `Claude Code` and `Gemini CLI`. Keep `Codex/OpenCode` on the user-scope MCP path.
 
 If you see:
 
@@ -152,10 +160,11 @@ This step does two things:
    - `Gemini CLI` → `.gemini/settings.json`
    - `Gemini CLI` → `.gemini/policies/memory-palace-overrides.toml`
 
-Both entry points now uniformly call:
+These entry points call the repo-local wrapper that matches the host:
 
 ```text
-scripts/run_memory_palace_mcp_stdio.sh
+native Windows  -> backend/mcp_wrapper.py
+macOS / Linux / Git Bash / WSL -> scripts/run_memory_palace_mcp_stdio.sh
 ```
 
 Its role is simple:
@@ -165,11 +174,10 @@ Its role is simple:
 - Falls back to the repo-local `demo.db` only when there is no repo `.env` at all.
 - Refuses that fallback when `.env.docker` exists without `.env`, because the repo-local stdio wrapper does **not** reuse Docker's `/app/data` database path.
 - Also refuses to start when `.env` or an explicit `DATABASE_URL` still points to `/app/...`, because that path only exists inside the container.
-- Also refuses to start when `.env` or an explicit `DATABASE_URL` still points to `/app/...`, because that path only exists inside the container.
 
-This ensures that the database you see in the Dashboard / HTTP API is the same one the MCP client actually reads and writes to by default.
+These wrappers keep the same boundary conditions, so the database you see in the Dashboard / HTTP API is the same one the MCP client actually reads and writes to by default.
 
-That also means all repo-local `stdio` clients (`Claude / Codex / Gemini / OpenCode`) ultimately follow this same wrapper. Changing the repository `.env` changes what those clients connect to by default.
+That also means all repo-local `stdio` clients (`Claude / Codex / Gemini / OpenCode`) ultimately follow the wrapper that matches the current host. Changing the repository `.env` changes what those clients connect to by default.
 
 If you only have the Docker / GHCR service side running, prefer the exposed `/sse` endpoint instead of this repo-local stdio wrapper.
 
@@ -286,7 +294,7 @@ If you are integrating `Cursor / Windsurf / VSCode-host / Antigravity`, stop her
 
 ```bash
 python scripts/install_skill.py \
-  --targets claude,codex,gemini,opencode \
+  --targets claude,gemini \
   --scope workspace \
   --with-mcp \
   --check
@@ -316,6 +324,7 @@ If the current machine simply does not have the `Antigravity` host runtime, trea
 
 This check sequentially calls multiple CLIs; if you have `claude`, `codex`, `opencode`, and `gemini` installed, it usually takes a few minutes to complete. Don't assume it's "hung" if there's no output for dozens of seconds.
 Additionally, it defaults to attempting `gemini_live`: if the current Gemini configuration can resolve a real database path, it will perform a round of `create/update/guard` verification on that database and may leave test memories like `notes://gemini_suite_*`. If you only want a normal smoke test, explicitly set `MEMORY_PALACE_SKIP_GEMINI_LIVE=1`.
+If that live round hits a shared real database or a neighboring Gemini live session mutates the same note first, it can also stop at `PARTIAL`; treat that as a live-host verification limit before assuming the isolated mainline skill/MCP path is broken.
 If the report only shows `mcp_bindings` as failed, first rerun the unified `user-scope` install and then rerun smoke:
 
 ```bash
@@ -339,6 +348,7 @@ docs/skills/MCP_LIVE_E2E_REPORT.md
 Similarly, this report is a local artifact that "appears after running"; it is normal that it's not in the public GitHub repository.
 If you do not want to overwrite the default file during parallel review or CI, set `MEMORY_PALACE_MCP_E2E_REPORT_PATH` first and write the e2e report to another local path.
 It uses an isolated temporary database by default and won't touch your formal database; however, it may still write stderr, logs, or temporary directory paths into the report upon failure. Check the content yourself before forwarding it to others.
+This script now follows the same repo-local wrapper path that users actually connect to. In the current verified path, it also covers wrapper behavior and `compact_context` gist persistence instead of only checking the bare tool inventory.
 
 These two reports are primarily for reviewing results in the current environment and are not main entry documents.
 

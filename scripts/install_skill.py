@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -48,12 +49,13 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--targets",
-        default="claude,codex,opencode,cursor,agent",
+        default="claude,codex,opencode",
         help=(
             "Comma-separated targets. Available: claude,codex,gemini,cursor,opencode,agent,"
             "antigravity,all. Cursor/agent/antigravity remain compatibility-only projections; "
             "IDE hosts should prefer scripts/render_ide_host_config.py plus repo-local AGENTS.md. "
-            "Default excludes gemini because user-scope install is more reliable there."
+            "Default keeps CLI targets only and excludes gemini because user-scope install is more "
+            "reliable there."
         ),
     )
     parser.add_argument(
@@ -354,6 +356,37 @@ def _strip_codex_memory_palace_block(text: str) -> str:
     return "\n".join(kept).rstrip()
 
 
+def _parse_codex_memory_palace_block(text: str) -> dict:
+    block_match = re.search(
+        r"(?ms)^\[mcp_servers\.memory-palace\]\s*(.*?)^(?:\[|\Z)",
+        text,
+    )
+    if not block_match:
+        return {}
+
+    block = block_match.group(1)
+    command_match = re.search(r'(?m)^command\s*=\s*(".*?")\s*$', block)
+    args_match = re.search(r'(?m)^args\s*=\s*(\[.*\])\s*$', block)
+    if not command_match:
+        return {}
+
+    try:
+        command = ast.literal_eval(command_match.group(1))
+        args = ast.literal_eval(args_match.group(1)) if args_match else []
+    except (SyntaxError, ValueError):
+        return {}
+
+    if not isinstance(command, str):
+        return {}
+    if not isinstance(args, list) or any(not isinstance(item, str) for item in args):
+        return {}
+
+    return {
+        "command": command,
+        "args": args,
+    }
+
+
 def _workspace_mcp_supported(target_name: str) -> bool:
     return target_name in {"claude", "gemini"}
 
@@ -613,10 +646,11 @@ def check_mcp_binding(target_name: str, *, scope: str) -> tuple[bool | None, str
         if not config_path.is_file():
             return False, str(config_path)
         if tomllib is None:
-            return False, "tomllib unavailable; cannot inspect ~/.codex/config.toml"
-        with config_path.open("rb") as handle:
-            payload = tomllib.load(handle)
-        server = payload.get("mcp_servers", {}).get("memory-palace", {})
+            server = _parse_codex_memory_palace_block(config_path.read_text(encoding="utf-8"))
+        else:
+            with config_path.open("rb") as handle:
+                payload = tomllib.load(handle)
+            server = payload.get("mcp_servers", {}).get("memory-palace", {})
         command = [server.get("command", ""), *(server.get("args") or [])]
         ok = _wrapper_binding_ok(command, allow_relative=False)
         return ok, str(config_path)

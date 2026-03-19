@@ -385,6 +385,8 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups
 > 备份文件默认写入 `backups/`。如果你准备分享仓库或打包交付，通常不需要把它一并带上。
 >
 > 这两条备份脚本都会先读取你指定 env 文件里的 `DATABASE_URL`，自动去掉可选的 query / fragment（例如 `?mode=...`、`#...`），再对实际 SQLite 文件做一致性备份。原生 Windows 优先用 `backup_memory.ps1`；`Git Bash` / `WSL` 继续用 `backup_memory.sh` 即可。
+>
+> 如果你只是想先看脚本用法，直接运行 `bash scripts/backup_memory.sh --help` 或 `.\scripts\backup_memory.ps1 -?`。原生 Windows 的 PowerShell 脚本现在也会优先检查仓库里的 `backend/.venv`，找不到时再回退到常见的 `python3` / `py`，正常本地仓库环境一般不需要额外改 PATH。
 
 ### 4.4 哪些文件通常不需要提交
 
@@ -516,6 +518,13 @@ python mcp_server.py
 ```bash
 cd backend
 HOST=127.0.0.1 PORT=8010 python run_sse.py
+```
+
+```powershell
+cd backend
+$env:HOST = "127.0.0.1"
+$env:PORT = "8010"
+python run_sse.py
 ```
 
 > `run_sse.py` 本地默认就是监听 `127.0.0.1:8000`（可通过 `HOST` 和 `PORT` 自定义），SSE 端点路径为 `/sse`。也就是说，直接运行 `python run_sse.py` 并不会自动绑定到 `0.0.0.0`。只有在你真要给远程客户端接入时，才显式设置 `HOST=0.0.0.0`（或你的实际绑定地址）。SSE 模式仍受 `MCP_API_KEY` 鉴权保护。

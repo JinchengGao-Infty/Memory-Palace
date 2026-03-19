@@ -741,6 +741,100 @@ def test_smoke_gemini_live_suite_accepts_prefixed_mcp_tool_names(
     assert "guard_message=BLOCKED notes://gemini_suite_4321" in result.details
 
 
+def test_smoke_gemini_live_suite_downgrades_shared_state_interference_to_partial(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    evaluate_memory_palace_skill = _load_skill_eval_module()
+    monkeypatch.setattr(evaluate_memory_palace_skill, "SKIP_GEMINI_LIVE", False)
+    monkeypatch.setattr(evaluate_memory_palace_skill.shutil, "which", lambda _: "/usr/bin/gemini")
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_extract_gemini_memory_palace_db_path",
+        lambda: tmp_path / "demo.db",
+    )
+    monkeypatch.setattr(evaluate_memory_palace_skill.time, "time", lambda: 1234)
+
+    note_uri = "notes://gemini_suite_1234"
+    responses = iter(
+        [
+            evaluate_memory_palace_skill.CommandCapture(
+                returncode=0,
+                stdout=f"SUCCESS {note_uri}",
+                stderr="",
+                timed_out=False,
+                model=evaluate_memory_palace_skill.GEMINI_TEST_MODEL,
+            ),
+            evaluate_memory_palace_skill.CommandCapture(
+                returncode=0,
+                stdout=f"SUCCESS {note_uri}",
+                stderr="",
+                timed_out=False,
+                model=evaluate_memory_palace_skill.GEMINI_TEST_MODEL,
+            ),
+            evaluate_memory_palace_skill.CommandCapture(
+                returncode=-9,
+                stdout="",
+                stderr="",
+                timed_out=True,
+                model=evaluate_memory_palace_skill.GEMINI_TEST_MODEL,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "run_gemini_prompt",
+        lambda prompt, timeout: next(responses),
+    )
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_wait_for_memory",
+        lambda db_path, uri, expected_substring=None, retries=5: None,
+    )
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_memory_exists",
+        lambda db_path, uri: False,
+    )
+    monkeypatch.setattr(
+        evaluate_memory_palace_skill,
+        "_find_latest_gemini_chat",
+        lambda marker: (
+            tmp_path / "chat.json",
+            {
+                "messages": [
+                    {
+                        "toolCalls": [
+                            {
+                                "name": "create_memory",
+                                "result": [
+                                    {
+                                        "functionResponse": {
+                                            "response": {
+                                                "output": json.dumps(
+                                                    {
+                                                        "guard_action": "UPDATE",
+                                                        "guard_target_uri": "notes://gemini_suite_9999",
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                ]
+            },
+        ),
+    )
+
+    result = evaluate_memory_palace_skill.smoke_gemini_live_suite()
+
+    assert result.status == "PARTIAL"
+    assert "共享库或宿主干扰" in result.summary
+
+
 def test_extract_gemini_memory_palace_db_path_falls_back_to_repo_db_when_wrapper_is_bound(
     monkeypatch,
     tmp_path: Path,

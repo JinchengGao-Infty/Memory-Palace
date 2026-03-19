@@ -479,6 +479,13 @@ python mcp_server.py
 HOST=127.0.0.1 PORT=8010 python run_sse.py
 ```
 
+```powershell
+cd backend
+$env:HOST = "127.0.0.1"
+$env:PORT = "8010"
+python run_sse.py
+```
+
 > Note: `stdio` connects directly to the MCP tool process and does not pass through the HTTP/SSE auth middleware, so MCP tools can still be used locally without `MCP_API_KEY`. This applies to `stdio` only — protected HTTP/SSE routes still follow the normal API key rules.
 >
 > The plain `python mcp_server.py` form assumes you are still using the same `backend/.venv` where you ran `pip install -r requirements.txt`. If you launch MCP from a new terminal or a client config, it is safer to point to the project venv directly. Otherwise the process can fail before startup with errors like `ModuleNotFoundError: No module named 'sqlalchemy'`.
@@ -709,9 +716,11 @@ The MCP tool layer handles **deterministic execution**; the Skills strategy laye
 python scripts/sync_memory_palace_skill.py
 python scripts/sync_memory_palace_skill.py --check
 python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope user --with-mcp --force
-python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope workspace --with-mcp --force
-python scripts/install_skill.py --targets claude,codex,gemini,opencode --scope workspace --with-mcp --check
+python scripts/install_skill.py --targets claude,gemini --scope workspace --with-mcp --force
+python scripts/install_skill.py --targets claude,gemini --scope workspace --with-mcp --check
 ```
+
+For workspace-local MCP, the script only manages stable repo-local bindings for `Claude Code` and `Gemini CLI`. Keep `Codex/OpenCode` on the user-scope MCP path.
 
 For IDE hosts, do not start with hidden skill mirrors. Render the repo-local MCP snippet instead:
 
@@ -768,6 +777,8 @@ The canonical skill is aligned with the current code contract:
 - the trigger sample set lives at `<repo-root>/docs/skills/memory-palace/references/trigger-samples.md`
 
 If you want to re-check skill smoke or the live MCP path, run `python scripts/evaluate_memory_palace_skill.py` and `cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py`. By default they generate local reports under `docs/skills/`; if you need isolated output during parallel review or CI, set `MEMORY_PALACE_SKILL_REPORT_PATH` / `MEMORY_PALACE_MCP_E2E_REPORT_PATH` first. `evaluate_memory_palace_skill.py` now returns a non-zero exit code whenever any check is `FAIL`; `SKIP` / `PARTIAL` / `MANUAL` do not fail the process by themselves, and the current default Gemini smoke model is `gemini-3-flash-preview`. If the current machine simply does not have the `Antigravity` host runtime, treat the `antigravity` item as manual host-side follow-up rather than a repository-mainline failure.
+
+The live MCP e2e script now follows the same repo-local wrapper path that users actually connect to. In the current verified path, it also covers wrapper behavior and `compact_context` gist persistence instead of only checking the bare tool inventory.
 
 Full guides:
 

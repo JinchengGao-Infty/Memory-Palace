@@ -386,6 +386,8 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups
 > Backup files are written to `backups/` by default. If you are preparing to share the repository or package it for delivery, you usually don't need to include them.
 >
 > Both backup scripts read `DATABASE_URL` from the selected env file, strip optional query / fragment suffixes such as `?mode=...` or `#...`, and then back up the resolved SQLite file. On native Windows, prefer `backup_memory.ps1`; on `Git Bash` / `WSL`, `backup_memory.sh` is fine.
+>
+> If you only want to see the usage first, run `bash scripts/backup_memory.sh --help` or `.\scripts\backup_memory.ps1 -?`. On native Windows, the PowerShell script now checks the repo `backend/.venv` first and then falls back to common launchers such as `python3` / `py`, so a normal local repo setup usually does not need a special PATH tweak before backup.
 
 ### 4.4 Files Typically Not Needed for Submission
 
@@ -517,6 +519,13 @@ python mcp_server.py
 ```bash
 cd backend
 HOST=127.0.0.1 PORT=8010 python run_sse.py
+```
+
+```powershell
+cd backend
+$env:HOST = "127.0.0.1"
+$env:PORT = "8010"
+python run_sse.py
 ```
 
 > `python run_sse.py` defaults to loopback as well: `HOST=127.0.0.1`, `PORT=8000`, and the SSE endpoint path is `/sse`. SSE mode is still protected by `MCP_API_KEY`.

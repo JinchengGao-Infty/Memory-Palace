@@ -23,3 +23,21 @@ def test_live_mcp_stdio_e2e_suite_passes() -> None:
     failing = [item for item in results if item.status == "FAIL"]
     assert not failing, [(item.name, item.summary, item.details) for item in failing]
     assert "bound to a different event loop" not in stderr_output
+
+
+def test_repo_local_stdio_command_uses_python_wrapper_on_windows(
+    monkeypatch, tmp_path: Path
+) -> None:
+    harness = _load_harness()
+    project_root = tmp_path / "Memory-Palace"
+    backend_root = project_root / "backend"
+
+    monkeypatch.setattr(harness, "PROJECT_ROOT", project_root)
+    monkeypatch.setattr(harness, "BACKEND_ROOT", backend_root)
+    monkeypatch.setattr(harness.os, "name", "nt")
+    monkeypatch.setattr(harness.sys, "executable", r"C:\Python313\python.exe")
+
+    command, args = harness._repo_local_stdio_command()
+
+    assert command == r"C:\Python313\python.exe"
+    assert args == [str(backend_root / "mcp_wrapper.py")]

@@ -1,10 +1,38 @@
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$EnvFile = '',
-    [string]$OutputDir = ''
+    [string]$OutputDir = '',
+    [Alias('h', '?')]
+    [switch]$Help,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$RemainingArgs = @()
 )
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
+
+function Show-Usage {
+    @'
+Usage: .\scripts\backup_memory.ps1 [-EnvFile <path>] [-OutputDir <path>]
+
+Creates a consistent SQLite backup using Python's sqlite3 backup API.
+'@
+}
+
+if ($RemainingArgs -contains '--help') {
+    $Help = $true
+}
+
+if ($Help) {
+    Show-Usage
+    exit 0
+}
+
+if ($RemainingArgs.Count -gt 0) {
+    Write-Error ("Unknown argument(s): {0}" -f ($RemainingArgs -join ' '))
+    Show-Usage
+    exit 2
+}
 
 if ([string]::IsNullOrWhiteSpace($EnvFile)) {
     $EnvFile = Join-Path $projectRoot '.env'
@@ -83,6 +111,38 @@ function Resolve-SqlitePathFromDatabaseUrl {
     return (Join-Path $projectRoot $rawPath)
 }
 
+function Resolve-PythonCommand {
+    $explicitCandidates = @(
+        (Join-Path $projectRoot 'backend/.venv/Scripts/python.exe'),
+        (Join-Path $projectRoot 'backend/.venv/bin/python')
+    )
+
+    foreach ($candidate in $explicitCandidates) {
+        if (Test-Path -Path $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+
+    foreach ($candidateName in @('python.exe', 'python3', 'python', 'py')) {
+        $command = Get-Command $candidateName -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if (-not $command) {
+            continue
+        }
+
+        $source = $command.Source
+        if ([string]::IsNullOrWhiteSpace($source)) {
+            continue
+        }
+        if ($source -like '*\WindowsApps\*') {
+            continue
+        }
+        return $source
+    }
+
+    return $null
+}
+
 $databaseUrl = Read-DatabaseUrlFromEnvFile -Path $EnvFile
 if ([string]::IsNullOrWhiteSpace($databaseUrl)) {
     Write-Error "DATABASE_URL is missing in $EnvFile"
@@ -109,9 +169,9 @@ if (-not (Test-Path $OutputDir)) {
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $destFile = Join-Path $OutputDir ("memory_palace_backup_{0}.db" -f $timestamp)
 
-$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-if (-not $pythonCmd) {
-    Write-Error "Python is required for consistent SQLite backup but was not found in PATH."
+$pythonCmd = Resolve-PythonCommand
+if ([string]::IsNullOrWhiteSpace($pythonCmd)) {
+    Write-Error "Python is required for consistent SQLite backup but was not found in the repo venv or PATH."
     exit 1
 }
 
@@ -129,7 +189,7 @@ with sqlite3.connect(source) as source_conn:
         source_conn.backup(target_conn)
 '@
 
-& $pythonCmd.Source -c $backupScript
+& $pythonCmd -c $backupScript
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Backup failed for ${sqlitePath}: sqlite backup command returned non-zero exit code."
     exit 1

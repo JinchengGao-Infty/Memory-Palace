@@ -64,7 +64,7 @@
 >
 > - `Claude / Codex / Gemini` 的 **smoke** 在最近一次验证环境里都已有通过结果；其中 `Codex` 默认前提是先补好 `user-scope --with-mcp`
 > - `OpenCode` 当前更准确的说法是：repo-local skill 已就位，`mcp list` 可以确认 `memory-palace` 已连接；真实 `run` 仍取决于当前 provider 凭证
-> - `Gemini live` 还没到可以写成“完全通过”的程度；当前更准确的说法是：如果 Gemini 配置无法反推出数据库路径，它会停在 `PARTIAL`
+> - `Gemini live` 还没到可以写成“完全通过”的程度；当前更准确的说法是：如果 Gemini 配置无法反推出数据库路径，或者共享真实数据库先被另一条 Gemini live 会话改动了，它会停在 `PARTIAL`
 > - `Cursor / Windsurf / VSCode-host / Antigravity` 现在统一归到 **IDE Hosts**；它们的主路径是 `AGENTS.md + MCP snippet`，不是 hidden skill mirrors
 >
 > **Windows 用户先看这个前提**：

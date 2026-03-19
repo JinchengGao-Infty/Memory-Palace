@@ -477,6 +477,28 @@ def _gemini_live_write_verified(
     return proc.timed_out or proc.returncode == 0
 
 
+def _gemini_live_shared_state_suspected(
+    *,
+    note_uri: str,
+    create_proc: CommandCapture,
+    update_proc: CommandCapture,
+    create_row: dict[str, Any] | None,
+    update_row: dict[str, Any] | None,
+    guard_proc: CommandCapture,
+    guard_target_uri: str,
+) -> bool:
+    if create_row is not None and update_row is not None:
+        return False
+
+    observed_success = any(
+        token in (proc.stdout or "")
+        for proc in (create_proc, update_proc)
+        for token in [f"SUCCESS {note_uri}", "successfully saved", "updated"]
+    )
+    redirected_target = bool(guard_target_uri) and guard_target_uri != note_uri
+    return observed_success and (redirected_target or guard_proc.timed_out)
+
+
 def _find_latest_gemini_chat(marker: str) -> tuple[Path, Any] | None:
     if not GEMINI_CHATS_DIR.is_dir():
         return None
@@ -1220,6 +1242,17 @@ def smoke_gemini_live_suite() -> CheckResult:
 
     if create_ok and update_ok:
         return CheckResult("PARTIAL", "Gemini live 写入与更新通过，但 guard 分支未稳定收敛", "\n".join(details))
+
+    if _gemini_live_shared_state_suspected(
+        note_uri=note_uri,
+        create_proc=create_proc,
+        update_proc=update_proc,
+        create_row=create_row,
+        update_row=update_row,
+        guard_proc=guard_proc,
+        guard_target_uri=guard_target_uri,
+    ):
+        return CheckResult("PARTIAL", "Gemini live 命中共享库或宿主干扰，链路未稳定收敛", "\n".join(details))
 
     return CheckResult("FAIL", "Gemini live MCP 链路未完全通过", "\n".join(details))
 
