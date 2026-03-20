@@ -363,7 +363,8 @@ const zhCN = {
     noOrphans: '未检测到孤儿记忆。',
     deprecatedVersions: '已弃用版本',
     orphanedMemories: '孤立记忆',
-    deleteOrphans: '删除 {{count}} 条孤儿记忆',
+    deleteOrphans_one: '删除 {{count}} 条孤儿记忆',
+    deleteOrphans_other: '删除 {{count}} 条孤儿记忆',
     refresh: '刷新',
     selectAll: '全选',
     deselectAll: '取消全选',
@@ -378,7 +379,8 @@ const zhCN = {
       diffTitle: '差异：#{{from}} → #{{to}}',
     },
     prompts: {
-      deleteMemories: '确认永久删除 {{count}} 条记忆吗？此操作无法撤销。',
+      deleteMemories_one: '确认永久删除 {{count}} 条记忆吗？此操作无法撤销。',
+      deleteMemories_other: '确认永久删除 {{count}} 条记忆吗？此操作无法撤销。',
       executeCleanup: '请输入确认短语以执行 {{action}} 清理：\n{{phrase}}',
     },
     errors: {

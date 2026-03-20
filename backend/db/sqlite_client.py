@@ -12,6 +12,7 @@ import re
 import json
 import math
 import hashlib
+import logging
 import sqlite3
 import subprocess
 import threading
@@ -63,6 +64,7 @@ Base = declarative_base()
 _SQLITE_ADAPTERS_REGISTERED = False
 _DATABASE_URL_PLACEHOLDER_PATTERN = re.compile(r"<[^>]+>|__REPLACE_ME__")
 _NETWORK_FILESYSTEM_TYPES = {"nfs", "nfs4", "cifs", "smb", "smbfs"}
+logger = logging.getLogger(__name__)
 
 
 def _register_sqlite_adapters() -> None:
@@ -420,6 +422,7 @@ class SQLiteClient:
         )
         self._runtime_write_pragma_status = "pending"
         self._runtime_write_pragma_error = ""
+        self._runtime_write_pragma_warning_emitted = False
         self._register_runtime_write_pragma_hook()
         self.async_session = async_sessionmaker(
             self.engine, class_=AsyncSession, expire_on_commit=False
@@ -768,6 +771,20 @@ class SQLiteClient:
             self._runtime_write_pragma_status = status
             self._runtime_write_pragma_error = error
 
+    def _warn_if_runtime_write_pragma_fallback(self) -> None:
+        if (
+            self._runtime_write_pragma_status != "fallback_delete"
+            or not self._runtime_write_pragma_error
+            or self._runtime_write_pragma_warning_emitted
+        ):
+            return
+        logger.warning(
+            "WAL fell back to DELETE mode for %s: %s",
+            self._database_file or self.database_url,
+            self._runtime_write_pragma_error,
+        )
+        self._runtime_write_pragma_warning_emitted = True
+
     def _load_sqlite_vec_extension_on_connect(self, dbapi_connection) -> None:
         """
         Best-effort sqlite-vec extension loading for each SQLite connection.
@@ -985,6 +1002,7 @@ class SQLiteClient:
         """Create tables, run migrations, and serialize startup across processes."""
         if self._init_lock_path is None:
             await self._run_init_db_unlocked()
+            self._warn_if_runtime_write_pragma_fallback()
             return
 
         self._init_lock_path.parent.mkdir(parents=True, exist_ok=True)
@@ -993,6 +1011,7 @@ class SQLiteClient:
         )
         async with lock:
             await self._run_init_db_unlocked()
+        self._warn_if_runtime_write_pragma_fallback()
 
     @staticmethod
     def _migrate_add_migrated_to(connection):
@@ -1769,6 +1788,74 @@ class SQLiteClient:
             degrade_reasons.append(reason)
 
     @classmethod
+    def _append_request_failure_reasons(
+        cls,
+        degrade_reasons: Optional[List[str]],
+        *,
+        prefix: str,
+        error_info: Optional[Dict[str, Any]],
+        backend: Optional[str] = None,
+    ) -> None:
+        cls._append_degrade_reason(degrade_reasons, prefix)
+
+        backend_value = str(backend or "").strip().lower()
+        if backend_value:
+            cls._append_degrade_reason(degrade_reasons, f"{prefix}:{backend_value}")
+
+        if not isinstance(error_info, dict):
+            return
+
+        category = str(error_info.get("category") or "").strip().lower()
+        if not category:
+            return
+
+        if category == "request_error":
+            error_type = str(error_info.get("error_type") or "").strip()
+            message = str(error_info.get("message") or "").strip().lower()
+            if "timeout" in error_type.lower() or "timeout" in message:
+                cls._append_degrade_reason(degrade_reasons, f"{prefix}:timeout")
+                if backend_value:
+                    cls._append_degrade_reason(
+                        degrade_reasons, f"{prefix}:{backend_value}:timeout"
+                    )
+                if error_type:
+                    cls._append_degrade_reason(
+                        degrade_reasons, f"{prefix}:timeout:{error_type}"
+                    )
+                    if backend_value:
+                        cls._append_degrade_reason(
+                            degrade_reasons,
+                            f"{prefix}:{backend_value}:timeout:{error_type}",
+                        )
+
+        category_reason = f"{prefix}:{category}"
+        cls._append_degrade_reason(degrade_reasons, category_reason)
+        if backend_value:
+            cls._append_degrade_reason(
+                degrade_reasons, f"{prefix}:{backend_value}:{category}"
+            )
+
+        detail_reason = ""
+        if category == "http_status":
+            status_code = error_info.get("status_code")
+            if status_code is not None:
+                detail_reason = str(status_code).strip()
+        else:
+            detail_reason = str(error_info.get("error_type") or "").strip()
+
+        if not detail_reason:
+            return
+
+        cls._append_degrade_reason(
+            degrade_reasons, f"{category_reason}:{detail_reason}"
+        )
+        if backend_value:
+            cls._append_degrade_reason(
+                degrade_reasons,
+                f"{prefix}:{backend_value}:{category}:{detail_reason}",
+            )
+
+    @classmethod
     def _append_embedding_dim_mismatch_reasons(
         cls,
         degrade_reasons: Optional[List[str]],
@@ -2345,6 +2432,29 @@ class SQLiteClient:
                 )
             return None
 
+    async def _post_json_with_optional_error_sink(
+        self,
+        base: str,
+        endpoint: str,
+        payload: Dict[str, Any],
+        api_key: str = "",
+        error_sink: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if error_sink is None:
+            return await self._post_json(base, endpoint, payload, api_key)
+        try:
+            return await self._post_json(
+                base,
+                endpoint,
+                payload,
+                api_key,
+                error_sink=error_sink,
+            )
+        except TypeError as exc:
+            if "error_sink" not in str(exc):
+                raise
+            return await self._post_json(base, endpoint, payload, api_key)
+
     @staticmethod
     def _looks_like_model_unavailable_error(error_info: Dict[str, Any]) -> bool:
         if not isinstance(error_info, dict):
@@ -2442,14 +2552,21 @@ class SQLiteClient:
             content,
             dimensions=int(self._embedding_dim),
         )
-        response = await self._post_json(
+        error_info: Dict[str, Any] = {}
+        response = await self._post_json_with_optional_error_sink(
             self._embedding_api_base,
             "/embeddings",
             payload,
             self._embedding_api_key,
+            error_sink=error_info,
         )
         if response is None:
-            self._append_degrade_reason(degrade_reasons, "embedding_request_failed")
+            self._append_request_failure_reasons(
+                degrade_reasons,
+                prefix="embedding_request_failed",
+                error_info=error_info,
+                backend=(self._embedding_backend or "").strip().lower() or None,
+            )
             return None
 
         embedding = self._extract_embedding_from_response(response)
@@ -2488,16 +2605,20 @@ class SQLiteClient:
             content,
             dimensions=int(self._embedding_dim),
         )
-        response = await self._post_json(
+        error_info: Dict[str, Any] = {}
+        response = await self._post_json_with_optional_error_sink(
             api_base,
             "/embeddings",
             payload,
             api_key,
+            error_sink=error_info,
         )
         if response is None:
-            self._append_degrade_reason(degrade_reasons, "embedding_request_failed")
-            self._append_degrade_reason(
-                degrade_reasons, f"embedding_request_failed:{backend_value}"
+            self._append_request_failure_reasons(
+                degrade_reasons,
+                prefix="embedding_request_failed",
+                error_info=error_info,
+                backend=backend_value,
             )
             return None
 
@@ -2583,14 +2704,20 @@ class SQLiteClient:
             "query": query,
             "documents": documents,
         }
-        response = await self._post_json(
+        error_info: Dict[str, Any] = {}
+        response = await self._post_json_with_optional_error_sink(
             self._reranker_api_base,
             "/rerank",
             payload,
             self._reranker_api_key,
+            error_sink=error_info,
         )
         if response is None:
-            self._append_degrade_reason(degrade_reasons, "reranker_request_failed")
+            self._append_request_failure_reasons(
+                degrade_reasons,
+                prefix="reranker_request_failed",
+                error_info=error_info,
+            )
             return {}
 
         parsed_scores = self._extract_rerank_scores(response, len(documents))

@@ -1,3 +1,4 @@
+import logging
 import json
 import threading
 from pathlib import Path
@@ -58,6 +59,7 @@ def test_snapshot_manager_filters_sessions_by_current_database_scope(
 
 
 def test_snapshot_manager_hides_legacy_unscoped_sessions_when_database_scope_is_set(
+    caplog: pytest.LogCaptureFixture,
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -102,9 +104,16 @@ def test_snapshot_manager_hides_legacy_unscoped_sessions_when_database_scope_is_
     monkeypatch.setenv("DATABASE_URL", _sqlite_url(tmp_path / "active.db"))
     manager = SnapshotManager(str(snapshot_dir))
 
-    assert manager.list_sessions() == []
-    assert manager.list_snapshots("legacy-session") == []
-    assert manager.get_snapshot("legacy-session", "notes://legacy") is None
+    with caplog.at_level(logging.WARNING):
+        assert manager.list_sessions() == []
+        assert manager.list_snapshots("legacy-session") == []
+        assert manager.get_snapshot("legacy-session", "notes://legacy") is None
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any(
+        "Hiding legacy snapshot session without database_fingerprint" in message
+        for message in messages
+    )
 
 
 def test_snapshot_manager_serializes_same_session_manifest_updates(

@@ -2,6 +2,7 @@ import os
 import sys
 import hmac
 import asyncio
+import errno
 import socket
 import uvicorn
 from collections import deque
@@ -72,12 +73,28 @@ def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
 
 
 def _is_loopback_port_available(port: int) -> bool:
-    for host in ("127.0.0.1", "::1"):
+    attempted_probe = False
+    for host, family in (("127.0.0.1", socket.AF_INET), ("::1", socket.AF_INET6)):
         try:
-            with socket.create_connection((host, port), timeout=0.2):
-                return False
-        except OSError:
-            continue
+            with socket.socket(family, socket.SOCK_STREAM) as probe:
+                attempted_probe = True
+                if family == socket.AF_INET6 and hasattr(socket, "IPV6_V6ONLY"):
+                    try:
+                        probe.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                    except OSError:
+                        pass
+                probe.bind((host, port))
+        except OSError as exc:
+            if exc.errno in {
+                errno.EADDRNOTAVAIL,
+                errno.EAFNOSUPPORT,
+                errno.EPROTONOSUPPORT,
+            }:
+                continue
+            return False
+    if not attempted_probe:
+        # If neither loopback family is available locally, do not block startup.
+        return True
     return True
 
 

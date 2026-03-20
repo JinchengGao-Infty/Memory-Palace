@@ -560,6 +560,8 @@ During writing, if a `write_guard_exception` occurs, the system fails-closed, re
 | `query_preprocess_failed` | Query preprocessing failed |
 | `index_enqueue_dropped` | Indexing task failed to queue |
 
+> `embedding_request_failed` / `reranker_request_failed` still keep their base markers, but may now also carry narrower suffixes such as `:timeout`, `:http_status:503`, or `:api:timeout` on the embedding path. For troubleshooting, read the base marker first, then use the suffix for the exact failure shape.
+>
 > 💡 **Suggestion:** Client logic should use the `degrade_reasons` field as an alert signal. If degradation is detected, try calling `rebuild_index(wait=True)` + `index_status()` to attempt recovery. Vector-dimension warnings now follow the **current query scope**, so unrelated domains should no longer trigger a false rebuild warning.
 
 ---

@@ -86,6 +86,7 @@ backend/
 - `POST / PUT /browse/node` 默认还会对单次 `content` 做长度校验（`BROWSE_CONTENT_MAX_CHARS`，默认 1 MiB），防止把超大正文直接塞进 Dashboard 写接口
 - `POST /browse/node` 还会对生成后的路径长度做前置校验（`BROWSE_PATH_MAX_CHARS`，默认 512），如果 `parent_path + title` 太长，会在真正写入前直接返回 `422`
 - 如果 write lane 长时间拿不到写槽位，`browse` / `review` / `maintenance` 这几组写接口现在都会直接返回结构化 `503`（`write_lane_timeout`），而不是只冒一个通用 `500`；MCP 写工具遇到同样情况时，也会返回可重试的结构化错误结果
+- 如果 SQLite 运行时写入 pragma 因网络文件系统风险或 `journal_mode` 不可用而从 `WAL` 回退到 `DELETE`，当前实现也会明确打一条 warning，方便你把问题直接定位到部署环境，而不是继续猜业务层报错
 
 ### 审查与回滚（`/review`）
 
@@ -97,7 +98,7 @@ backend/
 - 但会话列表、快照列表和快照读取会按**当前数据库作用域**过滤，避免你在同一 checkout 下切换 `DATABASE_URL`、临时 SQLite 文件或 Docker 数据卷后，把另一份库的 rollback 会话混进当前审查列表；
 - 同一个 `session_id` 下的 snapshot 写路径现在会串行化，`manifest.json` 和单个快照 JSON 文件也会通过原子替换落盘；所以多个本地进程共用同一个 checkout 时，同一条 Review session 的快照元数据更不容易丢条目，也不容易出现半写入 JSON；
 - 如果 `manifest.json` 损坏，后端现在会优先使用 session 侧记录的数据库作用域去重建；只有在能保住原始作用域时才会把重建结果写回。拿不到可靠作用域时，这条会话会先保持隐藏，也不会被一次只读的会话列表请求自动删掉；
-- 没有数据库作用域标记的 legacy snapshot 会话，默认不会继续暴露在当前 Review 列表里。
+- 没有数据库作用域标记的 legacy snapshot 会话，默认不会继续暴露在当前 Review 列表里；当前实现还会对这类“被隐藏的老会话”补一条一次性 warning，避免升级后看起来像快照凭空消失。
 - 如果同一个 URI 已经在另一条 Review session 里留下了更晚的**内容快照**，旧快照的 rollback 现在会直接返回 `409`，避免把较新的内容改动默默回滚掉。
 - 对 `create` 型 rollback，如果目标下面有很多后代节点，当前实现会把“删后代路径 + 清孤儿 memory + 删当前节点”收敛到一次 write-lane 执行里，减少大树回滚时反复进 lane 的开销。
 

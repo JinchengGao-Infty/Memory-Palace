@@ -474,11 +474,12 @@ If this command can normally output the version number, starting `mcp_server.py`
 6. If the frontend container exits almost immediately and the logs mention:
    - `MCP_API_KEY contains unsupported control characters`
 
-   this usually means the `MCP_API_KEY` written into the Docker env file contains ASCII control characters. Newlines and carriage returns are common, but tabs can also trigger it.
+   this usually means the `MCP_API_KEY` written into the Docker env file contains characters that should not be there. ASCII control characters are still the common case: newlines, carriage returns, and tabs. The current frontend entrypoint also rejects backticks, because they are not expected in a normal API key and are too easy to copy in by accident.
 
    Common ways this happens:
    - the key was copied from a password manager or chat window with the trailing newline still attached
    - the key was copied from a table, IM window, or password manager export with a tab character still embedded
+   - the key was copied from a command snippet or chat log with a backtick still attached
    - `.env.docker` was edited manually and the key ended up spanning multiple lines
 
    The fix is simple: rewrite `MCP_API_KEY` as a **single-line** plain-text value, then restart. Do not guess at proxy, SSE, or browser-cache issues first; clean up the key itself before troubleshooting anything else.
@@ -506,6 +507,8 @@ If this command can normally output the version number, starting `mcp_server.py`
    | `index_enqueue_dropped` | Indexing task enqueue dropped | `backend/mcp_server.py` |
 
    > `write_guard_exception` belongs to the write/learn chain (e.g., `create_memory`, `update_memory`, explicit learning trigger), meaning the write has been fail-closed and rejected, rather than a drop in search quality.
+   >
+   > Those two request-failure markers can now also carry a more specific suffix. In practice you may see values like `embedding_request_failed:timeout`, `embedding_request_failed:http_status:503`, `embedding_request_failed:api:timeout`, or `reranker_request_failed:http_status:503`. Read them from left to right: first identify which chain failed, then use the suffix to tell whether it was a timeout, an HTTP status, or another request-side error.
 
 2. **Check Embedding / Reranker API reachability**:
 

@@ -6,11 +6,13 @@ target_path="/etc/nginx/conf.d/default.conf"
 
 mcp_api_key="${MCP_API_KEY:-}"
 carriage_return="$(printf '\r')"
+backtick="$(printf '\140')"
 
 # POSIX shell variables cannot preserve NUL bytes. Reject the remaining
-# control characters that can break the generated nginx config.
+# control characters and a narrow set of config-hostile shell characters that
+# we do not expect in normal API keys.
 case "${mcp_api_key}" in
-  *"$carriage_return"*|*'
+  *"$carriage_return"*|*"$backtick"*|*'
 '*)
     echo "MCP_API_KEY contains unsupported control characters." >&2
     exit 1

@@ -75,10 +75,17 @@ async def test_embedding_provider_chain_uses_configured_fallback_provider(
 
     call_meta: dict[str, str] = {"base": "", "endpoint": "", "api_key": ""}
 
-    async def _fake_post_json(base: str, endpoint: str, payload, api_key: str = ""):
+    async def _fake_post_json(
+        base: str,
+        endpoint: str,
+        payload,
+        api_key: str = "",
+        error_sink=None,
+    ):
         call_meta["base"] = base
         call_meta["endpoint"] = endpoint
         call_meta["api_key"] = api_key
+        _ = error_sink
         assert payload["model"] == "chain-model"
         assert payload["dimensions"] == client._embedding_dim
         return {"data": [{"embedding": [0.11] * client._embedding_dim}]}

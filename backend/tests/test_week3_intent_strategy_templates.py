@@ -334,11 +334,18 @@ async def test_reranker_base_with_rerank_suffix_is_normalized(
 
     call_meta = {"base": "", "endpoint": ""}
 
-    async def _fake_post_json(base: str, endpoint: str, payload, api_key: str = ""):
+    async def _fake_post_json(
+        base: str,
+        endpoint: str,
+        payload,
+        api_key: str = "",
+        error_sink=None,
+    ):
         call_meta["base"] = base
         call_meta["endpoint"] = endpoint
         _ = payload
         _ = api_key
+        _ = error_sink
         return {"results": [{"index": 0, "score": 0.88}]}
 
     monkeypatch.setattr(client, "_post_json", _fake_post_json)
@@ -364,18 +371,32 @@ async def test_embedding_base_with_embeddings_suffix_is_normalized(
     monkeypatch.setenv("RETRIEVAL_EMBEDDING_API_BASE", "https://ai.gitee.com/v1/embeddings")
     monkeypatch.setenv("RETRIEVAL_EMBEDDING_API_KEY", "test-key")
     monkeypatch.setenv("RETRIEVAL_EMBEDDING_MODEL", "Qwen3-Embedding-8B")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "16")
 
     db_path = tmp_path / "week3-embedding-base.db"
     client = SQLiteClient(_sqlite_url(db_path))
 
     call_meta = {"base": "", "endpoint": ""}
 
-    async def _fake_post_json(base: str, endpoint: str, payload, api_key: str = ""):
+    async def _fake_post_json(
+        base: str,
+        endpoint: str,
+        payload,
+        api_key: str = "",
+        error_sink=None,
+    ):
         call_meta["base"] = base
         call_meta["endpoint"] = endpoint
         _ = payload
         _ = api_key
-        return {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
+        _ = error_sink
+        return {
+            "data": [
+                {
+                    "embedding": [float(index) for index in range(16)],
+                }
+            ]
+        }
 
     monkeypatch.setattr(client, "_post_json", _fake_post_json)
     degrade_reasons: list[str] = []
@@ -387,8 +408,80 @@ async def test_embedding_base_with_embeddings_suffix_is_normalized(
 
     assert call_meta["base"] == "https://ai.gitee.com/v1"
     assert call_meta["endpoint"] == "/embeddings"
-    assert embedding == [0.1, 0.2, 0.3]
+    assert embedding == [float(index) for index in range(16)]
     assert degrade_reasons == []
+
+
+@pytest.mark.asyncio
+async def test_embedding_request_failure_surfaces_timeout_subtype(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_BACKEND", "api")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_API_BASE", "https://embedding.example/v1")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_MODEL", "timeout-model")
+
+    client = SQLiteClient(_sqlite_url(tmp_path / "week3-embedding-timeout.db"))
+
+    async def _fake_post_json(*_args, error_sink=None, **_kwargs):
+        if isinstance(error_sink, dict):
+            error_sink.update(
+                {
+                    "category": "request_error",
+                    "error_type": "ReadTimeout",
+                    "message": "upstream timeout",
+                }
+            )
+        return None
+
+    monkeypatch.setattr(client, "_post_json", _fake_post_json)
+    degrade_reasons: list[str] = []
+    embedding = await client._fetch_remote_embedding(
+        "timeout failure sample",
+        degrade_reasons=degrade_reasons,
+    )
+    await client.close()
+
+    assert embedding is None
+    assert "embedding_request_failed" in degrade_reasons
+    assert "embedding_request_failed:api" in degrade_reasons
+    assert "embedding_request_failed:timeout" in degrade_reasons
+    assert "embedding_request_failed:api:timeout" in degrade_reasons
+
+
+@pytest.mark.asyncio
+async def test_reranker_request_failure_surfaces_http_status_subtype(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RETRIEVAL_RERANKER_ENABLED", "true")
+    monkeypatch.setenv("RETRIEVAL_RERANKER_API_BASE", "https://reranker.example/v1")
+    monkeypatch.setenv("RETRIEVAL_RERANKER_MODEL", "reranker-model")
+
+    client = SQLiteClient(_sqlite_url(tmp_path / "week3-reranker-http-status.db"))
+
+    async def _fake_post_json(*_args, error_sink=None, **_kwargs):
+        if isinstance(error_sink, dict):
+            error_sink.update(
+                {
+                    "category": "http_status",
+                    "status_code": 503,
+                    "body": "service unavailable",
+                }
+            )
+        return None
+
+    monkeypatch.setattr(client, "_post_json", _fake_post_json)
+    degrade_reasons: list[str] = []
+    scores = await client._get_rerank_scores(
+        query="release checklist",
+        documents=["release checklist owner map"],
+        degrade_reasons=degrade_reasons,
+    )
+    await client.close()
+
+    assert scores == {}
+    assert "reranker_request_failed" in degrade_reasons
+    assert "reranker_request_failed:http_status" in degrade_reasons
+    assert "reranker_request_failed:http_status:503" in degrade_reasons
 
 
 @pytest.mark.asyncio

@@ -86,6 +86,7 @@ This is the most "business-like" group of interfaces:
 - `POST / PUT /browse/node` also applies a default content-length check (`BROWSE_CONTENT_MAX_CHARS`, default 1 MiB) so accidental huge bodies do not go straight through the Dashboard write path
 - `POST /browse/node` also validates the resulting path length (`BROWSE_PATH_MAX_CHARS`, default 512) before writing; if `parent_path + title` is too long, the API returns `422` immediately instead of letting the write proceed
 - If the write lane cannot hand out a write slot in time, the `browse` / `review` / `maintenance` write endpoints now return a structured `503` (`write_lane_timeout`) instead of a generic `500`; the MCP write tools return the same condition as a retryable structured error payload
+- If SQLite runtime write pragmas have to fall back from `WAL` to `DELETE` because of network-filesystem risk or an unavailable `journal_mode`, the current implementation also emits an explicit warning so the problem is easier to trace back to deployment/runtime conditions instead of looking like an application-layer write bug
 
 ### Review and Rollback (`/review`)
 
@@ -97,7 +98,7 @@ One implementation boundary to keep in mind:
 - however, session listing, snapshot listing, and snapshot reads are filtered by the **current database scope**, so changing `DATABASE_URL`, switching to another temporary SQLite file, or pointing Docker at another data volume does not mix rollback sessions from a different database into the current Review queue;
 - within the same `session_id`, snapshot writes are serialized, and both `manifest.json` and per-resource snapshot JSON files are written through atomic replace; this keeps same-session Review metadata much less likely to lose entries or expose half-written JSON when multiple local processes share the same checkout;
 - if `manifest.json` is damaged, the backend now tries to rebuild it under the original session scope first; it only persists the rebuilt manifest when that original scope can still be trusted. If the scope cannot be recovered safely, the session stays hidden and is not auto-deleted by a read-only session listing;
-- legacy snapshot sessions that were created before scope metadata existed are hidden by default instead of being exposed under the wrong database context.
+- legacy snapshot sessions that were created before scope metadata existed are hidden by default instead of being exposed under the wrong database context; the backend now also emits a one-time warning for those hidden legacy sessions so an upgrade does not look like snapshots vanished silently.
 - if the same URI already has a later **content snapshot** in another Review session, rolling back the older snapshot now returns `409` instead of silently undoing the newer content change.
 - for `create` rollbacks with many descendants, the current implementation now batches descendant path deletion, orphan cleanup, and current-node deletion inside one write-lane execution, reducing repeated lane round-trips on large trees.
 

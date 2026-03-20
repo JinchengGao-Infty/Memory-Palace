@@ -560,6 +560,8 @@ index_status()
 | `query_preprocess_failed` | 查询预处理失败 |
 | `index_enqueue_dropped` | 索引任务入队失败 |
 
+> `embedding_request_failed` / `reranker_request_failed` 现在仍会保留基础标记，但也可能继续附带更细的后缀，例如 `:timeout`、`:http_status:503`，或 embedding 链路上的 `:api:timeout`。排障时先看主标记，再看后缀。
+>
 > 💡 **建议：** 客户端策略中应把 `degrade_reasons` 字段作为告警信号。当检测到降级时，可调用 `rebuild_index(wait=True)` + `index_status()` 尝试恢复。向量维度相关告警现在会跟着**当前查询作用域**走，所以别的无关 domain 不应该再触发一条假的重建提示。
 
 ---

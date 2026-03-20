@@ -151,6 +151,7 @@ class SnapshotManager:
     
     def __init__(self, snapshot_dir: Optional[str] = None):
         self.snapshot_dir = snapshot_dir or DEFAULT_SNAPSHOT_DIR
+        self._warned_legacy_unscoped_sessions: set[str] = set()
         self._ensure_dir_exists(self.snapshot_dir)
 
     @staticmethod
@@ -486,6 +487,34 @@ class SnapshotManager:
             # expose after switching DATABASE_URL within the same checkout.
             return False
         return manifest_fingerprint == current_fingerprint
+
+    def _warn_if_legacy_unscoped_session_hidden(
+        self, session_id: str, manifest: Dict[str, Any]
+    ) -> None:
+        current_scope = _resolve_current_database_scope()
+        current_fingerprint = str(
+            current_scope.get("database_fingerprint") or ""
+        ).strip()
+        manifest_fingerprint = str(manifest.get("database_fingerprint") or "").strip()
+        if not current_fingerprint or manifest_fingerprint:
+            return
+        if session_id in self._warned_legacy_unscoped_sessions:
+            return
+        logger.warning(
+            "Hiding legacy snapshot session without database_fingerprint under "
+            "the current database scope: session_id=%s current_database=%s",
+            session_id,
+            current_scope.get("database_label") or "unknown",
+        )
+        self._warned_legacy_unscoped_sessions.add(session_id)
+
+    def _manifest_visible_for_current_database(
+        self, session_id: str, manifest: Dict[str, Any]
+    ) -> bool:
+        visible = self._manifest_matches_current_database(manifest)
+        if not visible:
+            self._warn_if_legacy_unscoped_session_hidden(session_id, manifest)
+        return visible
     
     def _save_manifest(self, session_id: str, manifest: Dict[str, Any]):
         """Save session manifest."""
@@ -624,7 +653,7 @@ class SnapshotManager:
         """
         # First, check manifest for the actual filename (handles legacy snapshots)
         manifest = self._load_manifest(session_id)
-        if not self._manifest_matches_current_database(manifest):
+        if not self._manifest_visible_for_current_database(session_id, manifest):
             return None
         resource_meta = manifest.get("resources", {}).get(resource_id)
         
@@ -662,7 +691,7 @@ class SnapshotManager:
             session_dir = self._get_session_dir(session_id)
             if os.path.isdir(session_dir):
                 manifest = self._load_manifest(session_id)
-                if not self._manifest_matches_current_database(manifest):
+                if not self._manifest_visible_for_current_database(session_id, manifest):
                     continue
                 resource_count = len(manifest.get("resources", {}))
                 
@@ -687,7 +716,7 @@ class SnapshotManager:
             List of snapshot metadata (resource_id, resource_type, snapshot_time, operation_type)
         """
         manifest = self._load_manifest(session_id)
-        if not self._manifest_matches_current_database(manifest):
+        if not self._manifest_visible_for_current_database(session_id, manifest):
             return []
         snapshots = []
         

@@ -363,7 +363,8 @@ const en = {
     noOrphans: 'No orphan memories detected.',
     deprecatedVersions: 'Deprecated Versions',
     orphanedMemories: 'Orphaned Memories',
-    deleteOrphans: 'Delete {{count}} orphans',
+    deleteOrphans_one: 'Delete {{count}} orphan',
+    deleteOrphans_other: 'Delete {{count}} orphans',
     refresh: 'Refresh',
     selectAll: 'Select all',
     deselectAll: 'Deselect all',
@@ -378,7 +379,8 @@ const en = {
       diffTitle: 'Diff: #{{from}} → #{{to}}',
     },
     prompts: {
-      deleteMemories: 'Permanently delete {{count}} memories? This cannot be undone.',
+      deleteMemories_one: 'Permanently delete {{count}} memory? This cannot be undone.',
+      deleteMemories_other: 'Permanently delete {{count}} memories? This cannot be undone.',
       executeCleanup: 'Type confirmation phrase to execute {{action}} cleanup:\n{{phrase}}',
     },
     errors: {

@@ -472,11 +472,12 @@ cd backend
 6. 如果 frontend 容器启动很快就退出，日志里出现：
    - `MCP_API_KEY contains unsupported control characters`
 
-   这通常说明你写进 Docker env 文件的 `MCP_API_KEY` 带了 ASCII 控制字符，不只是换行或回车，也可能是制表符。
+   这通常说明你写进 Docker env 文件的 `MCP_API_KEY` 里混进了不该出现的字符。最常见的还是 ASCII 控制字符，比如换行、回车、制表符；当前前端入口脚本也会直接拒绝反引号这类明显不适合出现在 key 里的字符。
 
    常见场景是：
    - 从密码管理器或聊天窗口复制 key 时，把结尾换行一起带进去了
    - 从表格、IM 或某些密码管理器里复制时，把中间的制表符一起带进去了
+   - 从命令片段或聊天记录里复制时，把反引号也一起带进去了
    - 手工编辑 `.env.docker` 时把 key 写成了多行
 
    处理方式很简单：把 `MCP_API_KEY` 改成**单行**纯文本，再重新启动。这里不需要猜测代理、SSE 或浏览器缓存问题，先把 key 本身清干净。
@@ -504,6 +505,8 @@ cd backend
    | `index_enqueue_dropped` | 索引任务入队被丢弃 | `backend/mcp_server.py` |
 
    > `write_guard_exception` 属于写入/学习链路（如 `create_memory`、`update_memory`、显式学习触发），语义为写入已 fail-closed 拒绝，并非检索质量降级。
+   >
+   > 现在这两类请求失败原因还会继续细分。例如你可能看到 `embedding_request_failed:timeout`、`embedding_request_failed:http_status:503`、`embedding_request_failed:api:timeout`，或者 `reranker_request_failed:http_status:503`。看法很简单：先看前半段知道是哪条链路挂了，再看后半段确认是超时、HTTP 状态码还是别的请求错误。
 
 2. **检查 Embedding / Reranker API 可达性**：
 

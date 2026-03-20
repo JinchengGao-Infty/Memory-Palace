@@ -87,9 +87,13 @@ def test_run_sse_main_binds_loopback_by_default(monkeypatch) -> None:
 
 
 def test_loopback_port_probe_checks_ipv6_when_ipv4_is_free(monkeypatch) -> None:
-    attempts: list[tuple[str, int]] = []
+    attempts: list[tuple[int, tuple[str, int]]] = []
 
-    class _Connection:
+    class _FakeSocket:
+        def __init__(self, family: int, socktype: int):
+            assert socktype == run_sse.socket.SOCK_STREAM
+            self.family = family
+
         def __enter__(self):
             return self
 
@@ -97,19 +101,21 @@ def test_loopback_port_probe_checks_ipv6_when_ipv4_is_free(monkeypatch) -> None:
             _ = exc_type, exc, tb
             return False
 
-    def _fake_create_connection(address, timeout=0.2):
-        attempts.append(address)
-        _ = timeout
-        if address[0] == "127.0.0.1":
-            raise OSError("ipv4 closed")
-        if address[0] == "::1":
-            return _Connection()
-        raise AssertionError(address)
+        def setsockopt(self, *_args, **_kwargs):
+            return None
 
-    monkeypatch.setattr(run_sse.socket, "create_connection", _fake_create_connection)
+        def bind(self, address):
+            attempts.append((self.family, address))
+            if address[0] == "127.0.0.1":
+                raise OSError(98, "address in use")
+            if address[0] == "::1":
+                return None
+            raise AssertionError(address)
+
+    monkeypatch.setattr(run_sse.socket, "socket", _FakeSocket)
 
     assert run_sse._is_loopback_port_available(8000) is False
-    assert attempts == [("127.0.0.1", 8000), ("::1", 8000)]
+    assert attempts == [(run_sse.socket.AF_INET, ("127.0.0.1", 8000))]
 
 
 def test_run_sse_main_falls_back_for_ipv6_loopback_host(monkeypatch) -> None:
