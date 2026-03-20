@@ -27,6 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 from dotenv import load_dotenv
 from filelock import AsyncFileLock, Timeout as FileLockTimeout
+from shared_utils import env_bool as _env_bool, env_int as _env_int, utc_iso_now as _utc_iso_now
 
 # Ensure we can import from backend modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -136,25 +137,6 @@ CORE_MEMORY_URIS = [
     if uri.strip()
 ]
 
-
-def _env_int(name: str, default: int, minimum: int = 0) -> int:
-    """Read int env with a safe fallback."""
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(minimum, int(raw))
-    except ValueError:
-        return default
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on", "enabled"}
-
-
 def _env_csv(name: str, default: str = "") -> List[str]:
     raw = os.getenv(name, default)
     values: List[str] = []
@@ -168,12 +150,6 @@ def _env_csv(name: str, default: str = "") -> List[str]:
 def _utc_now_naive() -> datetime:
     """Return current UTC time without tzinfo (compat with legacy utcnow formatting)."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _utc_iso_now() -> str:
-    """Return current UTC timestamp in ISO-8601 format with trailing Z."""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
 
 ALLOWED_SEARCH_MODES = {"keyword", "semantic", "hybrid"}
 DEFAULT_SEARCH_MODE = os.getenv("SEARCH_DEFAULT_MODE", "keyword").strip().lower()
@@ -223,7 +199,7 @@ IMPORT_LEARN_AUDIT_META_KEY = "audit.import_learn.summary.v1"
 _IMPORT_LEARN_META_PERSIST_LOCK = asyncio.Lock()
 
 # Session ID for this MCP server instance
-_SESSION_ID = f"mcp_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+_SESSION_ID = f"mcp_{_utc_now_naive().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
 _SESSION_ID_SAFE_PATTERN = re.compile(r"[^a-zA-Z0-9_-]+")
 
 

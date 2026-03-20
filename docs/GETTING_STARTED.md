@@ -118,6 +118,8 @@ bash scripts/apply_profile.sh macos b
 >
 > 另外，`profile c/d` 现在也会在脚本阶段直接拦截未替换的 endpoint / key / model 占位值；如果你还留着示例里的 `PORT`、`replace-with-your-key`、`your-embedding-model-id` 这类占位内容，脚本会先报错，而不是等到后面启动时再用一份明显错误的配置继续往下跑。
 >
+> `DATABASE_URL` 现在也会走同样的保护逻辑。本地模板里的常见占位路径会先自动改写成当前仓库对应的宿主机路径；如果生成结果里还留着 `<...>` 或 `__REPLACE_ME__` 这类占位段，脚本或后端都会直接拦下。
+>
 > 但要注意：**macOS / Windows 本地生成的 profile-b `.env` 不会自动补 `MCP_API_KEY`**。如果你接下来就要打开 Dashboard，或者直接调 `/browse` / `/review` / `/maintenance`、`/sse`、`/messages`，请再自行补 `MCP_API_KEY`，或仅在本机回环调试时设置 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`。只有 `docker` 平台的 profile 脚本会在 key 为空时自动生成一把本地 key。
 >
 
@@ -237,7 +239,7 @@ VITE v7.x.x  ready in xxx ms
 > 如果你配置了 `MCP_API_KEY`，打开页面后请点右上角 `设置 API 密钥`（英文模式下会显示 `Set API key`），在向导里输入同一把 key；如果你只想先让 Dashboard 鉴权通过，优先选择“只保存 Dashboard 密钥”即可。
 > 如果你启用了 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`，本机回环地址上的直连请求可直接访问这些受保护数据接口。
 
-> 如果你选择“只保存 Dashboard 密钥”，这把 key 会保存在当前浏览器会话里（`sessionStorage`），直到你手动清除或这次浏览器会话结束。向导里的 `Profile C/D` 预设现在已经按文档口径走 `router + reranker` 路线；如果你本机的 router 还没准备好，就手动把检索字段切回直连 API 模式排障。
+> 如果你选择“只保存 Dashboard 密钥”，这把 key 会保存在当前浏览器会话里（`sessionStorage`），直到你手动清除或这次浏览器会话结束。向导里的“档位 C/D”预设（英文界面显示为 `Profile C/D`）现在已经按文档口径走 `router + reranker` 路线；如果你本机的 router 还没准备好，就手动把检索字段切回直连 API 模式排障。
 
 > 这个向导不会假装自己能热更新 Docker 容器里的 env / 代理配置。只要你改的是 embedding / reranker / write_guard / intent 这类后端运行参数，保存后仍然需要重启 `backend` / `sse`（Docker 路径则继续建议用 profile 脚本重启容器）。
 
@@ -420,7 +422,7 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups --keep 10
 
 > 备份文件默认写入 `backups/`。如果你准备分享仓库或打包交付，通常不需要把它一并带上。
 >
-> 这两条备份脚本都会先读取你指定 env 文件里的 `DATABASE_URL`，自动去掉可选的 query / fragment（例如 `?mode=...`、`#...`），再对实际 SQLite 文件做一致性备份。原生 Windows 优先用 `backup_memory.ps1`；`Git Bash` / `WSL` 继续用 `backup_memory.sh` 即可。当前这两条脚本都会先给源/目标连接加 `busy_timeout`，再按小批量页面做增量 backup；如果中途失败，也都会清理半成品备份文件，避免留下看起来像成功的空备份。默认还会只保留最近 `20` 份备份；如果你想自己控留存数，用 `--keep <count>` / `-Keep <count>` 即可，传 `0` 则表示不做轮转。
+> 这两条备份脚本都会先读取你指定 env 文件里的 `DATABASE_URL`，自动去掉可选的 query / fragment（例如 `?mode=...`、`#...`），再对实际 SQLite 文件做一致性备份。原生 Windows 优先用 `backup_memory.ps1`；`Git Bash` / `WSL` 继续用 `backup_memory.sh` 即可。当前这两条脚本都会先给源/目标连接加 `busy_timeout`，再按小批量页面做增量 backup；如果中途失败，也都会清理半成品备份文件，避免留下看起来像成功的空备份。备份文件名现在统一使用 UTC 时间戳，这样宿主机和 Docker/容器环境混用时排序更一致。默认还会只保留最近 `20` 份备份；如果你想自己控留存数，用 `--keep <count>` / `-Keep <count>` 即可，传 `0` 则表示不做轮转。
 >
 > 如果你只是想先看脚本用法，直接运行 `bash scripts/backup_memory.sh --help` 或 `.\scripts\backup_memory.ps1 -?`。原生 Windows 的 PowerShell 脚本现在也会优先检查仓库里的 `backend/.venv`，找不到时再回退到常见的 `python3` / `py`，正常本地仓库环境一般不需要额外改 PATH。
 

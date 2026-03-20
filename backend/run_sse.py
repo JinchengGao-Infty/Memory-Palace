@@ -24,6 +24,7 @@ from starlette.responses import Response
 from starlette.responses import JSONResponse
 from starlette.routing import Mount, Route
 from starlette.types import ASGIApp, Receive, Scope, Send
+from shared_utils import env_int as _shared_env_int, is_loopback_hostname as _is_loopback_hostname
 
 # Ensure we can import from backend dir
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -67,14 +68,7 @@ _TRUSTED_PROXY_IPV6_NETWORKS = (ip_network("fc00::/7"),)
 
 
 def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return max(minimum, default)
-    try:
-        value = int(str(raw).strip())
-    except (TypeError, ValueError):
-        value = default
-    return max(minimum, value)
+    return _shared_env_int(name, default, minimum=minimum, clamp_default=True)
 
 
 def _is_loopback_port_available(port: int) -> bool:
@@ -202,30 +196,6 @@ def _is_loopback_scope(scope: Scope) -> bool:
         if isinstance(header_value, str) and header_value.strip():
             return False
     return True
-
-
-def _is_loopback_hostname(value: Optional[str]) -> bool:
-    if not value:
-        return False
-    hostname = str(value).strip().lower()
-    if not hostname:
-        return False
-    if hostname.startswith("["):
-        closing = hostname.find("]")
-        if closing != -1:
-            suffix = hostname[closing + 1 :]
-            if not suffix or (
-                suffix.startswith(":") and suffix[1:].isdigit()
-            ):
-                hostname = hostname[1:closing]
-    if ":" in hostname and hostname.count(":") == 1 and hostname.rsplit(":", 1)[1].isdigit():
-        hostname = hostname.rsplit(":", 1)[0]
-    if hostname in _LOOPBACK_CLIENT_HOSTS:
-        return True
-    try:
-        return ip_address(hostname).is_loopback
-    except ValueError:
-        return False
 
 
 def _extract_host_from_scope(scope: Scope) -> Optional[str]:

@@ -23,16 +23,7 @@ from collections import Counter, deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Deque, Dict, List, Optional, Set
-
-
-def _env_int(name: str, default: int, minimum: int = 0) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(minimum, int(raw))
-    except (TypeError, ValueError):
-        return default
+from shared_utils import env_bool as _env_bool, env_int as _env_int, utc_iso_now as _utc_iso_now
 
 
 def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
@@ -43,17 +34,6 @@ def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
         return max(minimum, float(raw))
     except (TypeError, ValueError):
         return default
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on", "enabled"}
-
-
-def _utc_iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _normalize_session_id(session_id: Optional[str]) -> str:

@@ -426,7 +426,7 @@ bash scripts/apply_profile.sh macos b
 >
 > `apply_profile.sh/.ps1` currently deduplicates env keys after generation to prevent inconsistent behavior across different parsers for keys that appear multiple times.
 >
-> Treat `deploy/profiles/*/*.env` as **Profile template inputs**, not as final `.env` files to copy by hand. For example, the macOS templates intentionally keep a placeholder `DATABASE_URL` first, then let `apply_profile.*` rewrite it for the current checkout. In particular, do not copy Docker template values like `sqlite+aiosqlite:////app/data/...`, or any `/data/...`-style container-only sqlite path, into a local `.env`; that is a container path, and the repo-local stdio wrapper treats it as a misconfiguration and refuses to start.
+> Treat `deploy/profiles/*/*.env` as **Profile template inputs**, not as final `.env` files to copy by hand. For example, the macOS templates intentionally keep a placeholder `DATABASE_URL` first, then let `apply_profile.*` rewrite it for the current checkout. If the generated result still leaves placeholder segments such as `<...>` or `__REPLACE_ME__` inside `DATABASE_URL`, the script/backend now fail closed instead of continuing with a broken sqlite path. In particular, do not copy Docker template values like `sqlite+aiosqlite:////app/data/...`, or any `/data/...`-style container-only sqlite path, into a local `.env`; that is a container path, and the repo-local stdio wrapper treats it as a misconfiguration and refuses to start.
 >
 > If you are just running the repository manually for the first time, Profile B is the safest start; switch to Profile C only when the embedding / reranker links are available.
 

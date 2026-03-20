@@ -108,11 +108,17 @@ async def test_runtime_write_wal_mode_is_forced_to_delete_when_wal_disabled(
     assert capabilities["runtime_write_pragma_status"] == "disabled"
 
 
-def test_database_url_rejects_unresolved_profile_placeholder() -> None:
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db",
+        "sqlite+aiosqlite:////Users/<local-user>/memory_palace/agent_memory.db",
+        "sqlite+aiosqlite:////Users/__REPLACE_ME__/memory_palace/agent_memory.db",
+    ],
+)
+def test_database_url_rejects_unresolved_profile_placeholder(database_url: str) -> None:
     with pytest.raises(ValueError, match="unresolved profile placeholder"):
-        SQLiteClient(
-            "sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db"
-        )
+        SQLiteClient(database_url)
 
 
 @pytest.mark.asyncio

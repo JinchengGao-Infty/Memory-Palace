@@ -105,6 +105,42 @@ def test_apply_profile_shell_rewrites_database_url_when_placeholder_has_spacing_
     assert "DATABASE_URL =" not in generated_text
 
 
+def test_apply_profile_shell_rewrites_database_url_when_user_placeholder_name_changes(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "repo"
+    script_path = project_root / "scripts" / "apply_profile.sh"
+    _copy_script(PROJECT_ROOT / "scripts" / "apply_profile.sh", script_path)
+
+    (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
+    profile_path = project_root / "deploy" / "profiles" / "macos" / "profile-b.env"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=sqlite+aiosqlite:////Users/<local-user>/memory_palace/agent_memory.db",
+                "SEARCH_DEFAULT_MODE=hybrid",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/apply_profile.sh", "macos", "b", ".env.generated"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    database_url = dotenv_values(project_root / ".env.generated").get("DATABASE_URL")
+    assert isinstance(database_url, str)
+    expected_db_path = (project_root / "demo.db").as_posix()
+    assert database_url == f"sqlite+aiosqlite:///{expected_db_path}"
+
+
 def test_apply_profile_shell_linux_keeps_local_template_selection_but_writes_host_path(
     tmp_path: Path,
 ) -> None:

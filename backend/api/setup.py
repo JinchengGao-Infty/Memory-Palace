@@ -1,12 +1,16 @@
 import hmac
 import os
 import tempfile
-from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
+from shared_utils import (
+    TRUTHY_ENV_VALUES as _TRUTHY_ENV_VALUES,
+    env_bool as _env_bool,
+    is_loopback_hostname as _is_loopback_hostname,
+)
 
 from .maintenance import (
     _MCP_API_KEY_HEADER,
@@ -18,8 +22,6 @@ from .maintenance import (
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_ENV_PATH = _PROJECT_ROOT / ".env"
 _ENV_EXAMPLE_PATH = _PROJECT_ROOT / ".env.example"
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
-_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on", "enabled"}
 _RESTART_TARGETS_LOCAL = ["backend", "sse"]
 _RESTART_TARGETS_DOCKER = ["backend", "sse", "frontend"]
 
@@ -72,13 +74,6 @@ def _read_optional_env(name: str) -> Optional[str]:
     return raw or None
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in _TRUTHY_ENV_VALUES
-
-
 def _normalize_optional_value(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
@@ -98,32 +93,6 @@ def _resolve_target_env_path() -> Path:
     if not raw_override:
         return _DEFAULT_ENV_PATH
     return Path(raw_override).expanduser()
-
-
-def _is_loopback_hostname(value: Optional[str]) -> bool:
-    if not value:
-        return False
-    hostname = str(value).strip().lower()
-    if not hostname:
-        return False
-    if hostname.startswith("["):
-        closing = hostname.find("]")
-        if closing != -1:
-            suffix = hostname[closing + 1 :]
-            if not suffix or (
-                suffix.startswith(":") and suffix[1:].isdigit()
-            ):
-                hostname = hostname[1:closing]
-    if ":" in hostname and hostname.count(":") == 1 and hostname.rsplit(":", 1)[1].isdigit():
-        hostname = hostname.rsplit(":", 1)[0]
-    if hostname in _LOOPBACK_HOSTS:
-        return True
-    try:
-        return ip_address(hostname).is_loopback
-    except ValueError:
-        return False
-
-
 def _running_in_docker() -> bool:
     if Path("/.dockerenv").exists():
         return True

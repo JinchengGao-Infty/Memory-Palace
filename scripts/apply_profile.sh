@@ -199,6 +199,33 @@ trim_env_value() {
   printf '%s\n' "${value}"
 }
 
+validate_database_url_placeholder() {
+  local file_path="$1"
+  local display_path="${2:-${file_path}}"
+  local database_url_line=""
+  database_url_line="$(
+    awk '
+      /^[[:space:]]*DATABASE_URL[[:space:]]*=/ {
+        line = $0
+      }
+      END { print line }
+    ' "${file_path}"
+  )"
+  database_url_line="${database_url_line%$'\r'}"
+  if [[ -z "${database_url_line}" ]]; then
+    return 0
+  fi
+  if [[ "${database_url_line}" == *"__REPLACE_ME__"* || "${database_url_line}" == *"<"*">"* ]] \
+    || printf '%s\n' "${database_url_line}" | grep -Eq '[Pp][Ll][Aa][Cc][Ee][Hh][Oo][Ll][Dd][Ee][Rr]'; then
+    {
+      echo "Generated ${display_path}, but DATABASE_URL still contains unresolved placeholders:"
+      echo "  ${database_url_line}"
+      echo "Replace DATABASE_URL with a real host sqlite path before using this env file."
+    } >&2
+    return 1
+  fi
+}
+
 ensure_default_env_value() {
   local file_path="$1"
   local key="$2"
@@ -333,13 +360,13 @@ cp "${base_env}" "${staged_file}"
 chmod 600 "${staged_file}" 2>/dev/null || true
 
 if [[ "${platform}" == "macos" || "${platform}" == "linux" ]]; then
-  if grep -Eq '^[[:space:]]*DATABASE_URL[[:space:]]*=[[:space:]]*sqlite\+aiosqlite:////Users/<your-user>/memory_palace/agent_memory\.db([[:space:]]+#.*)?[[:space:]]*\r?$' "${staged_file}"; then
+  if grep -Eq '^[[:space:]]*DATABASE_URL[[:space:]]*=[[:space:]]*sqlite\+aiosqlite:////Users/[^/]+/memory_palace/agent_memory\.db([[:space:]]+#.*)?[[:space:]]*\r?$' "${staged_file}"; then
     db_path="${PROJECT_ROOT}/demo.db"
     set_env_value "${staged_file}" "DATABASE_URL" "sqlite+aiosqlite:////${db_path#/}"
     log_info "[auto-fill] DATABASE_URL set to ${db_path}"
   fi
 elif [[ "${platform}" == "windows" ]]; then
-  if grep -Eq '^[[:space:]]*DATABASE_URL[[:space:]]*=[[:space:]]*sqlite\+aiosqlite:///C:/memory_palace/agent_memory\.db([[:space:]]+#.*)?[[:space:]]*\r?$' "${staged_file}"; then
+  if grep -Eq '^[[:space:]]*DATABASE_URL[[:space:]]*=[[:space:]]*sqlite\+aiosqlite:///[A-Za-z]:/memory_palace/agent_memory\.db([[:space:]]+#.*)?[[:space:]]*\r?$' "${staged_file}"; then
     if db_path="$(resolve_windows_db_path)"; then
       set_env_value "${staged_file}" "DATABASE_URL" "sqlite+aiosqlite:///${db_path}"
       log_info "[auto-fill] DATABASE_URL set to ${db_path}"
@@ -360,6 +387,7 @@ fi
 ensure_default_env_value "${staged_file}" "RUNTIME_AUTO_FLUSH_ENABLED" "true"
 
 dedupe_env_keys "${staged_file}"
+validate_database_url_placeholder "${staged_file}" "${target_file}"
 validate_profile_placeholders "${staged_file}" "${profile}" "${target_file}"
 
 if [[ "${dry_run}" == "true" ]]; then

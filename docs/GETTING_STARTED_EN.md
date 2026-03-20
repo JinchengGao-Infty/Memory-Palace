@@ -118,6 +118,8 @@ bash scripts/apply_profile.sh macos b
 >
 > In addition, `profile c/d` now fail-closed at the script stage when endpoint/key/model placeholders are still unresolved. If values such as `PORT`, `replace-with-your-key`, or `your-embedding-model-id` are still present, the script stops immediately instead of carrying an obviously broken config into later startup steps.
 >
+> `DATABASE_URL` now follows the same guard. The common local placeholder path is rewritten automatically for the current checkout; if the generated result still contains placeholder segments such as `<...>` or `__REPLACE_ME__`, the script/backend stop early instead of continuing with a broken sqlite path.
+>
 > Note: **The profile-b `.env` generated locally for macOS / Windows will not automatically fill in `MCP_API_KEY`**. If you are about to open the Dashboard, or directly call `/browse` / `/review` / `/maintenance`, `/sse`, or `/messages`, please supplement `MCP_API_KEY` yourself, or set `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true` for local loopback debugging only. Only the `docker` platform profile script will automatically generate a local key if the key is empty.
 >
 > One easy mistake to avoid: do not copy the `DATABASE_URL` from `.env.docker`, or any container-only sqlite path such as `/app/data/...` or `/data/...`, into your local `.env`. Those paths only exist inside the container; local `stdio` MCP on the host will fail with them.
@@ -421,7 +423,7 @@ bash scripts/backup_memory.sh --env-file .env --output-dir backups --keep 10
 
 > Backup files are written to `backups/` by default. If you are preparing to share the repository or package it for delivery, you usually don't need to include them.
 >
-> Both backup scripts read `DATABASE_URL` from the selected env file, strip optional query / fragment suffixes such as `?mode=...` or `#...`, and then back up the resolved SQLite file. On native Windows, prefer `backup_memory.ps1`; on `Git Bash` / `WSL`, `backup_memory.sh` is fine. Both scripts now add `busy_timeout`, copy in small page batches, and remove a partial backup file if the run fails halfway, so a failed backup does not leave behind a misleading artifact. They also keep the latest `20` backups by default; use `--keep <count>` / `-Keep <count>` to change that, or pass `0` to disable rotation.
+> Both backup scripts read `DATABASE_URL` from the selected env file, strip optional query / fragment suffixes such as `?mode=...` or `#...`, and then back up the resolved SQLite file. On native Windows, prefer `backup_memory.ps1`; on `Git Bash` / `WSL`, `backup_memory.sh` is fine. Both scripts now add `busy_timeout`, copy in small page batches, and remove a partial backup file if the run fails halfway, so a failed backup does not leave behind a misleading artifact. Backup filenames now use UTC timestamps so mixed host/container runs sort more consistently. They also keep the latest `20` backups by default; use `--keep <count>` / `-Keep <count>` to change that, or pass `0` to disable rotation.
 >
 > If you only want to see the usage first, run `bash scripts/backup_memory.sh --help` or `.\scripts\backup_memory.ps1 -?`. On native Windows, the PowerShell script now checks the repo `backend/.venv` first and then falls back to common launchers such as `python3` / `py`, so a normal local repo setup usually does not need a special PATH tweak before backup.
 

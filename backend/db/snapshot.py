@@ -29,11 +29,11 @@ import tempfile
 import time
 import ctypes
 from contextlib import contextmanager
-from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from urllib.parse import unquote
 from filelock import FileLock, Timeout as FileLockTimeout
+from shared_utils import utc_iso_now as _utc_iso_now
 
 
 # Default snapshot directory (relative to workspace root)
@@ -283,7 +283,7 @@ class SnapshotManager:
     ) -> Dict[str, Any]:
         payload: Dict[str, Any] = {
             "session_id": session_id,
-            "created_at": created_at or datetime.now().isoformat(),
+            "created_at": created_at or _utc_iso_now(),
             "resources": resources or {},
         }
         if isinstance(scope, dict):
@@ -469,7 +469,7 @@ class SnapshotManager:
 
         return self._build_manifest_payload(
             session_id,
-            created_at=recovered_created_at or datetime.now().isoformat(),
+            created_at=recovered_created_at or _utc_iso_now(),
             resources=recovered_resources,
             scope=scope,
         )
@@ -600,7 +600,7 @@ class SnapshotManager:
             snapshot = {
                 "resource_id": resource_id,
                 "resource_type": resource_type,
-                "snapshot_time": datetime.now().isoformat(),
+                "snapshot_time": _utc_iso_now(),
                 "data": snapshot_data,
             }
             _write_json_atomic(snapshot_path, snapshot)

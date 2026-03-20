@@ -13,6 +13,7 @@ from db import get_sqlite_client
 from db.snapshot import _resolve_current_database_scope, get_snapshot_manager
 from db.sqlite_client import Path as PathModel
 from runtime_state import runtime_state
+from shared_utils import env_bool as _env_bool
 from .maintenance import require_maintenance_api_key
 from sqlalchemy import select
 
@@ -48,13 +49,6 @@ class NodeCreate(BaseModel):
     priority: int = 0
     disclosure: str | None = None
     domain: str = "core"
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on", "enabled"}
 
 
 ENABLE_WRITE_LANE_QUEUE = _env_bool("RUNTIME_WRITE_LANE_QUEUE", True)

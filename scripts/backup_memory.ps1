@@ -174,7 +174,7 @@ if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir | Out-Null
 }
 
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$timestamp = [DateTime]::UtcNow.ToString("yyyyMMdd_HHmmss")
 $destFile = Join-Path $OutputDir ("memory_palace_backup_{0}.db" -f $timestamp)
 
 $pythonCmd = Resolve-PythonCommand

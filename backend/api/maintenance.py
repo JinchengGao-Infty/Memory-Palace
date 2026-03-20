@@ -11,7 +11,6 @@ import time
 import uuid
 from collections import Counter, deque
 from datetime import datetime, timezone
-from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Deque, Dict, List, Optional, Tuple, cast
 
@@ -20,11 +19,16 @@ from pydantic import BaseModel, Field
 from db import get_sqlite_client
 from runtime_state import runtime_state
 from security.import_guard import ExternalImportGuard, ExternalImportGuardConfig
+from shared_utils import (
+    TRUTHY_ENV_VALUES as _TRUTHY_ENV_VALUES,
+    env_bool as _env_bool,
+    is_loopback_hostname as _is_loopback_hostname,
+    utc_iso_now as _utc_iso_now,
+)
 
 _MCP_API_KEY_ENV = "MCP_API_KEY"
 _MCP_API_KEY_HEADER = "X-MCP-API-Key"
 _MCP_API_KEY_ALLOW_INSECURE_LOCAL_ENV = "MCP_API_KEY_ALLOW_INSECURE_LOCAL"
-_TRUTHY_ENV_VALUES = {"1", "true", "yes", "on", "enabled"}
 _LOOPBACK_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost"}
 _FORWARDED_HEADER_NAMES = {
     "forwarded",
@@ -61,30 +65,6 @@ def _is_loopback_request(request: Request) -> bool:
         if isinstance(header_value, str) and header_value.strip():
             return False
     return True
-
-
-def _is_loopback_hostname(value: Optional[str]) -> bool:
-    if not value:
-        return False
-    hostname = str(value).strip().lower()
-    if not hostname:
-        return False
-    if hostname.startswith("["):
-        closing = hostname.find("]")
-        if closing != -1:
-            suffix = hostname[closing + 1 :]
-            if not suffix or (
-                suffix.startswith(":") and suffix[1:].isdigit()
-            ):
-                hostname = hostname[1:closing]
-    if ":" in hostname and hostname.count(":") == 1 and hostname.rsplit(":", 1)[1].isdigit():
-        hostname = hostname.rsplit(":", 1)[0]
-    if hostname in _LOOPBACK_CLIENT_HOSTS:
-        return True
-    try:
-        return ip_address(hostname).is_loopback
-    except ValueError:
-        return False
 
 
 def _is_direct_loopback_request(request: Request) -> bool:
@@ -174,15 +154,6 @@ def _env_float(name: str, default: float) -> float:
         return float(raw)
     except (TypeError, ValueError):
         return default
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in _TRUTHY_ENV_VALUES
-
-
 _CLEANUP_QUERY_SLOW_MS = max(
     1.0, _env_float("OBSERVABILITY_CLEANUP_QUERY_SLOW_MS", 250.0)
 )
@@ -284,12 +255,6 @@ _EXTERNAL_IMPORT_GUARD_LOCK = asyncio.Lock()
 _EXTERNAL_IMPORT_ALLOWED_DOMAINS_ENV = "EXTERNAL_IMPORT_ALLOWED_DOMAINS"
 _EXPLICIT_LEARN_SERVICE: Optional[Callable[..., Awaitable[Dict[str, Any]]]] = None
 _EXPLICIT_LEARN_SERVICE_LOCK = asyncio.Lock()
-
-
-def _utc_iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
 def _parse_iso_ts(value: Optional[str]) -> Optional[datetime]:
     if not value or not isinstance(value, str):
         return None

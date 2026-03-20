@@ -121,7 +121,7 @@ import re
 import sqlite3
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from shutil import which
 from urllib.parse import unquote
@@ -213,7 +213,7 @@ if not sqlite_path.exists():
     fail(f"SQLite database file not found: {sqlite_path}")
 
 output_dir.mkdir(parents=True, exist_ok=True)
-timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 dest_file = output_dir / f"memory_palace_backup_{timestamp}.db"
 
 try:

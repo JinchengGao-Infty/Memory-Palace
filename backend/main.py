@@ -2,7 +2,6 @@ import inspect
 import os
 import hmac
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -10,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from shared_utils import env_bool as _env_bool, utc_iso_now as _utc_iso_now
 
 
 def _load_project_dotenv(project_root: Optional[Path] = None) -> Optional[Path]:
@@ -37,18 +37,6 @@ from runtime_bootstrap import (
     _try_restore_legacy_sqlite_file,
 )
 from run_sse import create_embedded_sse_apps
-
-
-def _utc_iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on", "enabled"}
-
 
 def _health_request_allows_details(
     request: Optional[Request],
@@ -245,8 +233,6 @@ async def health(
     except Exception as exc:
         error_type = type(exc).__name__
         payload["status"] = "degraded"
-        if not include_details:
-            return payload
         payload["index"] = {
             "index_available": False,
             "degraded": True,
@@ -261,7 +247,7 @@ async def health(
         if request is not None:
             return JSONResponse(status_code=503, content=payload)
 
-    if request is not None and include_details and payload["status"] != "ok":
+    if request is not None and payload["status"] != "ok":
         return JSONResponse(status_code=503, content=payload)
     return payload
 

@@ -323,7 +323,7 @@ Related files:
 - Backend healthcheck helper: `deploy/docker/backend-healthcheck.py` (performs a second check against `/health` inside the container and requires the payload to report `status == "ok"`)
 - Nginx configuration template: `deploy/docker/nginx.conf.template` (server-side forwarding for `X-MCP-API-Key`, plus `no-store/no-cache/must-revalidate` on `/index.html` to reduce stale entry pages after frontend updates; the frontend entrypoint escapes special characters in the proxy-held key, rejects the remaining ASCII control characters, and then generates the final Nginx config)
 - Entrypoint scripts: `deploy/docker/backend-entrypoint.sh`, `deploy/docker/frontend-entrypoint.sh`
-- Backup scripts: `scripts/backup_memory.sh`, `scripts/backup_memory.ps1` (keep the latest `20` backups by default; adjust with `--keep` / `-Keep`)
+- Backup scripts: `scripts/backup_memory.sh`, `scripts/backup_memory.ps1` (keep the latest `20` backups by default; adjust with `--keep` / `-Keep`; backup filenames use UTC timestamps so host/container runs sort consistently)
 - Pre-publishing check: `scripts/pre_publish_check.sh`
 
 ---

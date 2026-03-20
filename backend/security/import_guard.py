@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Deque, Dict, Optional, Sequence
 
 from filelock import FileLock, Timeout
+from shared_utils import env_int as _shared_env_int
 
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
@@ -57,14 +58,7 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
-    raw = os.getenv(name)
-    if raw is None:
-        return max(minimum, default)
-    try:
-        value = int(str(raw).strip())
-    except (TypeError, ValueError):
-        value = default
-    return max(minimum, value)
+    return _shared_env_int(name, default, minimum=minimum, clamp_default=True)
 
 
 def _env_csv(name: str, default: str = "") -> list[str]:

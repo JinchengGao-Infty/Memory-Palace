@@ -115,11 +115,11 @@ const zhCN = {
     retrieval: {
       title: '检索配置',
       description:
-        '先选一个安全起步档位，再只填写当前本地环境真正需要的字段。Profile C/D 预设默认走文档里的 router + reranker 路线；如果你本地 router 还没接好，再手动切到直连 API 模式排障。',
+        '先选一个安全起步档位，再只填写当前本地环境真正需要的字段。档位 C/D 预设默认走文档里的 router + reranker 路线；如果你本地 router 还没接好，再手动切到直连 API 模式排障。',
       presets: {
-        b: 'Profile B · 仅 hash',
-        c: 'Profile C · router + reranker（本地/私有）',
-        d: 'Profile D · router + reranker（远程）',
+        b: '档位 B · 仅 hash',
+        c: '档位 C · router + reranker（本地/私有）',
+        d: '档位 D · router + reranker（远程）',
       },
       embeddingBackendLabel: 'Embedding 后端',
       embeddingBackendHint:

@@ -422,7 +422,7 @@ bash scripts/apply_profile.sh macos b
 >
 > `apply_profile.sh/.ps1` 当前会在生成结束后统一去重重复 env key，避免不同解析器对“同 key 多次出现”产生不一致行为。
 >
-> 把 `deploy/profiles/*/*.env` 理解成 **Profile 模板输入**，不要直接手抄某个模板文件当成最终 `.env`。像 macOS 模板里的 `DATABASE_URL` 会先保留占位路径，再由 `apply_profile.*` 按当前仓库位置自动改写。
+> 把 `deploy/profiles/*/*.env` 理解成 **Profile 模板输入**，不要直接手抄某个模板文件当成最终 `.env`。像 macOS 模板里的 `DATABASE_URL` 会先保留占位路径，再由 `apply_profile.*` 按当前仓库位置自动改写；如果生成结果里还残留 `<...>` 或 `__REPLACE_ME__` 这类占位段，脚本或后端也会直接 fail-closed。
 >
 > 如果你只是第一次手动跑通仓库，先从 Profile B 开始最稳；只有在 embedding / reranker 链路都已经可用时，再切到 Profile C。
 

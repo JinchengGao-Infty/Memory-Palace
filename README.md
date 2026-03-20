@@ -404,6 +404,8 @@ Treat `deploy/profiles/*/*.env` as **Profile template inputs**, not as final `.e
 
 For `profile c/d`, `apply_profile.sh/.ps1` now also fail-closed when the generated file still contains unresolved endpoint/key/model placeholders. In plain language: replace the example `PORT`, key, and model-id values first, then continue to Docker startup or local C/D testing.
 
+The same guard now also applies to `DATABASE_URL` placeholder remnants. On local templates, `apply_profile.*` rewrites the common checkout-specific placeholder path for you; if the generated result still leaves segments such as `<...>` or `__REPLACE_ME__` inside `DATABASE_URL`, the script/backend stop early instead of quietly carrying a broken sqlite path forward.
+
 On macOS / Linux, `apply_profile.sh` now also backs up an existing target file to `*.bak` before overwrite. If you only want to preview the generated result first, use `bash scripts/apply_profile.sh --dry-run ...`; that prints the final env content without writing the target file.
 
 If you previously generated `.env.docker`, do not simply rename that Docker file to `.env`. The Docker profile uses container-only paths such as `/app/data/...`; if you customized the mount to `/data/...`, that is still container-only. Local `stdio` MCP needs a host-side absolute path instead.

@@ -22,6 +22,7 @@ from typing import Optional, Dict, Any, List, Tuple, Sequence, Mapping
 from contextlib import asynccontextmanager
 from urllib.parse import unquote
 from filelock import AsyncFileLock
+from shared_utils import env_bool as _shared_env_bool, env_int as _shared_env_int
 
 from sqlalchemy import (
     Column,
@@ -59,7 +60,7 @@ if os.path.exists(_dotenv_path):
 Base = declarative_base()
 
 _SQLITE_ADAPTERS_REGISTERED = False
-_DATABASE_URL_PLACEHOLDER_MARKERS = ("<your-user>", "__REPLACE_ME__")
+_DATABASE_URL_PLACEHOLDER_PATTERN = re.compile(r"<[^>]+>|__REPLACE_ME__")
 _NETWORK_FILESYSTEM_TYPES = {"nfs", "nfs4", "cifs", "smb", "smbfs"}
 
 
@@ -116,13 +117,12 @@ def _validate_database_url_placeholders(database_url: str) -> None:
     if database_file is None:
         return
     normalized_path = str(database_file).strip()
-    for marker in _DATABASE_URL_PLACEHOLDER_MARKERS:
-        if marker in normalized_path:
-            raise ValueError(
-                "DATABASE_URL still contains an unresolved profile placeholder. "
-                "Generate your local .env via scripts/apply_profile.sh/.ps1 or "
-                "replace the placeholder with a real host path before starting the backend."
-            )
+    if _DATABASE_URL_PLACEHOLDER_PATTERN.search(normalized_path):
+        raise ValueError(
+            "DATABASE_URL still contains an unresolved profile placeholder. "
+            "Generate your local .env via scripts/apply_profile.sh/.ps1 or "
+            "replace the placeholder with a real host path before starting the backend."
+        )
 
 
 def _resolve_existing_probe_path(path: Optional[FilePath]) -> Optional[FilePath]:
@@ -582,13 +582,7 @@ class SQLiteClient:
 
     @staticmethod
     def _env_int(name: str, default: int) -> int:
-        raw = os.getenv(name)
-        if raw is None:
-            return default
-        try:
-            return int(raw)
-        except (TypeError, ValueError):
-            return default
+        return _shared_env_int(name, default)
 
     @staticmethod
     def _env_float(name: str, default: float) -> float:
@@ -602,10 +596,7 @@ class SQLiteClient:
 
     @staticmethod
     def _env_bool(name: str, default: bool) -> bool:
-        raw = os.getenv(name)
-        if raw is None:
-            return default
-        return raw.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+        return _shared_env_bool(name, default)
 
     @staticmethod
     def _first_env(names: List[str], default: str = "") -> str:

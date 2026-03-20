@@ -344,7 +344,14 @@ describe('App routing', () => {
     await user.click(within(dialog).getByTestId('setup-language-toggle'));
 
     expect(await screen.findByRole('dialog', { name: '配置 Memory Palace' })).toBeInTheDocument();
-    expect(within(screen.getByRole('dialog', { name: '配置 Memory Palace' })).getByText('首启配置')).toBeInTheDocument();
+    const translatedDialog = screen.getByRole('dialog', { name: '配置 Memory Palace' });
+    expect(within(translatedDialog).getByText('首启配置')).toBeInTheDocument();
+    expect(
+      within(translatedDialog).getByRole('button', { name: '档位 B · 仅 hash' })
+    ).toBeInTheDocument();
+    expect(
+      within(translatedDialog).queryByRole('button', { name: /^(Profile B|Profile C|Profile D)\b/ })
+    ).not.toBeInTheDocument();
   });
 
   it('keeps typed setup values when switching language inside the setup assistant', async () => {
