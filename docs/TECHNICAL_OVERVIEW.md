@@ -247,7 +247,7 @@ frontend/src/
 >
 > 说人话就是：前端把鉴权做成了“运行时再决定”，所以你可以在页面顶部直接补 key，也可以由部署脚本在页面加载前注入。
 >
-> `run_memory_palace_mcp_stdio.sh` 这层 wrapper 的额外价值不是“修复本来就会读错库的 mcp_server.py”，而是给 CLI/本地配置一个更稳的默认入口：优先复用仓库 `.env` / `DATABASE_URL`；只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才回退到仓库里的默认 SQLite 路径。如果只存在 `.env.docker`，wrapper 会明确拒绝回退到 `demo.db`，避免把本地 stdio 和 Docker 容器数据混在一起；如果 `.env` 或显式 `DATABASE_URL` 仍写成 `/app/...` 或 `/data/...` 这类容器路径，它也会直接拒绝启动。
+> `run_memory_palace_mcp_stdio.sh` 这层 wrapper 的额外价值不是“修复本来就会读错库的 mcp_server.py”，而是给 CLI/本地配置一个更稳的默认入口：优先复用仓库 `.env` / `DATABASE_URL`；如果 `.env` 里已经设置了 `RETRIEVAL_REMOTE_TIMEOUT_SEC`，它也会继续复用这个值；只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才回退到仓库里的默认 SQLite 路径。如果只存在 `.env.docker`，wrapper 会明确拒绝回退到 `demo.db`，避免把本地 stdio 和 Docker 容器数据混在一起；如果 `.env` 或显式 `DATABASE_URL` 仍写成 `/app/...` 或 `/data/...` 这类容器路径，它也会直接拒绝启动。
 
 > Docker 一键部署走的是第三种方式：不把 key 注入页面，而是在前端代理层自动转发。
 
@@ -257,11 +257,11 @@ frontend/src/
 
 ### 写入路径
 
-1. `create_memory` / `update_memory` 进入 **write lane**（串行化写操作）。
+1. `create_memory` / `update_memory` 进入 **write lane**（串行化写操作；遇到短暂 SQLite 锁冲突时会先做一次小范围重试）。
 2. 写前执行 **write_guard** 判定（核心决策：`ADD` / `UPDATE` / `NOOP` / `DELETE`；`BYPASS` 为上层 metadata-only 更新时的流程标记）。
    - write_guard 支持三级判定链：语义匹配 → 关键词匹配 → LLM 决策（可选）。
-3. 生成 **snapshot** 与版本变更（按 `path` 和 `memory` 两维度分别记录；MCP 工具写入和 Dashboard `/browse/node` 写入都遵循这套语义）。
-4. 入队 **索引任务**（队列满会返回 `index_dropped` / `queue_full`）。
+3. 生成 **snapshot** 与版本变更（按 `path` 和 `memory` 两维度分别记录；MCP 工具写入和 Dashboard `/browse/node` 写入都遵循这套语义；同一 session 的快照写入现在通过文件锁串行化）。
+4. 入队 **索引任务**（队列满会返回 `index_dropped` / `queue_full`；真正写库的索引任务也会经过同一条 write lane，而不是直接和前台写入抢同一个 SQLite 文件）。
 
 ### 检索路径
 
@@ -311,7 +311,7 @@ Docker 端口环境变量：
 
 - Compose 文件：`docker-compose.yml`
 - 镜像定义：`deploy/docker/Dockerfile.backend`（基于 `python:3.11-slim`）、`deploy/docker/Dockerfile.frontend`（构建阶段 `node:22-alpine`，运行阶段 `nginxinc/nginx-unprivileged:1.27-alpine`）
-- Nginx 配置模板：`deploy/docker/nginx.conf.template`（服务端转发 `X-MCP-API-Key`，并对 `/index.html` 返回 no-store/no-cache/must-revalidate，减少前端更新后继续命中旧入口页面）
+- Nginx 配置模板：`deploy/docker/nginx.conf.template`（服务端转发 `X-MCP-API-Key`，并对 `/index.html` 返回 no-store/no-cache/must-revalidate，减少前端更新后继续命中旧入口页面；前端入口脚本会先对代理持有的 key 做一次特殊字符转义，再生成最终 Nginx 配置）
 - 入口脚本：`deploy/docker/backend-entrypoint.sh`、`deploy/docker/frontend-entrypoint.sh`
 - 备份脚本：`scripts/backup_memory.sh`、`scripts/backup_memory.ps1`
 - 分享前检查：`scripts/pre_publish_check.sh`

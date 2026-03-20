@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 
 import pytest
 
@@ -193,6 +194,31 @@ async def test_write_lane_releases_idle_session_locks_after_write_completion() -
 
     assert coordinator._session_waiting == {}
     assert coordinator._session_locks == {}
+
+
+@pytest.mark.asyncio
+async def test_write_lane_retries_transient_sqlite_lock_errors() -> None:
+    coordinator = WriteLaneCoordinator()
+    attempts = 0
+
+    async def _flaky() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return "ok"
+
+    assert await coordinator.run_write(
+        session_id="retry-session",
+        operation="update_memory",
+        task=_flaky,
+    ) == "ok"
+
+    status = await coordinator.status()
+    assert attempts == 2
+    assert status["writes_total"] == 1
+    assert status["writes_success"] == 1
+    assert status["writes_failed"] == 0
 
 
 @pytest.mark.asyncio

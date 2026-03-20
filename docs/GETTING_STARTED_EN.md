@@ -130,6 +130,7 @@ The following are the most commonly used configuration items in `.env` (for more
 | `RETRIEVAL_RERANKER_API_BASE` | Reranker API address | Empty |
 | `RETRIEVAL_RERANKER_API_KEY` | Reranker API key | Empty |
 | `RETRIEVAL_RERANKER_MODEL` | Reranker model name | `your-reranker-model-id` |
+| `RETRIEVAL_REMOTE_TIMEOUT_SEC` | Timeout for remote embedding / reranker / LLM requests (seconds) | `8` |
 | `INTENT_LLM_ENABLED` | Experimental intent LLM toggle | `false` |
 | `RETRIEVAL_MMR_ENABLED` | Deduplication / diversity re-ranking under hybrid search | `false` |
 | `RETRIEVAL_SQLITE_VEC_ENABLED` | sqlite-vec rollout toggle | `false` |
@@ -145,6 +146,8 @@ The following are the most commonly used configuration items in `.env` (for more
 > The table above shows template example values from `.env.example`; if certain retrieval environment variables are completely missing at runtime, the backend will use its own fallback values (e.g., `hash` / `hash-v1` / `64`).
 >
 > Configuration semantics: `RETRIEVAL_EMBEDDING_BACKEND` only affects Embedding. Reranker does not have a `RETRIEVAL_RERANKER_BACKEND` toggle; it prioritizes reading `RETRIEVAL_RERANKER_*`, falling back to `ROUTER_*` (and finally to `OPENAI_*` base/key) if missing.
+>
+> For repo-local `stdio` / `python-wrapper`, `RETRIEVAL_REMOTE_TIMEOUT_SEC` is now also reused from the current repository `.env`; if you leave it unset, the repo-local default remains `8` seconds.
 >
 > More advanced options (such as `INTENT_LLM_*`, `RETRIEVAL_MMR_*`, `RETRIEVAL_SQLITE_VEC_*`, `CORS_ALLOW_*`, runtime observability/sleep consolidation toggles) are documented in `.env.example` and default to conservative values, not affecting the minimal startup path.
 >
@@ -526,7 +529,7 @@ python mcp_server.py
 > - native Windows: `python backend/mcp_wrapper.py`
 > - macOS / Linux / Git Bash / WSL: `bash scripts/run_memory_palace_mcp_stdio.sh`
 >
-> These repo-local wrappers keep the same boundary conditions: they depend on the local `backend/.venv`, reuse the current repository `.env` / `DATABASE_URL` first, and only fall back to the repo's default SQLite path when neither a local `.env` nor `.env.docker` exists. If the repository only has `.env.docker`, or if a local `.env` / explicit `DATABASE_URL` still points at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db` or a `/data/...` variant, they refuse to start on purpose. In a Docker-only setup, prefer the exposed `/sse` endpoint instead.
+> These repo-local wrappers keep the same boundary conditions: they depend on the local `backend/.venv`, reuse the current repository `.env` / `DATABASE_URL` first, and also keep using `RETRIEVAL_REMOTE_TIMEOUT_SEC` from that same `.env` when it is set; if you leave it unset, the repo-local default remains `8` seconds. They only fall back to the repo's default SQLite path when neither a local `.env` nor `.env.docker` exists. If the repository only has `.env.docker`, or if a local `.env` / explicit `DATABASE_URL` still points at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db` or a `/data/...` variant, they refuse to start on purpose. In a Docker-only setup, prefer the exposed `/sse` endpoint instead.
 
 ### 6.2 SSE Mode
 

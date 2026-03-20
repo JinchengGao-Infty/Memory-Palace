@@ -672,6 +672,34 @@ async def test_reindex_job_forwards_reason_to_client() -> None:
 
 
 @pytest.mark.asyncio
+async def test_index_worker_reindex_runs_through_configured_write_lane() -> None:
+    worker = IndexTaskWorker()
+    client = _FakeIndexClient()
+    write_calls: list[tuple[str | None, str]] = []
+
+    async def _write_runner(*, session_id, operation, task):
+        write_calls.append((session_id, operation))
+        return await task()
+
+    worker.set_write_runner(_write_runner)
+    await worker.ensure_started(lambda: client)
+
+    enqueue_result = await worker.enqueue_reindex_memory(
+        memory_id=5,
+        reason="week7-write-lane",
+    )
+    wait_result = await worker.wait_for_job(
+        job_id=enqueue_result["job_id"],
+        timeout_seconds=2.0,
+    )
+    await worker.shutdown()
+
+    assert wait_result["ok"] is True
+    assert wait_result["job"]["status"] == "succeeded"
+    assert write_calls == [("runtime-index-worker", "index_worker.reindex_memory")]
+
+
+@pytest.mark.asyncio
 async def test_sleep_consolidation_job_executes_preview_and_rebuild(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

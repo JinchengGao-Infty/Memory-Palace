@@ -16,6 +16,7 @@ import inspect
 import math
 import os
 import re
+import sqlite3
 import time
 import uuid
 from collections import Counter, deque
@@ -30,6 +31,16 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
         return default
     try:
         return max(minimum, int(raw))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return max(minimum, float(raw))
     except (TypeError, ValueError):
         return default
 
@@ -76,6 +87,15 @@ class WriteLaneCoordinator:
             "RUNTIME_WRITE_GLOBAL_CONCURRENCY", 1, minimum=1
         )
         self._wait_warn_ms = _env_int("RUNTIME_WRITE_WAIT_WARN_MS", 2000, minimum=1)
+        self._lock_retry_attempts = _env_int(
+            "RUNTIME_WRITE_LOCK_RETRY_ATTEMPTS", 2, minimum=0
+        )
+        self._lock_retry_base_delay_seconds = _env_float(
+            "RUNTIME_WRITE_LOCK_RETRY_BASE_DELAY_SECONDS", 0.05, minimum=0.0
+        )
+        self._lock_retry_max_delay_seconds = _env_float(
+            "RUNTIME_WRITE_LOCK_RETRY_MAX_DELAY_SECONDS", 0.25, minimum=0.0
+        )
         self._global_sem = asyncio.Semaphore(self._global_concurrency)
         self._session_locks: Dict[str, asyncio.Lock] = {}
         self._session_waiting: Dict[str, int] = {}
@@ -97,6 +117,32 @@ class WriteLaneCoordinator:
         ranked = sorted(values)
         idx = max(0, math.ceil(len(ranked) * 0.95) - 1)
         return int(ranked[idx])
+
+    @staticmethod
+    def _is_transient_sqlite_lock_error(exc: BaseException) -> bool:
+        candidates = [exc, getattr(exc, "orig", None), getattr(exc, "__cause__", None)]
+        lock_markers = (
+            "database is locked",
+            "database table is locked",
+            "database schema is locked",
+            "sqlite_busy",
+            "sqlite_locked",
+        )
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            if isinstance(candidate, sqlite3.OperationalError):
+                message = str(candidate).strip().lower()
+                if any(marker in message for marker in lock_markers):
+                    return True
+            message = str(candidate).strip().lower()
+            if any(marker in message for marker in lock_markers):
+                return True
+        return False
+
+    def _lock_retry_delay_seconds(self, attempt_index: int) -> float:
+        delay = self._lock_retry_base_delay_seconds * (2 ** max(0, attempt_index))
+        return min(delay, self._lock_retry_max_delay_seconds)
 
     async def _record_write_metrics(
         self,
@@ -188,7 +234,21 @@ class WriteLaneCoordinator:
                     _ = operation
                     _ = waited_session_ms
                     _ = waited_global_ms
-                    result = await task()
+                    attempt_index = 0
+                    while True:
+                        try:
+                            result = await task()
+                            break
+                        except Exception as exc:
+                            if (
+                                attempt_index >= self._lock_retry_attempts
+                                or not self._is_transient_sqlite_lock_error(exc)
+                            ):
+                                raise
+                            await asyncio.sleep(
+                                self._lock_retry_delay_seconds(attempt_index)
+                            )
+                            attempt_index += 1
                     duration_ms = int((time.monotonic() - write_start) * 1000)
                     await self._record_write_metrics(
                         success=True,
@@ -292,9 +352,12 @@ class SessionSearchCache:
 
     def _parse_hit_updated_at(self, value: str) -> Optional[datetime]:
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except (AttributeError, ValueError):
             return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     def _is_hit_stale(
         self, item: SessionSearchHit, *, now: Optional[datetime] = None
@@ -1158,6 +1221,7 @@ class IndexTaskWorker:
         self._client_factory: Optional[Callable[[], Any]] = None
         self._runner: Optional[asyncio.Task] = None
         self._guard: Optional[asyncio.Lock] = None
+        self._write_runner: Optional[Callable[..., Awaitable[Any]]] = None
 
         self._jobs: Dict[str, Dict[str, Any]] = {}
         self._job_events: Dict[str, asyncio.Event] = {}
@@ -1176,6 +1240,11 @@ class IndexTaskWorker:
         self._last_error: Optional[str] = None
         self._last_finished_at: Optional[str] = None
         self._cancelled_job_ids: Set[str] = set()
+
+    def set_write_runner(
+        self, write_runner: Optional[Callable[..., Awaitable[Any]]]
+    ) -> None:
+        self._write_runner = write_runner
 
     def _ensure_loop_state(self) -> None:
         current_loop = asyncio.get_running_loop()
@@ -1602,23 +1671,32 @@ class IndexTaskWorker:
             raise RuntimeError("index worker is not initialized with sqlite client factory.")
         client = factory()
 
-        if task.task_type == "reindex_memory":
-            result = client.reindex_memory(
-                memory_id=int(task.memory_id or 0),
-                reason=task.reason,
-            )
-        elif task.task_type == "rebuild_index":
-            result = client.rebuild_index(reason=task.reason)
-        elif task.task_type == "sleep_consolidation":
-            result = self._run_sleep_consolidation(client=client, reason=task.reason)
-        else:
-            raise ValueError(f"Unknown index task type '{task.task_type}'.")
+        async def _run_task() -> Dict[str, Any]:
+            if task.task_type == "reindex_memory":
+                result = client.reindex_memory(
+                    memory_id=int(task.memory_id or 0),
+                    reason=task.reason,
+                )
+            elif task.task_type == "rebuild_index":
+                result = client.rebuild_index(reason=task.reason)
+            elif task.task_type == "sleep_consolidation":
+                result = self._run_sleep_consolidation(client=client, reason=task.reason)
+            else:
+                raise ValueError(f"Unknown index task type '{task.task_type}'.")
 
-        if inspect.isawaitable(result):
-            result = await result
-        if isinstance(result, dict):
-            return result
-        return {"result": result}
+            if inspect.isawaitable(result):
+                result = await result
+            if isinstance(result, dict):
+                return result
+            return {"result": result}
+
+        if callable(self._write_runner):
+            return await self._write_runner(
+                session_id="runtime-index-worker",
+                operation=f"index_worker.{task.task_type}",
+                task=_run_task,
+            )
+        return await _run_task()
 
     @staticmethod
     def _normalize_sleep_dedup_content(content: Any) -> str:
@@ -2205,6 +2283,7 @@ class RuntimeState:
         self.cleanup_reviews = CleanupReviewCoordinator()
         self.vitality_decay = VitalityDecayCoordinator()
         self.index_worker = IndexTaskWorker()
+        self.index_worker.set_write_runner(self.write_lanes.run_write)
         self.sleep_consolidation = SleepTimeConsolidator()
 
     async def ensure_started(self, client_factory: Callable[[], Any]) -> None:

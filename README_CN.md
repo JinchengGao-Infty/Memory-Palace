@@ -53,8 +53,10 @@
 
 - **skills + MCP 更像产品了**：现在不只是“有工具”，而是补齐了安装、同步、smoke 和 live e2e。
 - **部署更稳了**：Docker 一键脚本补了 deployment lock，运行时环境注入默认关闭，分享或正式发布前也有自检脚本兜底。
+- **写入链路的恢复能力更强了**：同一 session 的 snapshot 现在改成文件锁，SQLite 短暂锁冲突会做一次小范围重试，后台索引任务也会和前台写入共用同一条写入门控。
 - **高干扰检索在当前基准集里表现更稳**：对照旧版本时，`s8,d200` 与 `s100,d200` 这类更容易被干扰的场景，C/D 档位显示出更好的召回。
 - **前端语言切换更直接了**：当前前端默认英文，右上角新增中英切换按钮，浏览器会记住你的选择。
+- **本地 operator 路径也更稳了**：repo-local stdio wrapper 现在会继续复用 `.env` 里的 `RETRIEVAL_REMOTE_TIMEOUT_SEC`，而且 Observability 搜索和活力清理确认这类长请求会给浏览器更长的等待时间。
 - **公开口径更保守了**：文档现在已经补上原生 Windows 的 repo-local `python-wrapper` 路径，但你自己的远程环境 / GUI 宿主环境仍建议按目标环境再复核一次。
 - **客户端边界写清楚了**：`Claude/Codex/OpenCode/Gemini` 走文档里的 CLI 路径；`Cursor / Windsurf / VSCode-host / Antigravity` 走 `AGENTS.md + MCP 配置片段`；`Gemini live` 和 GUI 宿主验证仍保留边界说明。
 
@@ -68,9 +70,11 @@
 
 现在 Dashboard 树形编辑也遵循同一条规则：`POST /browse/node`、`PUT /browse/node`、`DELETE /browse/node` 在真正改数据前也会先写 Review snapshot，所以 Review 页面里能看到并回滚这些修改。
 
-现在同一个 `session_id` 下的快照写入也会做串行化，`manifest.json` 和单个快照 JSON 文件都会通过原子替换方式落盘。用人话说就是：如果多个本地进程共用同一个仓库 checkout，并且刚好写到同一个 Review session，这条快照记录链更不容易丢条目，也不容易留下半写入的 JSON 文件。
+现在同一个 `session_id` 下的快照写入会通过每个 session 一把文件锁做串行化，`manifest.json` 和单个快照 JSON 文件都会通过原子替换方式落盘。用人话说就是：如果多个本地进程共用同一个仓库 checkout，并且刚好写到同一个 Review session，这条快照记录链更不容易丢条目，也不容易留下半写入的 JSON 文件。
 
 正常的 backend、SSE、repo-local stdio 退出路径上，`compact_context` / auto-flush 这类 pending summary 现在还会做一次 **best-effort drain**。说人话就是：如果进程准备正常退出，系统会先尽量把还没落盘的 flush summary 补写成记忆；如果这一步失败，就跳过，不会为了“硬写进去”再冒额外风险。
+
+现在 SQLite 的短暂锁冲突也会做一次小范围重试，后台索引任务写库时也会经过同一条全局 write lane。说人话就是：前台写入和异步重建在本地多进程压力下更不容易互相撞上。
 
 ### 🔍 统一检索引擎
 
@@ -101,6 +105,8 @@
 基于 React 的四视图仪表盘：**记忆浏览器**、**审查与回滚**、**维护管理**、**可观测性监控**。
 
 当前前端默认英文，点右上角语言按钮即可切到中文或切回英文。浏览器会记住你的选择，常见界面文案、日期/数字格式和一部分错误提示会跟随切换，其中也包括后端返回的结构化校验错误。
+
+Observability 搜索和活力清理确认这类更容易跑久一点的操作，现在前端也会给更长的等待时间。对本地数据量更大的场景来说，这样更不容易出现“后端还在处理，浏览器先报超时”的错觉。
 
 当浏览器里既没有已保存的 Dashboard 鉴权，也没有运行时注入的 Dashboard 鉴权时，前端会自动打开首启配置向导。它可以把 Dashboard `MCP_API_KEY` 保存到当前浏览器里，并且在应用直接连本地 checkout 时，把常见本地运行参数写进 `.env`，不需要手动编辑文件。如果你走的是“保存到本地 `.env`”这条路径，并且同时填写了 Dashboard key，向导仍然需要浏览器本地存储来记住这把 key；如果浏览器拦住了本地存储，页面现在会明确提示保存失败，不再假装整套配置都已经成功。涉及后端运行链路的改动仍然需要重启服务。
 
@@ -186,11 +192,11 @@
 
 1. **Write Guard（写入守卫）** — 每次 `create_memory` / `update_memory` 调用都先经过 Write Guard（`sqlite_client.py`）。在规则模式下，守卫以 **语义匹配 → 关键词匹配 → LLM（可选）** 的顺序判定核心动作 `ADD`、`UPDATE`、`NOOP`、`DELETE`；`BYPASS` 由上层流程在 metadata-only 更新场景标注。当设置 `WRITE_GUARD_LLM_ENABLED=true` 时，可选 LLM 通过 OpenAI 兼容 API 参与决策。
 
-2. **Snapshot（快照）** — 在任何修改前，系统都会先记录当前记忆状态的快照。MCP 工具链路使用 `mcp_server.py` 中的快照 helper；Dashboard 的 `/browse/node` 写入也遵循同样的 path/content 快照语义，并按当前数据库作用域写入到 dashboard 专属 session。同一个 session 的快照写路径现在会串行化，`manifest.json` 和单个快照 JSON 文件也会通过原子替换方式写入，所以本地多进程共用同一个 checkout 时，不容易丢 Review 条目或留下半写入的快照文件。这样 Review 仪表盘里的差异对比和一键回滚才能正常工作。
+2. **Snapshot（快照）** — 在任何修改前，系统都会先记录当前记忆状态的快照。MCP 工具链路使用 `mcp_server.py` 中的快照 helper；Dashboard 的 `/browse/node` 写入也遵循同样的 path/content 快照语义，并按当前数据库作用域写入到 dashboard 专属 session。同一个 session 的快照写路径现在会通过每个 session 一把文件锁做串行化，`manifest.json` 和单个快照 JSON 文件也会通过原子替换方式写入，所以本地多进程共用同一个 checkout 时，不容易丢 Review 条目或留下半写入的快照文件。这样 Review 仪表盘里的差异对比和一键回滚才能正常工作。
 
-3. **Write Lane（写入车道）** — 写入进入序列化队列（`runtime_state.py` → `WriteLanes`），可配置并发度（`RUNTIME_WRITE_GLOBAL_CONCURRENCY`）。这防止了单 SQLite 文件上的竞态条件。
+3. **Write Lane（写入车道）** — 写入进入序列化队列（`runtime_state.py` → `WriteLanes`），可配置并发度（`RUNTIME_WRITE_GLOBAL_CONCURRENCY`）。这防止了单 SQLite 文件上的竞态条件；遇到短暂的 SQLite 锁冲突时，也会先做一次小范围重试，而不是立刻把它当成硬失败抛出去。
 
-4. **Index Worker（索引工作者）** — 每次写入完成后，异步任务入队进行索引重建（`runtime_state.py` 中的 `IndexWorker`）。工作者按 FIFO 顺序处理索引更新，不阻塞写入路径。
+4. **Index Worker（索引工作者）** — 每次写入完成后，异步任务入队进行索引重建（`runtime_state.py` 中的 `IndexWorker`）。工作者仍按 FIFO 顺序处理索引更新，但真正写库的那一步现在也会经过同一条 write lane，所以后台重建和前台写入更不容易互相争抢。
 
 #### 检索流水线（`sqlite_client.py`）
 
@@ -509,7 +515,7 @@ python run_sse.py
 > - 原生 Windows：优先 `backend/mcp_wrapper.py`
 > - macOS / Linux / Git Bash / WSL：优先 `scripts/run_memory_palace_mcp_stdio.sh`
 >
-> 这两条 launcher 都会优先复用当前仓库的 `backend/.venv` 和 `.env` / `DATABASE_URL`；只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` 里的 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`，或你自己改成 `/data/...` 的变体），它都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。
+> 这两条 launcher 都会优先复用当前仓库的 `backend/.venv` 和 `.env` / `DATABASE_URL`；如果 `.env` 里已经设置了 `RETRIEVAL_REMOTE_TIMEOUT_SEC`，它们也会继续复用这个值；没设置时 repo-local 默认仍是 `8` 秒。只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` 里的 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`，或你自己改成 `/data/...` 的变体），它都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。
 >
 > 再补一个这轮实测过的细节：如果某个客户端 / IDE host 把 `DATABASE_URL` 传成了空字符串，这两条 wrapper 也会把它当成“没设置”，继续回退到当前仓库 `.env` 里的有效值；不会因为“变量名存在但值为空”就把 repo-local 启动误判成缺配置。
 >

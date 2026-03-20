@@ -398,7 +398,9 @@ export const getObservabilitySummary = () =>
   api.get('/maintenance/observability/summary').then(res => res.data);
 
 export const runObservabilitySearch = (payload) =>
-  api.post('/maintenance/observability/search', payload).then(res => res.data);
+  api.post('/maintenance/observability/search', payload, {
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
+  }).then(res => res.data);
 
 export const getIndexWorkerStatus = () =>
   api.get('/maintenance/index/worker').then(res => res.data);
@@ -442,7 +444,9 @@ export const prepareVitalityCleanup = (payload) =>
   api.post('/maintenance/vitality/cleanup/prepare', payload).then(res => res.data);
 
 export const confirmVitalityCleanup = (payload) =>
-  api.post('/maintenance/vitality/cleanup/confirm', payload).then(res => res.data);
+  api.post('/maintenance/vitality/cleanup/confirm', payload, {
+    timeout: LONG_RUNNING_REQUEST_TIMEOUT_MS,
+  }).then(res => res.data);
 
 // ============ Orphan Maintenance API ============
 

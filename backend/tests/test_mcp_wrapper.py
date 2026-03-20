@@ -152,6 +152,32 @@ def test_build_runtime_env_treats_empty_database_url_as_missing_when_no_env_exis
     assert runtime_env["DATABASE_URL"] == f"sqlite+aiosqlite:///{demo_db.as_posix()}"
 
 
+def test_build_runtime_env_prefers_env_file_remote_timeout_when_runtime_env_absent(
+    monkeypatch, tmp_path: Path
+) -> None:
+    module = _load_module()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "\n".join(
+            [
+                f"DATABASE_URL=sqlite+aiosqlite:///{(tmp_path / 'memory.db').as_posix()}",
+                "RETRIEVAL_REMOTE_TIMEOUT_SEC=30",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(module, "ENV_FILE", env_file)
+    monkeypatch.setattr(module, "DOCKER_ENV_FILE", tmp_path / ".env.docker")
+    monkeypatch.setattr(module, "DEFAULT_DB_PATH", tmp_path / "demo.db")
+    monkeypatch.setattr(module.os, "environ", {})
+
+    runtime_env = module.build_runtime_env()
+
+    assert runtime_env["RETRIEVAL_REMOTE_TIMEOUT_SEC"] == "30"
+
+
 def test_read_env_value_parses_quoted_value_with_inline_comment(tmp_path: Path) -> None:
     module = _load_module()
     env_file = tmp_path / ".env"

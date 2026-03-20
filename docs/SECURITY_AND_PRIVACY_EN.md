@@ -186,7 +186,7 @@ The following security configurations can be directly verified in the project's 
 |---|---|---|
 | Non-root execution (Backend) | `groupadd --gid 10001 app && useradd --uid 10001` | `deploy/docker/Dockerfile.backend` |
 | Non-root execution (Frontend) | Using `nginxinc/nginx-unprivileged:1.27-alpine` base image | `deploy/docker/Dockerfile.frontend` |
-| Frontend proxy authentication | Nginx forwards `X-MCP-API-Key` at the server side; the real key is not stored on the browser side | `deploy/docker/nginx.conf.template` |
+| Frontend proxy authentication | Nginx forwards `X-MCP-API-Key` at the server side; the real key is not stored on the browser side, and special characters in the proxy-held key are escaped before the final config is generated | `deploy/docker/nginx.conf.template` |
 | Prohibit privilege escalation | `security_opt: no-new-privileges:true` | `docker-compose.yml` |
 | Data persistence | Docker volumes are isolated per compose project by default: `<compose-project>_data` → `/app/data`, `<compose-project>_snapshots` → `/app/snapshots` | `docker-compose.yml` |
 | Health check (Backend) | Python `urllib.request.urlopen('http://127.0.0.1:8000/health')` | `backend.healthcheck` in `docker-compose.yml` |

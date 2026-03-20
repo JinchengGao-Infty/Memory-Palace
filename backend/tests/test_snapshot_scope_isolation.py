@@ -2,6 +2,7 @@ import json
 import threading
 from pathlib import Path
 
+import pytest
 import db.snapshot as snapshot_module
 from db.snapshot import SnapshotManager
 
@@ -220,3 +221,27 @@ def test_snapshot_manager_windows_pid_check_uses_win32_api(
 
     assert SnapshotManager._pid_is_alive(4242) is True
     assert fake_kernel32.closed_handles == [99]
+
+
+def test_snapshot_manager_maps_file_lock_timeout_to_timeout_error(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    manager = SnapshotManager(str(tmp_path / "snapshots"))
+
+    class _AlwaysBusyFileLock:
+        def __init__(self, lock_path: str, timeout: float) -> None:
+            assert lock_path.endswith("busy-session.lock")
+            assert timeout == 5.0
+
+        def __enter__(self):
+            raise snapshot_module.FileLockTimeout("busy")
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+    monkeypatch.setattr(snapshot_module, "FileLock", _AlwaysBusyFileLock)
+
+    with pytest.raises(TimeoutError, match="Timed out waiting for snapshot session lock"):
+        with manager._session_write_lock("busy-session"):
+            pass

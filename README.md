@@ -57,8 +57,10 @@ If you want the AI to guide installation step by step, start with the standalone
 
 - **skills + MCP now feel productized**: installation, sync, smoke, and live e2e are all part of the documented path.
 - **Deployment is safer**: the Docker one-click scripts now use deployment locks, runtime env injection is opt-in, and there is a dedicated repository hygiene check before sharing or publishing your workspace.
+- **Write-path recovery is tighter**: same-session snapshots now use file locks, transient SQLite lock conflicts get a small bounded retry, and background index jobs share the same write gate as foreground writes.
 - **High-noise retrieval looks stronger in the current benchmark set**: compared with the old project, the C/D profiles show better recall in harder `s8,d200` and `s100,d200` style scenarios.
 - **Dashboard language is now easier to control**: the frontend defaults to English and adds a one-click English / Chinese toggle in the top-right corner, with the selection remembered in the browser.
+- **Local operator paths are less brittle**: repo-local stdio wrappers now reuse `.env` `RETRIEVAL_REMOTE_TIMEOUT_SEC`, and longer-running Dashboard observability / vitality confirmation actions get a longer client-side timeout before the browser gives up.
 - **Public claims stay conservative**: the docs now include a native-Windows repo-local stdio path through `backend/mcp_wrapper.py`, while still asking you to re-check your own remote / GUI-host deployment environment.
 - **Client boundaries are explicit**: `Claude/Codex/OpenCode/Gemini` use the documented CLI path; IDE hosts such as `Cursor / Windsurf / VSCode-host / Antigravity` use repo-local rules plus an MCP snippet; `Gemini live` and GUI-only host validation still carry explicit caveats.
 
@@ -72,9 +74,11 @@ Every memory write passes through a strict pipeline: **Write Guard pre-check →
 
 The same rule now applies to Dashboard tree writes as well: `POST /browse/node`, `PUT /browse/node`, and `DELETE /browse/node` also create Review snapshots before modifying data, so the Review page can see and roll them back under the current database scope.
 
-Within the same `session_id`, snapshot writes are now serialized as well, and both `manifest.json` and individual snapshot JSON files are written through atomic replace. In plain terms: if multiple local processes share one repo checkout and touch the same Review session, the snapshot ledger is much less likely to lose entries or leave behind half-written JSON files.
+Within the same `session_id`, snapshot writes are now serialized through a per-session file lock, and both `manifest.json` and individual snapshot JSON files are written through atomic replace. In plain terms: if multiple local processes share one repo checkout and touch the same Review session, the snapshot ledger is much less likely to lose entries or leave behind half-written JSON files.
 
 Normal backend, SSE, and repo-local stdio shutdown paths now also do a **best-effort drain** for pending `compact_context` / auto-flush summaries. In plain language: before the process exits cleanly, the system tries once to persist any pending flush summary; if that step fails, it skips it instead of forcing a risky last-minute write.
+
+Transient SQLite lock conflicts now also get a small bounded retry, and background index jobs go through the same global write gate instead of racing the foreground path. In plain language: foreground writes and async reindex work are less likely to trip over each other under local multi-process pressure.
 
 ### 🔍 Unified Retrieval Engine
 
@@ -105,6 +109,8 @@ On the repository-shipped Docker / GHCR compose paths, when `backend` and `sse` 
 A React-powered dashboard with four views: **Memory Browser**, **Review & Rollback**, **Maintenance**, and **Observability**.
 
 The current frontend now defaults to English. Use the top-right language button to switch between English and Chinese; the browser remembers your choice and applies it to common UI copy, date/number formatting, and common API error hints, including structured validation errors returned by the backend.
+
+Longer-running Observability search and vitality cleanup confirmation calls now also wait longer on the client side, so larger local datasets are less likely to show a browser timeout while the backend is still working.
 
 When neither runtime Dashboard auth nor stored browser Dashboard auth is available, the frontend auto-opens a first-run setup assistant. It can save the Dashboard `MCP_API_KEY` in the current browser and, when the app is running directly against a local checkout, write the common local runtime fields into `.env` without hand-editing the file. If you use the local `.env` save path and also enter a Dashboard key, the assistant still needs browser storage for that key; if the browser blocks local storage, the page now shows a save failure instead of pretending the whole setup succeeded. Backend-side changes still require a restart.
 
@@ -190,11 +196,11 @@ If you want a page-by-page walkthrough of the Dashboard, see [Dashboard User Gui
 
 1. **Write Guard** — Every `create_memory` / `update_memory` call first passes through the Write Guard (`sqlite_client.py`). In rule-based mode, the guard evaluates in this order: **semantic matching → keyword matching → optional LLM**, and outputs core actions `ADD`, `UPDATE`, `NOOP`, or `DELETE`; `BYPASS` is marked by upper-layer flow for metadata-only updates. When `WRITE_GUARD_LLM_ENABLED=true`, an optional LLM participates via an OpenAI-compatible chat API.
 
-2. **Snapshot** — Before any modification, the system creates snapshots for the current memory state. The MCP tool path uses the snapshot helpers in `mcp_server.py`, and Dashboard `/browse/node` writes follow the same path/content snapshot semantics under a database-scoped dashboard session. Same-session snapshot writes are serialized, and both `manifest.json` and per-resource snapshot JSON files are written via atomic replace, so local multi-process use is less likely to lose Review entries or expose half-written snapshot files. This enables full diff comparison and one-click rollback in the Review dashboard.
+2. **Snapshot** — Before any modification, the system creates snapshots for the current memory state. The MCP tool path uses the snapshot helpers in `mcp_server.py`, and Dashboard `/browse/node` writes follow the same path/content snapshot semantics under a database-scoped dashboard session. Same-session snapshot writes are serialized through a per-session file lock, and both `manifest.json` and per-resource snapshot JSON files are written via atomic replace, so local multi-process use is less likely to lose Review entries or expose half-written snapshot files. This enables full diff comparison and one-click rollback in the Review dashboard.
 
-3. **Write Lane** — Writes enter a serialized queue (`runtime_state.py` → `WriteLanes`) with configurable concurrency (`RUNTIME_WRITE_GLOBAL_CONCURRENCY`). This prevents race conditions on the single SQLite file.
+3. **Write Lane** — Writes enter a serialized queue (`runtime_state.py` → `WriteLanes`) with configurable concurrency (`RUNTIME_WRITE_GLOBAL_CONCURRENCY`). This prevents race conditions on the single SQLite file, and transient SQLite lock conflicts now get a small bounded retry instead of immediately surfacing as a hard failure.
 
-4. **Index Worker** — After each write completes, an async task is enqueued for index rebuild (`IndexWorker` in `runtime_state.py`). The worker processes index updates in FIFO order without blocking the write path.
+4. **Index Worker** — After each write completes, an async task is enqueued for index rebuild (`IndexWorker` in `runtime_state.py`). The worker still processes index updates in FIFO order, but DB-writing jobs now also pass through the same write-lane gate, so background reindex work is less likely to contend with the foreground write path.
 
 #### Retrieval Pipeline (`sqlite_client.py`)
 
@@ -509,7 +515,7 @@ python run_sse.py
 > - native Windows: prefer `backend/mcp_wrapper.py`
 > - macOS / Linux / Git Bash / WSL: prefer `scripts/run_memory_palace_mcp_stdio.sh`
 >
-> Both launchers use the repository `backend/.venv`, read the repository `.env` first, and only fall back to the repo's default SQLite path when neither `DATABASE_URL` nor `.env` is present. If `.env` is missing but `.env.docker` exists, or if a local `.env` still points `DATABASE_URL` at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db` or a `/data/...` variant, the wrapper now refuses to start on purpose because the repo-local stdio path does **not** reuse container-only sqlite paths. In a Docker-only setup, connect the client to `/sse` instead of assuming the wrapper will pick up container data.
+> Both launchers use the repository `backend/.venv`, read the repository `.env` first, and only fall back to the repo's default SQLite path when neither `DATABASE_URL` nor `.env` is present. They also reuse `RETRIEVAL_REMOTE_TIMEOUT_SEC` from the repository `.env` when it is set; if you leave it unset, the repo-local default remains `8` seconds. If `.env` is missing but `.env.docker` exists, or if a local `.env` still points `DATABASE_URL` at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db` or a `/data/...` variant, the wrapper now refuses to start on purpose because the repo-local stdio path does **not** reuse container-only sqlite paths. In a Docker-only setup, connect the client to `/sse` instead of assuming the wrapper will pick up container data.
 >
 > One more detail rechecked in the current validation round: if a client or IDE host passes `DATABASE_URL` as an empty string, these wrappers still treat that as “not set” and keep reusing the repository `.env` value. They do not misclassify that case as a missing repo-local configuration just because the variable name exists.
 >

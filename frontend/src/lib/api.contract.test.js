@@ -34,6 +34,7 @@ import {
     listOrphanMemories,
     getOrphanMemoryDetail,
     deleteOrphanMemory,
+    confirmVitalityCleanup,
     extractApiErrorCode,
     saveStoredMaintenanceAuth,
     clearStoredMaintenanceAuth,
@@ -130,7 +131,11 @@ describe('api contract regression', () => {
     const payload = { query: 'release plan', mode: 'hybrid', include_session: false };
     const result = await runObservabilitySearch(payload);
 
-    expect(mockApi.post).toHaveBeenCalledWith('/maintenance/observability/search', payload);
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/maintenance/observability/search',
+      payload,
+      { timeout: 60000 }
+    );
     expect(result.ok).toBe(true);
     expect(result.mode_requested).toBe('hybrid');
     expect(result.mode_applied).toBe('hybrid');
@@ -157,6 +162,18 @@ describe('api contract regression', () => {
       params: { reason: 'test' },
       timeout: 60000,
     });
+  });
+
+  it('uses extended timeout for vitality cleanup confirmation', async () => {
+    mockApi.post.mockResolvedValue({ data: { deleted: 12 } });
+
+    await confirmVitalityCleanup({ confirmation_phrase: 'DELETE 12', candidate_ids: [1, 2] });
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/maintenance/vitality/cleanup/confirm',
+      { confirmation_phrase: 'DELETE 12', candidate_ids: [1, 2] },
+      { timeout: 60000 }
+    );
   });
 
   it('routes orphan maintenance APIs through unified client', async () => {

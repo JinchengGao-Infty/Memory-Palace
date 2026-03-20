@@ -143,6 +143,15 @@ if [[ -z "$(normalize_database_url "${DATABASE_URL:-}")" && ! -f "${ENV_FILE}" ]
   fi
   export DATABASE_URL="sqlite+aiosqlite:////${DEFAULT_DB_PATH#/}"
 fi
-export RETRIEVAL_REMOTE_TIMEOUT_SEC="${RETRIEVAL_REMOTE_TIMEOUT_SEC:-8}"
+
+runtime_remote_timeout="$(normalize_database_url "${RETRIEVAL_REMOTE_TIMEOUT_SEC:-}")"
+if [[ -z "${runtime_remote_timeout}" && -f "${ENV_FILE}" ]]; then
+  runtime_remote_timeout="$(normalize_database_url "$(read_env_value "${ENV_FILE}" "RETRIEVAL_REMOTE_TIMEOUT_SEC")")"
+fi
+if [[ -n "${runtime_remote_timeout}" ]]; then
+  export RETRIEVAL_REMOTE_TIMEOUT_SEC="${runtime_remote_timeout}"
+else
+  export RETRIEVAL_REMOTE_TIMEOUT_SEC="8"
+fi
 
 exec "${VENV_PYTHON}" mcp_server.py

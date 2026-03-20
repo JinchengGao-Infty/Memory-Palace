@@ -91,6 +91,16 @@ def build_runtime_env() -> dict[str, str]:
         if effective_database_url:
             runtime_env["DATABASE_URL"] = effective_database_url
 
+    runtime_remote_timeout = str(
+        runtime_env.get("RETRIEVAL_REMOTE_TIMEOUT_SEC", "")
+    ).strip()
+    if not runtime_remote_timeout and ENV_FILE.is_file():
+        runtime_remote_timeout = normalize_database_url(
+            read_env_value(ENV_FILE, "RETRIEVAL_REMOTE_TIMEOUT_SEC")
+        )
+        if runtime_remote_timeout:
+            runtime_env["RETRIEVAL_REMOTE_TIMEOUT_SEC"] = runtime_remote_timeout
+
     if is_docker_internal_database_url(effective_database_url):
         print(
             "Refusing to start repo-local stdio MCP with Docker-internal DATABASE_URL: "
@@ -136,7 +146,9 @@ def build_runtime_env() -> dict[str, str]:
             raise SystemExit(1)
         runtime_env["DATABASE_URL"] = sqlite_database_url(DEFAULT_DB_PATH)
 
-    runtime_env.setdefault("RETRIEVAL_REMOTE_TIMEOUT_SEC", "8")
+    runtime_env["RETRIEVAL_REMOTE_TIMEOUT_SEC"] = (
+        runtime_remote_timeout or "8"
+    )
     runtime_env.setdefault("PYTHONIOENCODING", "utf-8")
     runtime_env.setdefault("PYTHONUTF8", "1")
     return runtime_env

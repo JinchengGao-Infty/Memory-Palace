@@ -71,3 +71,20 @@ async def test_session_search_cache_prunes_stale_sessions_before_capacity_evicti
 
     summary = await cache.summary()
     assert summary["session_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_session_search_cache_accepts_naive_updated_at_strings_from_db() -> None:
+    cache = SessionSearchCache()
+
+    await cache.record_hit(
+        session_id="session-a",
+        uri="core://naive-ts",
+        memory_id=1,
+        snippet="release checklist",
+        updated_at="2026-03-20T08:00:00",
+    )
+
+    results = await cache.search(session_id="session-a", query="release", limit=5)
+
+    assert [item["uri"] for item in results] == ["core://naive-ts"]

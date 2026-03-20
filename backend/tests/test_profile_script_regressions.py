@@ -132,6 +132,48 @@ def test_repo_local_stdio_wrapper_resolves_real_project_root_through_symlink(
     assert result.stdout == str(project_root / "backend")
 
 
+def test_repo_local_stdio_wrapper_prefers_env_file_remote_timeout_when_runtime_env_absent(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "repo"
+    script_path = project_root / "scripts" / "run_memory_palace_mcp_stdio.sh"
+    backend_python = project_root / "backend" / ".venv" / "bin" / "python"
+
+    _copy_script(PROJECT_ROOT / "scripts" / "run_memory_palace_mcp_stdio.sh", script_path)
+    backend_python.parent.mkdir(parents=True, exist_ok=True)
+    backend_python.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "if [[ \"${1:-}\" == \"-\" ]]; then",
+                "  exec python3 \"$@\"",
+                "fi",
+                "printf '%s' \"${RETRIEVAL_REMOTE_TIMEOUT_SEC:-missing}\"",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    backend_python.chmod(0o755)
+
+    (project_root / ".env").write_text(
+        "RETRIEVAL_REMOTE_TIMEOUT_SEC=30\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        env={key: value for key, value in os.environ.items() if key != "RETRIEVAL_REMOTE_TIMEOUT_SEC"},
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "30"
+
+
 def test_apply_profile_powershell_declares_utf8_no_bom_and_placeholder_guard() -> None:
     script_text = (
         PROJECT_ROOT / "scripts" / "apply_profile.ps1"

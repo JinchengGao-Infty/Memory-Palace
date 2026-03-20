@@ -247,7 +247,7 @@ The frontend does not read maintenance keys from `VITE_*` build variables; it us
 >
 > In plain English: the frontend makes authentication "runtime-decided," so you can either fill in the key directly at the top of the page or have it injected by a deployment script before the page loads.
 >
-> The extra value of `run_memory_palace_mcp_stdio.sh` is not that `mcp_server.py` would otherwise "randomly pick the wrong database" by itself. Its value is that it gives CLI/client configs a safer default entry: prefer the repository `.env` / `DATABASE_URL`; only when the checkout has neither a local `.env` nor an `.env.docker` file does it fall back to the repo's default SQLite path. If `.env.docker` exists without `.env`, the wrapper now refuses that `demo.db` fallback explicitly so local stdio traffic does not get mixed up with Docker container data; if `.env` or an explicit `DATABASE_URL` still points to `/app/...` or `/data/...`, it also refuses to start.
+> The extra value of `run_memory_palace_mcp_stdio.sh` is not that `mcp_server.py` would otherwise "randomly pick the wrong database" by itself. Its value is that it gives CLI/client configs a safer default entry: prefer the repository `.env` / `DATABASE_URL`; if `.env` already sets `RETRIEVAL_REMOTE_TIMEOUT_SEC`, it also keeps using that value; only when the checkout has neither a local `.env` nor an `.env.docker` file does it fall back to the repo's default SQLite path. If `.env.docker` exists without `.env`, the wrapper now refuses that `demo.db` fallback explicitly so local stdio traffic does not get mixed up with Docker container data; if `.env` or an explicit `DATABASE_URL` still points to `/app/...` or `/data/...`, it also refuses to start.
 
 > Docker one-click deployment uses a third way: it doesn't inject the key into the page but automatically forwards it at the frontend proxy layer.
 
@@ -257,11 +257,11 @@ The frontend does not read maintenance keys from `VITE_*` build variables; it us
 
 ### Write Path
 
-1. `create_memory` / `update_memory` enters the **write lane** (serialized write operations).
+1. `create_memory` / `update_memory` enters the **write lane** (serialized write operations; transient SQLite lock conflicts get a small bounded retry first).
 2. Executes **write_guard** determination before writing (core decisions: `ADD` / `UPDATE` / `NOOP` / `DELETE`; `BYPASS` is a process marker for upper-layer metadata-only updates).
    - write_guard supports a three-level determination chain: semantic matching → keyword matching → LLM decision (optional).
-3. Generates **snapshot** and version changes (recorded separately by `path` and `memory` dimensions; both MCP writes and Dashboard `/browse/node` writes follow the same semantics).
-4. Enqueues **index task** (returns `index_dropped` / `queue_full` if queue is full).
+3. Generates **snapshot** and version changes (recorded separately by `path` and `memory` dimensions; both MCP writes and Dashboard `/browse/node` writes follow the same semantics; same-session snapshot writes are now serialized through a file lock).
+4. Enqueues **index task** (returns `index_dropped` / `queue_full` if queue is full; DB-writing index jobs now also pass through the same write lane instead of racing the foreground write path).
 
 ### Retrieval Path
 
@@ -311,7 +311,7 @@ Related files:
 
 - Compose file: `docker-compose.yml`
 - Image definition: `deploy/docker/Dockerfile.backend` (based on `python:3.11-slim`), `deploy/docker/Dockerfile.frontend` (build stage `node:22-alpine`, run stage `nginxinc/nginx-unprivileged:1.27-alpine`)
-- Nginx configuration template: `deploy/docker/nginx.conf.template` (server-side forwarding for `X-MCP-API-Key`, plus `no-store/no-cache/must-revalidate` on `/index.html` to reduce stale entry pages after frontend updates)
+- Nginx configuration template: `deploy/docker/nginx.conf.template` (server-side forwarding for `X-MCP-API-Key`, plus `no-store/no-cache/must-revalidate` on `/index.html` to reduce stale entry pages after frontend updates; the frontend entrypoint escapes special characters in the proxy-held key before generating the final Nginx config)
 - Entrypoint scripts: `deploy/docker/backend-entrypoint.sh`, `deploy/docker/frontend-entrypoint.sh`
 - Backup scripts: `scripts/backup_memory.sh`, `scripts/backup_memory.ps1`
 - Pre-publishing check: `scripts/pre_publish_check.sh`

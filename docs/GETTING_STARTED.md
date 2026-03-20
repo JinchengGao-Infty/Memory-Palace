@@ -129,6 +129,7 @@ bash scripts/apply_profile.sh macos b
 | `RETRIEVAL_RERANKER_API_BASE` | Reranker API 地址 | 空 |
 | `RETRIEVAL_RERANKER_API_KEY` | Reranker API 密钥 | 空 |
 | `RETRIEVAL_RERANKER_MODEL` | Reranker 模型名 | `your-reranker-model-id` |
+| `RETRIEVAL_REMOTE_TIMEOUT_SEC` | 远程 embedding / reranker / LLM 请求超时（秒） | `8` |
 | `INTENT_LLM_ENABLED` | 实验性意图 LLM 开关 | `false` |
 | `RETRIEVAL_MMR_ENABLED` | hybrid 检索下的去重 / 多样性重排 | `false` |
 | `RETRIEVAL_SQLITE_VEC_ENABLED` | sqlite-vec rollout 开关 | `false` |
@@ -144,6 +145,8 @@ bash scripts/apply_profile.sh macos b
 > 上表展示的是 `.env.example` 里的模板示例值；如果某些检索环境变量在运行时完全缺失，后端内部还会使用自己的回退值（例如 `hash` / `hash-v1` / `64`）。
 >
 > 配置语义说明：`RETRIEVAL_EMBEDDING_BACKEND` 只作用于 Embedding。Reranker 不存在 `RETRIEVAL_RERANKER_BACKEND` 开关，优先读取 `RETRIEVAL_RERANKER_*`，缺失时才回退 `ROUTER_*`（最后回退 `OPENAI_*` 的 base/key）。
+>
+> 对 repo-local `stdio` / `python-wrapper` 来说，`RETRIEVAL_REMOTE_TIMEOUT_SEC` 现在也会继续复用当前仓库 `.env` 里的值；如果你没写，repo-local 本地默认仍是 `8` 秒。
 >
 > 更多高级选项（如 `INTENT_LLM_*`、`RETRIEVAL_MMR_*`、`RETRIEVAL_SQLITE_VEC_*`、`CORS_ALLOW_*`、运行时观测/睡眠整合开关）已写在 `.env.example`，默认保持保守值，不影响最小启动路径。
 >
@@ -525,7 +528,7 @@ python mcp_server.py
 > - 原生 Windows：`python backend/mcp_wrapper.py`
 > - macOS / Linux / Git Bash / WSL：`bash scripts/run_memory_palace_mcp_stdio.sh`
 >
-> 这两条 repo-local wrapper 的边界保持一致：都依赖本地 `backend/.venv`，优先复用当前仓库的 `.env` / `DATABASE_URL`；只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` / 显式 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`，或你自己改成 `/data/...` 的变体），它们都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。
+> 这两条 repo-local wrapper 的边界保持一致：都依赖本地 `backend/.venv`，优先复用当前仓库的 `.env` / `DATABASE_URL`；如果 `.env` 里已经设置了 `RETRIEVAL_REMOTE_TIMEOUT_SEC`，它们也会继续复用这个值；没设置时 repo-local 默认仍是 `8` 秒。只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` / 显式 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`，或你自己改成 `/data/...` 的变体），它们都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。
 
 ### 6.2 SSE 模式
 

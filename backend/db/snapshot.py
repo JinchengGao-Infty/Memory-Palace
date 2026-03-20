@@ -31,6 +31,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from urllib.parse import unquote
+from filelock import FileLock, Timeout as FileLockTimeout
 
 
 # Default snapshot directory (relative to workspace root)
@@ -40,9 +41,7 @@ DEFAULT_SNAPSHOT_DIR = os.path.join(
 )
 
 _SQLITE_URL_PREFIXES = ("sqlite+aiosqlite:///", "sqlite:///")
-_SESSION_LOCK_STALE_SECONDS = 1.0
 _SESSION_LOCK_WAIT_SECONDS = 5.0
-_SESSION_LOCK_POLL_INTERVAL_SECONDS = 0.05
 
 
 def _resolve_current_database_scope() -> Dict[str, str]:
@@ -211,10 +210,10 @@ class SnapshotManager:
         safe_id = self._sanitize_resource_id(resource_id)
         return os.path.join(self._get_resources_dir(session_id), f"{safe_id}.json")
 
-    def _get_session_lock_dir(self, session_id: str) -> str:
+    def _get_session_lock_path(self, session_id: str) -> str:
         """Store per-session write locks outside the session tree."""
         safe_session_id = self._validate_session_id(session_id)
-        return os.path.join(self.snapshot_dir, ".locks", f"{safe_session_id}.lockdir")
+        return os.path.join(self.snapshot_dir, ".locks", f"{safe_session_id}.lock")
 
     @staticmethod
     def _pid_is_alive(pid: int) -> bool:
@@ -249,51 +248,17 @@ class SnapshotManager:
     def _session_write_lock(self, session_id: str):
         """Serialize write paths for one session across processes."""
         self._ensure_dir_exists(os.path.join(self.snapshot_dir, ".locks"))
-        lock_dir = self._get_session_lock_dir(session_id)
-        owner_file = os.path.join(lock_dir, "owner_pid")
-        deadline = time.monotonic() + _SESSION_LOCK_WAIT_SECONDS
-
-        while True:
-            try:
-                os.mkdir(lock_dir)
-                with open(owner_file, "w", encoding="utf-8") as handle:
-                    handle.write(f"{os.getpid()}\n")
-                break
-            except FileExistsError:
-                owner_pid = ""
-                try:
-                    with open(owner_file, "r", encoding="utf-8") as handle:
-                        owner_pid = handle.read().strip()
-                except FileNotFoundError:
-                    owner_pid = ""
-
-                should_reclaim = False
-                if owner_pid:
-                    try:
-                        should_reclaim = not self._pid_is_alive(int(owner_pid))
-                    except ValueError:
-                        should_reclaim = True
-                else:
-                    try:
-                        should_reclaim = (
-                            time.time() - os.path.getmtime(lock_dir)
-                        ) >= _SESSION_LOCK_STALE_SECONDS
-                    except OSError:
-                        should_reclaim = True
-
-                if should_reclaim:
-                    _force_remove(lock_dir)
-                    continue
-                if time.monotonic() >= deadline:
-                    raise TimeoutError(
-                        f"Timed out waiting for snapshot session lock: {session_id}"
-                    )
-                time.sleep(_SESSION_LOCK_POLL_INTERVAL_SECONDS)
-
+        lock = FileLock(
+            self._get_session_lock_path(session_id),
+            timeout=_SESSION_LOCK_WAIT_SECONDS,
+        )
         try:
-            yield
-        finally:
-            _force_remove(lock_dir)
+            with lock:
+                yield
+        except FileLockTimeout as exc:
+            raise TimeoutError(
+                f"Timed out waiting for snapshot session lock: {session_id}"
+            ) from exc
     
     def _load_manifest(self, session_id: str) -> Dict[str, Any]:
         """Load or create session manifest."""
