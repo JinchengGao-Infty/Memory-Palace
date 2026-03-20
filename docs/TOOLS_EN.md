@@ -305,7 +305,8 @@ search_memory(
     candidate_multiplier: Optional[int] = None,  # Optional: Candidate pool multiplier
     include_session: Optional[bool] = None,      # Optional: Whether to include current session memories
     filters: Optional[Dict] = None,              # Optional: Filter conditions
-    scope_hint: Optional[str] = None             # Optional: Query-side scope hint (domain/path_prefix/URI prefix)
+    scope_hint: Optional[str] = None,            # Optional: Query-side scope hint (domain/path_prefix/URI prefix)
+    verbose: Optional[bool] = True               # Optional: Whether to return full debug metadata
 )
 ```
 
@@ -339,6 +340,11 @@ search_memory(
 | `results` | List of search results; the returned order now matches the exposed `results[].score` field |
 | `results[].score` | The visible ranking score; `results` are returned in descending order of this field by default |
 | `degrade_reasons` | Degradation reasons (if any) |
+
+**Practical Note:**
+
+- The default is `verbose=true`, which keeps debug-heavy fields such as `query_preprocess`, `intent_profile`, `session_first_metrics`, and `backend_metadata`
+- If you only care about the final results, scores, and degrade reasons, pass `verbose=false` to keep the response shorter and more MCP-context-friendly
 
 **Usage Examples:**
 
@@ -391,6 +397,7 @@ compact_context(
 - In the current verified path, both repo-local stdio and Docker `/sse` can persist `llm_gist` end-to-end
 - If the remote chat path times out or is unavailable, `compact_context` degrades to the next fallback instead of pretending the LLM step succeeded
 - Normal backend / SSE / repo-local stdio shutdown paths now also do one best-effort drain for pending auto-flush summaries; if write_guard blocks that write, or the drain fails during shutdown, the system skips it instead of forcing a dirty last-minute write
+- Same-session flushes now also take a database-file-backed per-session process lock; if another local process is already compacting that session, the current call returns `already_in_progress`
 
 **Response Fields:**
 

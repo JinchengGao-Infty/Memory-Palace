@@ -214,10 +214,15 @@ class MigrationRunner:
     def _normalized_checksum(content: bytes) -> str:
         """
         Cross-platform checksum:
-        normalize line endings so CRLF/LF checkout differences do not break boot.
+        normalize BOM and line endings so editor/checkout differences do not break boot.
         """
         try:
-            normalized = content.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+            normalized = (
+                content.decode("utf-8")
+                .lstrip("\ufeff")
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+            )
             payload = normalized.encode("utf-8")
         except UnicodeDecodeError:
             payload = content

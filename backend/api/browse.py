@@ -32,6 +32,7 @@ _BROWSE_CONTENT_MAX_CHARS = max(
     1,
     int(os.getenv("BROWSE_CONTENT_MAX_CHARS", str(1024 * 1024)) or (1024 * 1024)),
 )
+_BROWSE_PATH_MAX_CHARS = 512
 
 
 class NodeUpdate(BaseModel):
@@ -150,6 +151,19 @@ async def _run_write_lane(operation: str, task):
 
 def _make_uri(domain: str, path: str) -> str:
     return f"{domain}://{path.strip('/')}" if path else f"{domain}://"
+
+
+def _validate_path_length_or_422(path: str, *, label: str) -> str:
+    normalized = str(path or "").strip().strip("/")
+    if len(normalized) > _BROWSE_PATH_MAX_CHARS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"{label} is too long ({len(normalized)} chars). "
+                f"Max allowed path length is {_BROWSE_PATH_MAX_CHARS}."
+            ),
+        )
+    return normalized
 
 
 def _parse_uri(uri: str) -> tuple[str, str]:
@@ -407,10 +421,23 @@ async def create_node(
     """
     Create a new node under a parent path.
     """
-    client = get_sqlite_client()
-    parent_path = body.parent_path.strip().strip("/")
+    parent_path = _validate_path_length_or_422(body.parent_path, label="parent_path")
     domain = _ensure_writable_domain_or_422(body.domain, operation="create_node")
     title = (body.title or "").strip() or None
+    if title:
+        candidate_path = f"{parent_path}/{title}" if parent_path else title
+        _validate_path_length_or_422(candidate_path, label="resulting path")
+    elif parent_path and len(parent_path) >= (_BROWSE_PATH_MAX_CHARS - 1):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"resulting path is too long. "
+                f"Cannot create a child under a {len(parent_path)}-char parent path "
+                f"when max allowed path length is {_BROWSE_PATH_MAX_CHARS}."
+            ),
+        )
+
+    client = get_sqlite_client()
 
     async def _write_task():
         try:

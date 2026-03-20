@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional
 
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from api import browse as browse_api
@@ -235,6 +236,30 @@ def test_browse_node_models_reject_oversized_content() -> None:
 
     with pytest.raises(ValidationError):
         browse_api.NodeUpdate(content=oversized_content)
+
+
+@pytest.mark.asyncio
+async def test_browse_create_node_rejects_overlong_resulting_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _NoWriteClient:
+        async def write_guard(self, **_kwargs):
+            raise AssertionError("write_guard should not run for invalid path length")
+
+    monkeypatch.setattr(browse_api, "get_sqlite_client", lambda: _NoWriteClient())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await browse_api.create_node(
+            browse_api.NodeCreate(
+                parent_path="a" * browse_api._BROWSE_PATH_MAX_CHARS,
+                title="child",
+                content="payload",
+                domain="core",
+            )
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "resulting path is too long" in str(exc_info.value.detail)
 
 
 @pytest.mark.asyncio

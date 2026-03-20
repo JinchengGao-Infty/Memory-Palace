@@ -74,6 +74,8 @@
 
 正常的 backend、SSE、repo-local stdio 退出路径上，`compact_context` / auto-flush 这类 pending summary 现在还会做一次 **best-effort drain**。说人话就是：如果进程准备正常退出，系统会先尽量把还没落盘的 flush summary 补写成记忆；如果这一步失败，就跳过，不会为了“硬写进去”再冒额外风险。
 
+同一条 session 的 `compact_context` / auto-flush flush 现在还会额外走一层基于数据库文件的 session 级进程锁。说人话就是：如果两个本地进程或 worker 同时想把同一个 session 压缩成摘要，后来的那个会直接拿到 `already_in_progress`，而不是继续和前一个抢着写。
+
 现在 SQLite 的短暂锁冲突也会做一次小范围重试，后台索引任务写库时也会经过同一条全局 write lane。说人话就是：前台写入和异步重建在本地多进程压力下更不容易互相撞上。
 
 ### 🔍 统一检索引擎

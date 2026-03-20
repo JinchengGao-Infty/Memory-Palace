@@ -1,6 +1,11 @@
 import asyncio
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
+import textwrap
+import time
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -115,6 +120,41 @@ async def _run_write_inline(_operation: str, task):
     return await task()
 
 
+def _spawn_compact_context_worker(
+    *, backend_dir: Path, script_path: Path, db_path: Path, hold_seconds: float
+) -> subprocess.Popen[str]:
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path}"
+    env["RUNTIME_AUTO_FLUSH_PROCESS_LOCK_TIMEOUT_SEC"] = "1"
+    existing_pythonpath = str(env.get("PYTHONPATH") or "").strip()
+    env["PYTHONPATH"] = (
+        f"{backend_dir}{os.pathsep}{existing_pythonpath}"
+        if existing_pythonpath
+        else str(backend_dir)
+    )
+    return subprocess.Popen(
+        [sys.executable, str(script_path), str(hold_seconds)],
+        cwd=str(backend_dir),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+
+
+def _read_process_json_output(process: subprocess.Popen[str], *, timeout: float) -> Dict[str, Any]:
+    try:
+        output, _ = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        output, _ = process.communicate(timeout=5)
+        raise AssertionError(f"worker process timed out: {output}") from None
+
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    assert lines, "worker process produced no output"
+    return json.loads(lines[-1])
+
+
 @pytest.mark.asyncio
 async def test_generate_gist_prefers_extractive_bullets() -> None:
     payload = await mcp_server.generate_gist(
@@ -174,6 +214,168 @@ async def test_compact_context_returns_gist_fields_and_persists_gist(
     assert fake_client.gist_payload["source_hash"] == payload["source_hash"]
     assert "## Gist" in fake_client.created_payload["content"]
     assert "## Trace" in fake_client.created_payload["content"]
+
+
+@pytest.mark.asyncio
+async def test_compact_context_skips_when_cross_process_flush_lock_is_busy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class _BusyAsyncFileLock:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        async def __aenter__(self):
+            raise mcp_server.FileLockTimeout("busy")
+
+        async def __aexit__(self, exc_type, exc, tb):
+            _ = exc_type, exc, tb
+            return False
+
+    fake_client = _FakeCompactClient()
+    fake_tracker = _FakeFlushTracker(
+        "Session compaction notes:\n- user asked for rollback checklist\n- system generated runbook and owner map"
+    )
+
+    monkeypatch.setattr(mcp_server, "get_sqlite_client", lambda: fake_client)
+    monkeypatch.setattr(mcp_server.runtime_state, "flush_tracker", fake_tracker)
+    monkeypatch.setattr(mcp_server, "_record_session_hit", _noop_async)
+    monkeypatch.setattr(mcp_server, "_should_defer_index_on_write", _false_async)
+    monkeypatch.setattr(mcp_server, "_run_write_lane", _run_write_inline)
+    monkeypatch.setattr(mcp_server, "AsyncFileLock", _BusyAsyncFileLock)
+    monkeypatch.setenv(
+        "DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'flush-lock.db'}"
+    )
+    mcp_server._AUTO_FLUSH_IN_PROGRESS.clear()
+
+    raw = await mcp_server.compact_context(reason="unit_test", force=True, max_lines=5)
+    payload = json.loads(raw)
+
+    assert payload["ok"] is True
+    assert payload["flushed"] is False
+    assert payload["reason"] == "already_in_progress"
+    assert fake_client.created_payload == {}
+    assert fake_tracker.marked is False
+
+
+def test_compact_context_cross_process_lock_blocks_duplicate_flush(tmp_path: Path) -> None:
+    backend_dir = Path(__file__).resolve().parents[1]
+    worker_script = tmp_path / "compact_context_worker.py"
+    worker_script.write_text(
+        textwrap.dedent(
+            """
+            import asyncio
+            import json
+            import sys
+
+            import mcp_server
+
+            HOLD_SECONDS = float(sys.argv[1])
+
+
+            class _FakeFlushTracker:
+                async def should_flush(self, *, session_id=None):
+                    _ = session_id
+                    return True
+
+                async def build_summary(self, *, session_id=None, limit=12):
+                    _ = session_id, limit
+                    if HOLD_SECONDS > 0:
+                        await asyncio.sleep(HOLD_SECONDS)
+                    return "Session compaction notes:\\n- process lock integration test"
+
+                async def mark_flushed(self, *, session_id=None):
+                    _ = session_id
+                    return None
+
+                async def pending_session_ids(self):
+                    return ["shared-process-lock"]
+
+
+            class _FakeClient:
+                async def write_guard(self, **_kwargs):
+                    return {"action": "ADD", "method": "keyword", "reason": "ok"}
+
+                async def create_memory(self, **kwargs):
+                    return {
+                        "id": 41,
+                        "domain": kwargs.get("domain", "notes"),
+                        "path": "auto_flush_1",
+                        "uri": "notes://auto_flush_1",
+                        "index_targets": [41],
+                    }
+
+                async def upsert_memory_gist(self, **_kwargs):
+                    return {"ok": True}
+
+
+            async def _noop_async(*_args, **_kwargs):
+                return None
+
+
+            async def _false_async(*_args, **_kwargs):
+                return False
+
+
+            async def _run_write_inline(_operation, task):
+                return await task()
+
+
+            async def _main():
+                mcp_server.runtime_state.flush_tracker = _FakeFlushTracker()
+                mcp_server.runtime_state.promotion_tracker.record_event = _noop_async
+                mcp_server.get_sqlite_client = lambda: _FakeClient()
+                mcp_server._record_session_hit = _noop_async
+                mcp_server._record_flush_event = _noop_async
+                mcp_server._should_defer_index_on_write = _false_async
+                mcp_server._run_write_lane = _run_write_inline
+                mcp_server.get_session_id = lambda: "shared-process-lock"
+                mcp_server._AUTO_FLUSH_IN_PROGRESS.clear()
+                raw = await mcp_server.compact_context(
+                    reason="integration_test",
+                    force=True,
+                    max_lines=5,
+                )
+                print(raw)
+
+
+            asyncio.run(_main())
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    db_path = tmp_path / "compact-process-lock.db"
+    first = _spawn_compact_context_worker(
+        backend_dir=backend_dir,
+        script_path=worker_script,
+        db_path=db_path,
+        hold_seconds=2.0,
+    )
+    try:
+        time.sleep(0.2)
+        second = _spawn_compact_context_worker(
+            backend_dir=backend_dir,
+            script_path=worker_script,
+            db_path=db_path,
+            hold_seconds=0.0,
+        )
+        try:
+            second_payload = _read_process_json_output(second, timeout=5)
+        finally:
+            if second.poll() is None:
+                second.kill()
+                second.communicate(timeout=5)
+        first_payload = _read_process_json_output(first, timeout=6)
+    finally:
+        if first.poll() is None:
+            first.kill()
+            first.communicate(timeout=5)
+
+    assert first_payload["ok"] is True
+    assert first_payload["flushed"] is True
+    assert second_payload["ok"] is True
+    assert second_payload["flushed"] is False
+    assert second_payload["reason"] == "already_in_progress"
 
 
 @pytest.mark.asyncio

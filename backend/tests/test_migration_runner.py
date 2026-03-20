@@ -119,6 +119,31 @@ async def test_migration_runner_detects_checksum_mismatch(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_migration_runner_treats_utf8_bom_as_same_checksum(tmp_path: Path) -> None:
+    db_path = tmp_path / "memory.db"
+    _create_legacy_memories_table(db_path)
+
+    migrations_dir = tmp_path / "migrations"
+    migrations_dir.mkdir(parents=True, exist_ok=True)
+    migration_file = migrations_dir / "0001_test.sql"
+    migration_file.write_bytes(
+        b"\xef\xbb\xbfCREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY);"
+    )
+
+    runner = MigrationRunner(_sqlite_url(db_path), migrations_dir=migrations_dir)
+    first_applied = await runner.apply_pending()
+
+    migration_file.write_text(
+        "CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY);",
+        encoding="utf-8",
+    )
+    second_applied = await runner.apply_pending()
+
+    assert first_applied == ["0001"]
+    assert second_applied == []
+
+
+@pytest.mark.asyncio
 async def test_sqlite_client_init_db_applies_project_migrations(tmp_path: Path) -> None:
     db_path = tmp_path / "legacy.db"
     _create_legacy_memories_table(db_path)

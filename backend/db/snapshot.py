@@ -138,6 +138,11 @@ class SnapshotManager:
     Each session (typically one agent task/conversation) has its own snapshot space.
     Within a session, each resource gets at most ONE snapshot - the state before
     the first modification.
+
+    Concurrency note:
+    snapshot JSON writes rely on per-session file locks plus atomic file replace.
+    Database rollback correctness still depends on the SQLite/runtime write
+    serialization guarantees provided by the rest of the backend.
     """
     
     def __init__(self, snapshot_dir: Optional[str] = None):

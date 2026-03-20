@@ -97,6 +97,8 @@ This is where you create new memories.
 
 > **What is "Disclosure"?** Think of it as a visibility rule you write in plain language. It tells the system under what conditions this memory should be shown to the AI. For example, if you store a sensitive preference, you might write "only surface when the user asks about preferences." If you're unsure, just leave it blank.
 
+> One practical boundary is worth remembering: the system also validates the final path length. If `parent path + title` is too long, the create request fails before the write starts. The easiest fix is usually to shorten the title or step back to a higher parent and create it there.
+
 #### ✅ Step-by-Step: Creating a Memory
 
 1. Paste your dialogue into the **Conversation** text area

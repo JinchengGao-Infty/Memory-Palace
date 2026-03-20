@@ -305,7 +305,8 @@ search_memory(
     candidate_multiplier: Optional[int] = None,  # 可选，候选池倍率
     include_session: Optional[bool] = None,      # 可选，是否包含本会话记忆
     filters: Optional[Dict] = None,              # 可选，过滤条件
-    scope_hint: Optional[str] = None             # 可选，查询侧作用域提示（domain/path_prefix/URI 前缀）
+    scope_hint: Optional[str] = None,            # 可选，查询侧作用域提示（domain/path_prefix/URI 前缀）
+    verbose: Optional[bool] = True               # 可选，是否返回完整调试元数据
 )
 ```
 
@@ -339,6 +340,11 @@ search_memory(
 | `results` | 搜索结果列表；当前返回顺序会和对外暴露的 `results[].score` 保持一致 |
 | `results[].score` | 当前对外可见的排序分数；`results` 默认按这个字段降序返回 |
 | `degrade_reasons` | 降级原因（如有） |
+
+**实用说明：**
+
+- 默认 `verbose=true`，会带上 `query_preprocess`、`intent_profile`、`session_first_metrics`、`backend_metadata` 这类调试信息
+- 如果你只关心结果、分数和降级原因，可以传 `verbose=false`，这样返回更短，更适合 MCP 上下文窗口
 
 **使用示例：**
 
@@ -391,6 +397,7 @@ compact_context(
 - 按当前验证链路，repo-local stdio 和 Docker `/sse` 都能把 `llm_gist` 真正落到持久化结果里
 - 如果远程 chat 路径超时或不可用，`compact_context` 会继续按后续 fallback 降级，不会假装 LLM 已经成功
 - 正常的 backend / SSE / repo-local stdio 退出路径上，系统现在还会对 pending auto-flush summary 做一次 best-effort drain；如果写入被 write_guard 拦住，或退出前这一步失败，它会跳过而不是强行写脏数据
+- 同一条 session 的 flush 现在还会额外走一层基于数据库文件的 session 级进程锁；如果另一个本地进程已经在压缩这条 session，当前调用会直接返回 `already_in_progress`
 
 **响应字段：**
 

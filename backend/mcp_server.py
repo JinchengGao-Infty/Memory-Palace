@@ -20,9 +20,13 @@ import uuid
 import json
 import inspect
 import hashlib
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import unquote
 from dotenv import load_dotenv
+from filelock import AsyncFileLock, Timeout as FileLockTimeout
 
 # Ensure we can import from backend modules
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -175,6 +179,9 @@ AUTO_FLUSH_ENABLED = _env_bool("RUNTIME_AUTO_FLUSH_ENABLED", True)
 AUTO_FLUSH_PRIORITY = _env_int("RUNTIME_AUTO_FLUSH_PRIORITY", 2, minimum=0)
 AUTO_FLUSH_SUMMARY_LINES = _env_int("RUNTIME_AUTO_FLUSH_SUMMARY_LINES", 12, minimum=3)
 AUTO_FLUSH_PARENT_URI = os.getenv("RUNTIME_AUTO_FLUSH_PARENT_URI", "notes://").strip() or "notes://"
+AUTO_FLUSH_PROCESS_LOCK_TIMEOUT_SEC = _env_int(
+    "RUNTIME_AUTO_FLUSH_PROCESS_LOCK_TIMEOUT_SEC", 15, minimum=1
+)
 INDEX_LITE_ENABLED = _env_bool("INDEX_LITE_ENABLED", False)
 AUDIT_VERBOSE = _env_bool("AUDIT_VERBOSE", False)
 INTENT_LLM_ENABLED = _env_bool("INTENT_LLM_ENABLED", False)
@@ -1371,6 +1378,55 @@ async def _ensure_parent_path_exists(
 _AUTO_FLUSH_IN_PROGRESS: set[str] = set()
 
 
+class _FlushSessionProcessLockTimeout(Exception):
+    """Raised when another worker already holds the same flush session lock."""
+
+
+def _extract_sqlite_file_path(database_url: Optional[str]) -> Optional[Path]:
+    prefix = "sqlite+aiosqlite:///"
+    if not isinstance(database_url, str) or not database_url.startswith(prefix):
+        return None
+    raw_path = database_url[len(prefix) :].split("?", 1)[0].split("#", 1)[0]
+    raw_path = unquote(raw_path)
+    if not raw_path or raw_path == ":memory:" or raw_path.startswith("file::memory:"):
+        return None
+    return Path(raw_path)
+
+
+def _resolve_flush_session_lock_path(client: Any, session_id: str) -> Optional[Path]:
+    database_file = getattr(client, "_database_file", None)
+    if database_file is None:
+        database_file = _extract_sqlite_file_path(
+            getattr(client, "database_url", None) or os.getenv("DATABASE_URL")
+        )
+    if database_file is None:
+        return None
+
+    base_path = Path(str(database_file))
+    session_hash = hashlib.sha256(str(session_id).encode("utf-8")).hexdigest()[:16]
+    if base_path.suffix:
+        return base_path.with_suffix(f"{base_path.suffix}.flush.{session_hash}.lock")
+    return Path(f"{base_path}.flush.{session_hash}.lock")
+
+
+@asynccontextmanager
+async def _flush_session_process_lock(*, client: Any, session_id: str):
+    lock_path = _resolve_flush_session_lock_path(client, session_id)
+    if lock_path is None:
+        yield
+        return
+
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock = AsyncFileLock(
+        str(lock_path), timeout=AUTO_FLUSH_PROCESS_LOCK_TIMEOUT_SEC
+    )
+    try:
+        async with lock:
+            yield
+    except FileLockTimeout as exc:
+        raise _FlushSessionProcessLockTimeout(str(session_id)) from exc
+
+
 def _build_source_hash(source: str) -> str:
     payload = (source or "").encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
@@ -1502,96 +1558,196 @@ async def _flush_session_summary_to_memory(
     defer_index_override: Optional[bool] = None,
 ) -> Dict[str, Any]:
     session_id = str(session_id_override or "").strip() or get_session_id()
-    should_flush = force or await runtime_state.flush_tracker.should_flush(
-        session_id=session_id
-    )
-    if not should_flush:
-        return {"flushed": False, "reason": "threshold_not_reached"}
-
-    summary = await runtime_state.flush_tracker.build_summary(
-        session_id=session_id, limit=max(1, max_lines)
-    )
-    if not summary.strip():
-        return {"flushed": False, "reason": "no_pending_events"}
-
-    gist_payload = await generate_gist(summary, client=client)
-    gist_text = str(gist_payload.get("gist_text") or "").strip()
-    gist_method = str(gist_payload.get("gist_method") or "truncate_fallback")
-    quality_value = gist_payload.get("quality")
     try:
-        gist_quality = float(quality_value)
-    except (TypeError, ValueError):
-        gist_quality = 0.0
-    source_hash = _build_source_hash(summary)
-
-    domain, parent_path, _ = await _ensure_parent_path_exists(
-        client, AUTO_FLUSH_PARENT_URI
-    )
-    flush_title = f"auto_flush_{_utc_now_naive().strftime('%Y%m%d_%H%M%S')}"
-    content = (
-        f"# Runtime Session Flush\n"
-        f"- session_id: {session_id}\n"
-        f"- reason: {reason}\n"
-        f"- flushed_at: {_utc_iso_now()}\n"
-        f"- gist_method: {gist_method}\n"
-        f"- quality: {round(gist_quality, 3)}\n"
-        f"- source_hash: {source_hash}\n\n"
-        f"## Gist\n"
-        f"{gist_text or '(gist unavailable)'}\n\n"
-        f"## Trace\n"
-        f"{summary}"
-    )
-    guard_decision = _normalize_guard_decision(
-        {"action": "ADD", "method": "none", "reason": "guard_not_evaluated"}
-    )
-    try:
-        guard_decision = _normalize_guard_decision(
-            await client.write_guard(
-                content=content,
-                domain=domain,
-                path_prefix=parent_path if parent_path else None,
+        async with _flush_session_process_lock(client=client, session_id=session_id):
+            should_flush = force or await runtime_state.flush_tracker.should_flush(
+                session_id=session_id
             )
-        )
-    except Exception as guard_exc:
-        guard_decision = _normalize_guard_decision(
-            {
-                "action": "NOOP",
-                "method": "exception",
-                "reason": f"write_guard_unavailable: {guard_exc}",
-                "degraded": True,
-                "degrade_reasons": ["write_guard_exception"],
-            }
-        )
-    guard_action = str(guard_decision.get("action") or "NOOP").upper()
-    guard_blocked = guard_action != "ADD"
-    try:
-        await _record_guard_event(
-            operation="compact_context",
-            decision=guard_decision,
-            blocked=guard_blocked,
-        )
-    except Exception:
-        pass
-    if guard_blocked:
-        guard_is_degraded = bool(guard_decision.get("degraded"))
-        guard_reason = str(guard_decision.get("reason") or "")
-        guard_is_invalid = guard_reason.startswith("invalid_guard_action:")
-        if (
-            guard_action in {"NOOP", "UPDATE"}
-            and not guard_is_degraded
-            and not guard_is_invalid
-        ):
-            # Dedup/merge decisions mean this summary is already represented;
-            # clear pending events to avoid infinite flush retries.
+            if not should_flush:
+                return {"flushed": False, "reason": "threshold_not_reached"}
+
+            summary = await runtime_state.flush_tracker.build_summary(
+                session_id=session_id, limit=max(1, max_lines)
+            )
+            if not summary.strip():
+                return {"flushed": False, "reason": "no_pending_events"}
+
+            gist_payload = await generate_gist(summary, client=client)
+            gist_text = str(gist_payload.get("gist_text") or "").strip()
+            gist_method = str(gist_payload.get("gist_method") or "truncate_fallback")
+            quality_value = gist_payload.get("quality")
+            try:
+                gist_quality = float(quality_value)
+            except (TypeError, ValueError):
+                gist_quality = 0.0
+            source_hash = _build_source_hash(summary)
+
+            domain, parent_path, _ = await _ensure_parent_path_exists(
+                client, AUTO_FLUSH_PARENT_URI
+            )
+            flush_title = f"auto_flush_{_utc_now_naive().strftime('%Y%m%d_%H%M%S')}"
+            content = (
+                f"# Runtime Session Flush\n"
+                f"- session_id: {session_id}\n"
+                f"- reason: {reason}\n"
+                f"- flushed_at: {_utc_iso_now()}\n"
+                f"- gist_method: {gist_method}\n"
+                f"- quality: {round(gist_quality, 3)}\n"
+                f"- source_hash: {source_hash}\n\n"
+                f"## Gist\n"
+                f"{gist_text or '(gist unavailable)'}\n\n"
+                f"## Trace\n"
+                f"{summary}"
+            )
+            guard_decision = _normalize_guard_decision(
+                {"action": "ADD", "method": "none", "reason": "guard_not_evaluated"}
+            )
+            try:
+                guard_decision = _normalize_guard_decision(
+                    await client.write_guard(
+                        content=content,
+                        domain=domain,
+                        path_prefix=parent_path if parent_path else None,
+                    )
+                )
+            except Exception as guard_exc:
+                guard_decision = _normalize_guard_decision(
+                    {
+                        "action": "NOOP",
+                        "method": "exception",
+                        "reason": f"write_guard_unavailable: {guard_exc}",
+                        "degraded": True,
+                        "degrade_reasons": ["write_guard_exception"],
+                    }
+                )
+            guard_action = str(guard_decision.get("action") or "NOOP").upper()
+            guard_blocked = guard_action != "ADD"
+            try:
+                await _record_guard_event(
+                    operation="compact_context",
+                    decision=guard_decision,
+                    blocked=guard_blocked,
+                )
+            except Exception:
+                pass
+            if guard_blocked:
+                guard_is_degraded = bool(guard_decision.get("degraded"))
+                guard_reason = str(guard_decision.get("reason") or "")
+                guard_is_invalid = guard_reason.startswith("invalid_guard_action:")
+                if (
+                    guard_action in {"NOOP", "UPDATE"}
+                    and not guard_is_degraded
+                    and not guard_is_invalid
+                ):
+                    # Dedup/merge decisions mean this summary is already represented;
+                    # clear pending events to avoid infinite flush retries.
+                    await runtime_state.flush_tracker.mark_flushed(
+                        session_id=session_id
+                    )
+                    payload: Dict[str, Any] = {
+                        "flushed": True,
+                        "reason": "write_guard_deduped",
+                        **_guard_fields(guard_decision),
+                    }
+                    guard_target_uri = guard_decision.get("target_uri")
+                    if isinstance(guard_target_uri, str) and guard_target_uri.strip():
+                        payload["uri"] = guard_target_uri
+                    gist_degrade_reasons = gist_payload.get("degrade_reasons")
+                    if isinstance(gist_degrade_reasons, list):
+                        payload["degrade_reasons"] = [
+                            str(reason).strip()
+                            for reason in gist_degrade_reasons
+                            if isinstance(reason, str) and reason.strip()
+                        ]
+                    return payload
+
+                payload = {
+                    "flushed": False,
+                    "reason": "write_guard_blocked",
+                    **_guard_fields(guard_decision),
+                }
+                gist_degrade_reasons = gist_payload.get("degrade_reasons")
+                if isinstance(gist_degrade_reasons, list):
+                    payload["degrade_reasons"] = [
+                        str(reason).strip()
+                        for reason in gist_degrade_reasons
+                        if isinstance(reason, str) and reason.strip()
+                    ]
+                if bool(guard_decision.get("degraded")):
+                    payload["degraded"] = True
+                    degrade_reasons = guard_decision.get("degrade_reasons")
+                    if isinstance(degrade_reasons, list) and degrade_reasons:
+                        payload["degrade_reasons"] = list(
+                            dict.fromkeys(
+                                list(payload.get("degrade_reasons") or [])
+                                + [
+                                    item
+                                    for item in degrade_reasons
+                                    if isinstance(item, str) and item
+                                ]
+                            )
+                        )
+                return payload
+
+            if defer_index_override is None:
+                defer_index = await _should_defer_index_on_write()
+            else:
+                defer_index = bool(defer_index_override)
+            result = await client.create_memory(
+                parent_path=parent_path,
+                content=content,
+                priority=AUTO_FLUSH_PRIORITY,
+                title=flush_title,
+                disclosure="Runtime auto flush summary",
+                domain=domain,
+                index_now=not defer_index,
+            )
+            index_enqueue = {"queued": [], "dropped": [], "deduped": []}
+            if defer_index:
+                index_enqueue = await _enqueue_index_targets(
+                    result, reason="compact_context"
+                )
+            created_memory_id = _safe_int(result.get("id"), default=-1)
+            gist_persisted = False
+            gist_store_error: Optional[str] = None
+            upsert_gist = getattr(client, "upsert_memory_gist", None)
+            if callable(upsert_gist) and created_memory_id > 0:
+                try:
+                    await upsert_gist(
+                        memory_id=created_memory_id,
+                        gist_text=gist_text or summary,
+                        source_hash=source_hash,
+                        gist_method=gist_method,
+                        quality_score=gist_quality,
+                    )
+                    gist_persisted = True
+                except Exception as exc:
+                    gist_store_error = str(exc)
             await runtime_state.flush_tracker.mark_flushed(session_id=session_id)
-            payload: Dict[str, Any] = {
+
+            created_uri = result.get(
+                "uri", make_uri(domain, result.get("path", flush_title))
+            )
+            await _record_session_hit(
+                uri=created_uri,
+                memory_id=result.get("id"),
+                snippet=content[:300],
+                priority=AUTO_FLUSH_PRIORITY,
+                source="auto_flush",
+                updated_at=_utc_iso_now(),
+            )
+            payload = {
                 "flushed": True,
-                "reason": "write_guard_deduped",
+                "uri": created_uri,
                 **_guard_fields(guard_decision),
+                "gist_method": gist_method,
+                "quality": round(gist_quality, 3),
+                "source_hash": source_hash,
+                "gist_persisted": gist_persisted,
+                "index_queued": len(index_enqueue["queued"]),
+                "index_dropped": len(index_enqueue["dropped"]),
+                "index_deduped": len(index_enqueue["deduped"]),
             }
-            guard_target_uri = guard_decision.get("target_uri")
-            if isinstance(guard_target_uri, str) and guard_target_uri.strip():
-                payload["uri"] = guard_target_uri
             gist_degrade_reasons = gist_payload.get("degrade_reasons")
             if isinstance(gist_degrade_reasons, list):
                 payload["degrade_reasons"] = [
@@ -1599,117 +1755,33 @@ async def _flush_session_summary_to_memory(
                     for reason in gist_degrade_reasons
                     if isinstance(reason, str) and reason.strip()
                 ]
-            return payload
-
-        payload: Dict[str, Any] = {
-            "flushed": False,
-            "reason": "write_guard_blocked",
-            **_guard_fields(guard_decision),
-        }
-        gist_degrade_reasons = gist_payload.get("degrade_reasons")
-        if isinstance(gist_degrade_reasons, list):
-            payload["degrade_reasons"] = [
-                str(reason).strip()
-                for reason in gist_degrade_reasons
-                if isinstance(reason, str) and reason.strip()
-            ]
-        if bool(guard_decision.get("degraded")):
-            payload["degraded"] = True
-            degrade_reasons = guard_decision.get("degrade_reasons")
-            if isinstance(degrade_reasons, list) and degrade_reasons:
-                payload["degrade_reasons"] = list(
-                    dict.fromkeys(
-                        list(payload.get("degrade_reasons") or [])
-                        + [item for item in degrade_reasons if isinstance(item, str) and item]
-                    )
+            if gist_store_error:
+                payload["gist_store_error"] = gist_store_error
+            if index_enqueue["dropped"]:
+                degrade_reasons = payload.setdefault("degrade_reasons", [])
+                if "index_enqueue_dropped" not in degrade_reasons:
+                    degrade_reasons.append("index_enqueue_dropped")
+            try:
+                await runtime_state.promotion_tracker.record_event(
+                    session_id=session_id,
+                    source=source,
+                    trigger_reason=reason,
+                    uri=str(created_uri),
+                    memory_id=created_memory_id if created_memory_id > 0 else None,
+                    gist_method=gist_method,
+                    quality=gist_quality,
+                    degraded=bool(payload.get("degrade_reasons"))
+                    or bool(gist_store_error),
+                    degrade_reasons=payload.get("degrade_reasons"),
+                    index_queued=payload.get("index_queued", 0),
+                    index_dropped=payload.get("index_dropped", 0),
+                    index_deduped=payload.get("index_deduped", 0),
                 )
-        return payload
-    if defer_index_override is None:
-        defer_index = await _should_defer_index_on_write()
-    else:
-        defer_index = bool(defer_index_override)
-    result = await client.create_memory(
-        parent_path=parent_path,
-        content=content,
-        priority=AUTO_FLUSH_PRIORITY,
-        title=flush_title,
-        disclosure="Runtime auto flush summary",
-        domain=domain,
-        index_now=not defer_index,
-    )
-    index_enqueue = {"queued": [], "dropped": [], "deduped": []}
-    if defer_index:
-        index_enqueue = await _enqueue_index_targets(result, reason="compact_context")
-    created_memory_id = _safe_int(result.get("id"), default=-1)
-    gist_persisted = False
-    gist_store_error: Optional[str] = None
-    upsert_gist = getattr(client, "upsert_memory_gist", None)
-    if callable(upsert_gist) and created_memory_id > 0:
-        try:
-            await upsert_gist(
-                memory_id=created_memory_id,
-                gist_text=gist_text or summary,
-                source_hash=source_hash,
-                gist_method=gist_method,
-                quality_score=gist_quality,
-            )
-            gist_persisted = True
-        except Exception as exc:
-            gist_store_error = str(exc)
-    await runtime_state.flush_tracker.mark_flushed(session_id=session_id)
-
-    created_uri = result.get("uri", make_uri(domain, result.get("path", flush_title)))
-    await _record_session_hit(
-        uri=created_uri,
-        memory_id=result.get("id"),
-        snippet=content[:300],
-        priority=AUTO_FLUSH_PRIORITY,
-        source="auto_flush",
-        updated_at=_utc_iso_now(),
-    )
-    payload: Dict[str, Any] = {
-        "flushed": True,
-        "uri": created_uri,
-        **_guard_fields(guard_decision),
-        "gist_method": gist_method,
-        "quality": round(gist_quality, 3),
-        "source_hash": source_hash,
-        "gist_persisted": gist_persisted,
-        "index_queued": len(index_enqueue["queued"]),
-        "index_dropped": len(index_enqueue["dropped"]),
-        "index_deduped": len(index_enqueue["deduped"]),
-    }
-    gist_degrade_reasons = gist_payload.get("degrade_reasons")
-    if isinstance(gist_degrade_reasons, list):
-        payload["degrade_reasons"] = [
-            str(reason).strip()
-            for reason in gist_degrade_reasons
-            if isinstance(reason, str) and reason.strip()
-        ]
-    if gist_store_error:
-        payload["gist_store_error"] = gist_store_error
-    if index_enqueue["dropped"]:
-        degrade_reasons = payload.setdefault("degrade_reasons", [])
-        if "index_enqueue_dropped" not in degrade_reasons:
-            degrade_reasons.append("index_enqueue_dropped")
-    try:
-        await runtime_state.promotion_tracker.record_event(
-            session_id=session_id,
-            source=source,
-            trigger_reason=reason,
-            uri=str(created_uri),
-            memory_id=created_memory_id if created_memory_id > 0 else None,
-            gist_method=gist_method,
-            quality=gist_quality,
-            degraded=bool(payload.get("degrade_reasons")) or bool(gist_store_error),
-            degrade_reasons=payload.get("degrade_reasons"),
-            index_queued=payload.get("index_queued", 0),
-            index_dropped=payload.get("index_dropped", 0),
-            index_deduped=payload.get("index_deduped", 0),
-        )
-    except Exception:
-        pass
-    return payload
+            except Exception:
+                pass
+            return payload
+    except _FlushSessionProcessLockTimeout:
+        return {"flushed": False, "reason": "already_in_progress"}
 
 
 async def _maybe_auto_flush(client: Any, *, reason: str) -> Optional[Dict[str, Any]]:
@@ -4041,7 +4113,7 @@ async def delete_memory(uri: str) -> str:
                 snippet=f"[deleted] {_event_preview(str(memory.get('content', '')))}",
                 priority=memory.get("priority"),
                 source="delete_memory",
-                updated_at=memory.get("created_at"),
+                updated_at=_utc_iso_now(),
             )
             await _record_flush_event(f"delete {full_uri}")
             await _maybe_auto_flush(client, reason="delete_memory")
@@ -4145,6 +4217,7 @@ async def search_memory(
     include_session: Optional[bool] = None,
     filters: Optional[Dict[str, Any]] = None,
     scope_hint: Optional[str] = None,
+    verbose: Optional[bool] = True,
 ) -> str:
     """
     Search memories using keyword/semantic/hybrid retrieval.
@@ -4161,6 +4234,7 @@ async def search_memory(
             - max_priority: keep priority <= max_priority
             - updated_after: ISO datetime filter (e.g. 2026-01-31T12:00:00Z)
         scope_hint: Optional query-side scope hint (domain/path prefix/URI prefix).
+        verbose: When false, omit high-noise debug metadata fields from the response.
 
     Returns:
         Structured JSON string.
@@ -4183,6 +4257,7 @@ async def search_memory(
         query_value = query.strip()
         if not query_value:
             return _to_json({"ok": False, "error": "query must not be empty."})
+        resolved_verbose = _coerce_bool(verbose, default=True)
 
         mode_requested = (mode or DEFAULT_SEARCH_MODE).strip().lower()
         if mode_requested not in ALLOWED_SEARCH_MODES:
@@ -4531,6 +4606,24 @@ async def search_memory(
 
         if degraded_reasons:
             payload["degrade_reasons"] = list(dict.fromkeys(degraded_reasons))
+
+        if not resolved_verbose:
+            for key in (
+                "query_preprocess",
+                "intent_profile",
+                "intent_llm_enabled",
+                "intent_llm_applied",
+                "session_first_enabled",
+                "session_queue_count",
+                "global_queue_count",
+                "session_first_metrics",
+                "scope_hint_applied",
+                "scope_strategy_applied",
+                "scope_effective",
+                "scope_conflicts",
+                "backend_metadata",
+            ):
+                payload.pop(key, None)
 
         try:
             for item in final_results:

@@ -24,6 +24,19 @@ class _NoWriteClient:
         raise AssertionError("add_path should not be called for system:// writes")
 
 
+class _DeleteMemoryClient:
+    async def get_memory_by_path(self, _path: str, _domain: str):
+        return {
+            "id": 9,
+            "content": "stale memory",
+            "priority": 2,
+            "created_at": "2026-01-01T00:00:00Z",
+        }
+
+    async def remove_path(self, _path: str, _domain: str):
+        return {"ok": True}
+
+
 @pytest.mark.asyncio
 async def test_read_memory_partial_validation_errors_return_json() -> None:
     raw = await mcp_server.read_memory("core://agent/index", chunk_id=-1)
@@ -115,6 +128,35 @@ async def test_delete_memory_rejects_system_domain_writes(monkeypatch) -> None:
     raw = await mcp_server.delete_memory("system://boot")
     assert raw.startswith("Error:")
     assert "read-only" in raw
+
+
+@pytest.mark.asyncio
+async def test_delete_memory_records_deletion_time_in_session_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+
+    async def _noop_async(*_args, **_kwargs) -> None:
+        return None
+
+    async def _run_write_inline(_operation: str, task):
+        return await task()
+
+    async def _capture_session_hit(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(mcp_server, "get_sqlite_client", lambda: _DeleteMemoryClient())
+    monkeypatch.setattr(mcp_server, "_snapshot_path_delete", _noop_async)
+    monkeypatch.setattr(mcp_server, "_run_write_lane", _run_write_inline)
+    monkeypatch.setattr(mcp_server, "_record_session_hit", _capture_session_hit)
+    monkeypatch.setattr(mcp_server, "_record_flush_event", _noop_async)
+    monkeypatch.setattr(mcp_server, "_maybe_auto_flush", _noop_async)
+    monkeypatch.setattr(mcp_server, "_utc_iso_now", lambda: "2026-03-20T12:00:00Z")
+
+    raw = await mcp_server.delete_memory("core://agent/stale")
+
+    assert raw == "Success: Memory 'core://agent/stale' deleted."
+    assert captured["updated_at"] == "2026-03-20T12:00:00Z"
 
 
 @pytest.mark.asyncio

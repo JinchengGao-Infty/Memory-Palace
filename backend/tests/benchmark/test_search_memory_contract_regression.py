@@ -131,6 +131,36 @@ async def test_search_memory_contract_regression_contains_required_keys(
 
 
 @pytest.mark.asyncio
+async def test_search_memory_verbose_false_omits_heavy_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_client = _FakeSearchClient()
+    monkeypatch.setattr(mcp_server, "get_sqlite_client", lambda: fake_client)
+    monkeypatch.setattr(mcp_server, "_record_session_hit", _noop_async)
+    monkeypatch.setattr(mcp_server, "_record_flush_event", _noop_async)
+
+    raw = await mcp_server.search_memory(
+        "release plan",
+        mode="hybrid",
+        max_results=5,
+        candidate_multiplier=3,
+        include_session=False,
+        filters={"domain": "core"},
+        verbose=False,
+    )
+    payload = json.loads(raw)
+
+    assert payload["ok"] is True
+    assert payload["intent"] == "factual"
+    assert payload["strategy_template"] == "factual_high_precision"
+    assert payload["backend_method"] == "sqlite_client.search_advanced"
+    assert "query_preprocess" not in payload
+    assert "intent_profile" not in payload
+    assert "session_first_metrics" not in payload
+    assert "backend_metadata" not in payload
+
+
+@pytest.mark.asyncio
 async def test_observability_search_contract_regression_contains_required_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

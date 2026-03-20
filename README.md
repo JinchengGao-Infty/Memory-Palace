@@ -78,6 +78,8 @@ Within the same `session_id`, snapshot writes are now serialized through a per-s
 
 Normal backend, SSE, and repo-local stdio shutdown paths now also do a **best-effort drain** for pending `compact_context` / auto-flush summaries. In plain language: before the process exits cleanly, the system tries once to persist any pending flush summary; if that step fails, it skips it instead of forcing a risky last-minute write.
 
+Same-session `compact_context` / auto-flush flushes now also take a database-file-backed per-session process lock. In plain language: if two local processes or workers try to compact the same session at the same time, the later one now gets `already_in_progress` instead of racing the write.
+
 Transient SQLite lock conflicts now also get a small bounded retry, and background index jobs go through the same global write gate instead of racing the foreground path. In plain language: foreground writes and async reindex work are less likely to trip over each other under local multi-process pressure.
 
 ### 🔍 Unified Retrieval Engine
