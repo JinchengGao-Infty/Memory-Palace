@@ -544,12 +544,14 @@ index_status()
 |---|---|
 | `embedding_fallback_hash` | Embedding API 不可用，回退到本地 hash |
 | `embedding_request_failed` | Embedding 请求失败 |
+| `embedding_dim_mismatch_requires_reindex` | 当前查询作用域内的向量维度与当前配置不一致，需要重建索引 |
+| `vector_dim_mixed_requires_reindex` / `vector_dim_mismatch_requires_reindex` | 当前查询作用域内混入了多种向量维度，或该作用域整体维度与当前配置不一致，需要重建索引 |
 | `reranker_request_failed` | Reranker 请求失败 |
 | `write_guard_exception` | Write Guard 执行异常，写入已被拒绝（fail-closed） |
 | `query_preprocess_failed` | 查询预处理失败 |
 | `index_enqueue_dropped` | 索引任务入队失败 |
 
-> 💡 **建议：** 客户端策略中应把 `degrade_reasons` 字段作为告警信号。当检测到降级时，可调用 `rebuild_index(wait=True)` + `index_status()` 尝试恢复。
+> 💡 **建议：** 客户端策略中应把 `degrade_reasons` 字段作为告警信号。当检测到降级时，可调用 `rebuild_index(wait=True)` + `index_status()` 尝试恢复。向量维度相关告警现在会跟着**当前查询作用域**走，所以别的无关 domain 不应该再触发一条假的重建提示。
 
 ---
 

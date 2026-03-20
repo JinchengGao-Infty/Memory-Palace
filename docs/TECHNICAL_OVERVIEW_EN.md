@@ -85,6 +85,7 @@ This is the most "business-like" group of interfaces:
 - The write endpoints in this group now also create Review snapshots first; in Review, the visible session name carries the current database scope (for example `dashboard-<scope>`) so different SQLite targets do not get mixed together
 - `POST / PUT /browse/node` also applies a default content-length check (`BROWSE_CONTENT_MAX_CHARS`, default 1 MiB) so accidental huge bodies do not go straight through the Dashboard write path
 - `POST /browse/node` also validates the resulting path length (`BROWSE_PATH_MAX_CHARS`, default 512) before writing; if `parent_path + title` is too long, the API returns `422` immediately instead of letting the write proceed
+- If the write lane cannot hand out a write slot in time, these write endpoints now return a structured `503` (`write_lane_timeout`) instead of a generic `500`
 
 ### Review and Rollback (`/review`)
 
@@ -95,6 +96,7 @@ One implementation boundary to keep in mind:
 - snapshot files still live under the repo-level `snapshots/` directory;
 - however, session listing, snapshot listing, and snapshot reads are filtered by the **current database scope**, so changing `DATABASE_URL`, switching to another temporary SQLite file, or pointing Docker at another data volume does not mix rollback sessions from a different database into the current Review queue;
 - within the same `session_id`, snapshot writes are serialized, and both `manifest.json` and per-resource snapshot JSON files are written through atomic replace; this keeps same-session Review metadata much less likely to lose entries or expose half-written JSON when multiple local processes share the same checkout;
+- if `manifest.json` is damaged, the backend now tries to rebuild it under the original session scope first; it only persists the rebuilt manifest when that original scope can still be trusted. If the scope cannot be recovered safely, the session stays hidden and is not auto-deleted by a read-only session listing;
 - legacy snapshot sessions that were created before scope metadata existed are hidden by default instead of being exposed under the wrong database context.
 - for `create` rollbacks with many descendants, the current implementation now batches descendant path deletion, orphan cleanup, and current-node deletion inside one write-lane execution, reducing repeated lane round-trips on large trees.
 
@@ -280,6 +282,8 @@ The frontend does not read maintenance keys from `VITE_*` build variables; it us
 4. Optional **reranker** re-ranking (via remote API call).
 5. Supports additional query-side constraints, such as `scope_hint`, `domain`, `path_prefix`, `max_priority`.
 6. Returns `results` and `degrade_reasons`.
+
+> Vector-dimension checks now follow the scope that the current query actually targets instead of doing a global full-table decision first. In practice, old vectors in an unrelated domain no longer force a false semantic fallback; if the vectors inside the current scope really mismatch, `degrade_reasons` now tells the caller that a reindex is required.
 
 > Intent classification is implemented using the `keyword_scoring_v2` method (`db/sqlite_client.py` `classify_intent` method), inferring intent through keyword matching scores and rankings without external model calls.
 >

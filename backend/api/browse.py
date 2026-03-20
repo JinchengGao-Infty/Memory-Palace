@@ -142,11 +142,19 @@ async def _record_guard_event(operation: str, decision: dict[str, Any], blocked:
 async def _run_write_lane(operation: str, task):
     if not ENABLE_WRITE_LANE_QUEUE:
         return await task()
-    return await runtime_state.write_lanes.run_write(
-        session_id=_DASHBOARD_WRITE_SESSION_ID,
-        operation=operation,
-        task=task,
-    )
+    try:
+        return await runtime_state.write_lanes.run_write(
+            session_id=_DASHBOARD_WRITE_SESSION_ID,
+            operation=operation,
+            task=task,
+        )
+    except RuntimeError as exc:
+        if str(exc) == "write_lane_timeout":
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "write_lane_timeout"},
+            ) from exc
+        raise
 
 
 def _make_uri(domain: str, path: str) -> str:

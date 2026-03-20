@@ -544,12 +544,14 @@ During writing, if a `write_guard_exception` occurs, the system fails-closed, re
 |---|---|
 | `embedding_fallback_hash` | Embedding API unavailable, falling back to local hash |
 | `embedding_request_failed` | Embedding request failed |
+| `embedding_dim_mismatch_requires_reindex` | The vectors inside the current query scope do not match the active embedding dimension; reindex is required |
+| `vector_dim_mixed_requires_reindex` / `vector_dim_mismatch_requires_reindex` | The current query scope contains mixed vector dimensions, or that scope's vectors do not match the active config; reindex is required |
 | `reranker_request_failed` | Reranker request failed |
 | `write_guard_exception` | Write Guard execution error; write rejected (fail-closed) |
 | `query_preprocess_failed` | Query preprocessing failed |
 | `index_enqueue_dropped` | Indexing task failed to queue |
 
-> 💡 **Suggestion:** Client logic should use the `degrade_reasons` field as an alert signal. If degradation is detected, try calling `rebuild_index(wait=True)` + `index_status()` to attempt recovery.
+> 💡 **Suggestion:** Client logic should use the `degrade_reasons` field as an alert signal. If degradation is detected, try calling `rebuild_index(wait=True)` + `index_status()` to attempt recovery. Vector-dimension warnings now follow the **current query scope**, so unrelated domains should no longer trigger a false rebuild warning.
 
 ---
 

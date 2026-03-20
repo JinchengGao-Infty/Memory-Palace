@@ -53,6 +53,8 @@
 >
 > **补充说明**：C/D 模板默认走 `router` 路线；如果你的部署不使用统一 router，也可以直接配置 `RETRIEVAL_EMBEDDING_*`、`RETRIEVAL_RERANKER_*`、`WRITE_GUARD_LLM_* / COMPACT_GIST_LLM_*` 连接 OpenAI-compatible 服务。
 >
+> **本地模板补一条**：仓库内的本地 `profile c/d` 模板现在也显式保留 `RUNTIME_AUTO_FLUSH_ENABLED=true`，所以通过 `apply_profile.sh/.ps1` 生成的 `.env`，默认会和 A/B 一样继续保留 auto-flush。
+>
 > **为什么不强制一切都走 router**：
 > - `embedding`、`reranker`、`llm` 三条链路的模型、地址、密钥和故障模式不同，分开配置更便于定位和替换。
 > - 当前仓库已经支持分别直配：`RETRIEVAL_EMBEDDING_*`、`RETRIEVAL_RERANKER_*`、`WRITE_GUARD_LLM_* / COMPACT_GIST_LLM_*` 均可独立工作。

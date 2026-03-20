@@ -497,6 +497,8 @@ If this command can normally output the version number, starting `mcp_server.py`
    | `embedding_fallback_hash` | Embedding API unreachable, falling back to local hash | `backend/db/sqlite_client.py` |
    | `embedding_config_missing` | Embedding configuration missing | `backend/db/sqlite_client.py` |
    | `embedding_request_failed` | Embedding API request failed | `backend/db/sqlite_client.py` |
+   | `embedding_dim_mismatch_requires_reindex` | The vectors inside the current query scope do not match the active embedding dimension; reindex is required | `backend/db/sqlite_client.py` |
+   | `vector_dim_mixed_requires_reindex` / `vector_dim_mismatch_requires_reindex` | The current query scope contains mixed vector dimensions, or that scope's vectors do not match the active config; reindex is required | `backend/db/sqlite_client.py` |
    | `reranker_request_failed` | Reranker API request failed | `backend/db/sqlite_client.py` |
    | `reranker_config_missing` | Reranker configuration missing | `backend/db/sqlite_client.py` |
    | `compact_gist_llm_empty` | Compact Gist LLM returned empty result | `backend/mcp_server.py` |
@@ -533,6 +535,8 @@ If this command can normally output the version number, starting `mcp_server.py`
    # Check index status
    index_status()
    ```
+
+   > If the warning is about vector dimensions, rebuilding the data inside the **current query scope** is usually enough. These checks now follow `domain` / `path_prefix` / `scope_hint` and similar query constraints, so unrelated domains should no longer trigger the warning by accident.
 
 4. **View observability summary** (via HTTP API):
 

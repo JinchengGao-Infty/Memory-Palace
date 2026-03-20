@@ -53,6 +53,8 @@ This document helps you choose the appropriate Memory Palace configuration profi
 >
 > **Additional Note**: C/D templates follow the `router` path by default. If your deployment doesn't use a unified router, you can also directly configure `RETRIEVAL_EMBEDDING_*`, `RETRIEVAL_RERANKER_*`, and `WRITE_GUARD_LLM_* / COMPACT_GIST_LLM_*` to connect to OpenAI-compatible services.
 >
+> **One local-template note**: the repository's local `profile c/d` templates now also keep `RUNTIME_AUTO_FLUSH_ENABLED=true` explicitly, so `.env` files generated through `apply_profile.sh/.ps1` keep the same auto-flush default as A/B unless you override it yourself.
+>
 > **Why not force everything through a router?**
 > - The models, addresses, keys, and failure modes for `embedding`, `reranker`, and `llm` links are different. Configuring them separately makes them easier to locate and replace.
 > - The repository already supports independent configuration: `RETRIEVAL_EMBEDDING_*`, `RETRIEVAL_RERANKER_*`, and `WRITE_GUARD_LLM_* / COMPACT_GIST_LLM_*` can all work independently.

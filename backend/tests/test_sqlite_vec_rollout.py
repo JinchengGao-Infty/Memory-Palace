@@ -85,7 +85,6 @@ async def test_sqlite_vec_rollout_enabled_without_extension_falls_back_to_legacy
     )
     assert search_payload["metadata"]["vector_engine_path"] == "legacy_python_scoring"
 
-
 @pytest.mark.asyncio
 async def test_sqlite_vec_rollout_ready_keeps_vec_selection(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -389,3 +388,138 @@ async def test_sqlite_vec_rollout_vec0_knn_path_with_real_extension(
     assert search_payload["metadata"]["vector_engine_path"] == "vec_native_topk_sql"
     assert search_payload["metadata"]["sqlite_vec_knn_ready"] is True
     assert "sqlite_vec_native_query_failed" not in search_payload.get("degrade_reasons", [])
+
+
+@pytest.mark.asyncio
+async def test_sqlite_vec_rollout_reports_embedding_dim_mismatch_until_reindex(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_BACKEND", "hash")
+    monkeypatch.setenv("RETRIEVAL_SQLITE_VEC_ENABLED", "false")
+    monkeypatch.setenv("RETRIEVAL_VECTOR_ENGINE", "legacy")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "64")
+
+    db_path = tmp_path / "sqlite-vec-dim-mismatch.db"
+    writer_client = SQLiteClient(_sqlite_url(db_path))
+    await writer_client.init_db()
+    await writer_client.create_memory(
+        parent_path="",
+        content="dimension mismatch retrieval sample",
+        priority=1,
+        title="dimension_mismatch",
+        domain="core",
+    )
+    await writer_client.close()
+
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "1024")
+    reader_client = SQLiteClient(_sqlite_url(db_path))
+    await reader_client.init_db()
+    search_payload = await reader_client.search_advanced(
+        query="dimension mismatch retrieval sample",
+        mode="hybrid",
+        max_results=5,
+        candidate_multiplier=2,
+        filters={},
+    )
+    await reader_client.close()
+
+    assert search_payload["results"]
+    assert "embedding_dim_mismatch_requires_reindex" in search_payload["degrade_reasons"]
+    assert "embedding_dim_mismatch:64!=1024" in search_payload["degrade_reasons"]
+
+
+@pytest.mark.asyncio
+async def test_sqlite_vec_rollout_scope_filtered_search_ignores_external_dim_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_BACKEND", "hash")
+    monkeypatch.setenv("RETRIEVAL_SQLITE_VEC_ENABLED", "false")
+    monkeypatch.setenv("RETRIEVAL_VECTOR_ENGINE", "legacy")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "64")
+
+    db_path = tmp_path / "sqlite-vec-scope-filter.db"
+    legacy_client = SQLiteClient(_sqlite_url(db_path))
+    await legacy_client.init_db()
+    await legacy_client.create_memory(
+        parent_path="",
+        content="legacy archive vector sample",
+        priority=1,
+        title="legacy_archive",
+        domain="writer",
+    )
+    await legacy_client.close()
+
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "1024")
+    scoped_client = SQLiteClient(_sqlite_url(db_path))
+    await scoped_client.init_db()
+    await scoped_client.create_memory(
+        parent_path="",
+        content="core scoped vector sample",
+        priority=1,
+        title="core_scoped",
+        domain="core",
+    )
+    search_payload = await scoped_client.search_advanced(
+        query="core scoped vector sample",
+        mode="semantic",
+        max_results=5,
+        candidate_multiplier=2,
+        filters={"domain": "core"},
+    )
+    await scoped_client.close()
+
+    assert search_payload["results"]
+    assert search_payload["mode"] == "semantic"
+    assert (
+        search_payload["metadata"]["indexed_vector_dim_status"] == "aligned"
+    )
+    assert "embedding_dim_mismatch_requires_reindex" not in search_payload["degrade_reasons"]
+    assert "vector_dim_mixed_requires_reindex" not in search_payload["degrade_reasons"]
+
+
+@pytest.mark.asyncio
+async def test_sqlite_vec_rollout_mixed_dims_skip_self_contradictory_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_BACKEND", "hash")
+    monkeypatch.setenv("RETRIEVAL_SQLITE_VEC_ENABLED", "false")
+    monkeypatch.setenv("RETRIEVAL_VECTOR_ENGINE", "legacy")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "64")
+
+    db_path = tmp_path / "sqlite-vec-mixed-dims.db"
+    legacy_client = SQLiteClient(_sqlite_url(db_path))
+    await legacy_client.init_db()
+    await legacy_client.create_memory(
+        parent_path="",
+        content="legacy mixed vector sample",
+        priority=1,
+        title="legacy_mixed",
+        domain="writer",
+    )
+    await legacy_client.close()
+
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "1024")
+    current_client = SQLiteClient(_sqlite_url(db_path))
+    await current_client.init_db()
+    await current_client.create_memory(
+        parent_path="",
+        content="current mixed vector sample",
+        priority=1,
+        title="current_mixed",
+        domain="core",
+    )
+    search_payload = await current_client.search_advanced(
+        query="mixed vector sample",
+        mode="hybrid",
+        max_results=5,
+        candidate_multiplier=2,
+        filters={},
+    )
+    await current_client.close()
+
+    assert search_payload["results"]
+    assert "embedding_dim_mismatch:64!=1024" in search_payload["degrade_reasons"]
+    assert "embedding_dim_mismatch:1024!=1024" not in search_payload["degrade_reasons"]

@@ -152,6 +152,18 @@ trim_env_value() {
   printf '%s\n' "${value}"
 }
 
+ensure_default_env_value() {
+  local file_path="$1"
+  local key="$2"
+  local default_value="$3"
+  local current_value
+  current_value="$(trim_env_value "$(get_env_value "${file_path}" "${key}")")"
+  if [[ -n "${current_value}" ]]; then
+    return 0
+  fi
+  set_env_value "${file_path}" "${key}" "${default_value}"
+}
+
 sync_docker_wal_overrides() {
   local file_path="$1"
   local wal_enabled
@@ -288,6 +300,8 @@ if [[ "${platform}" == "docker" ]]; then
   fi
   sync_docker_wal_overrides "${target_file}"
 fi
+
+ensure_default_env_value "${target_file}" "RUNTIME_AUTO_FLUSH_ENABLED" "true"
 
 dedupe_env_keys "${target_file}"
 validate_profile_placeholders "${target_file}" "${profile}"

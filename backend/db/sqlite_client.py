@@ -1776,6 +1776,27 @@ class SQLiteClient:
         if reason not in degrade_reasons:
             degrade_reasons.append(reason)
 
+    @classmethod
+    def _append_embedding_dim_mismatch_reasons(
+        cls,
+        degrade_reasons: Optional[List[str]],
+        *,
+        stored_dims: set[int],
+        query_dim: int,
+    ) -> None:
+        if degrade_reasons is None or not stored_dims or query_dim <= 0:
+            return
+        cls._append_degrade_reason(
+            degrade_reasons, "embedding_dim_mismatch_requires_reindex"
+        )
+        for stored_dim in sorted(stored_dims):
+            if stored_dim <= 0 or stored_dim == query_dim:
+                continue
+            cls._append_degrade_reason(
+                degrade_reasons,
+                f"embedding_dim_mismatch:{stored_dim}!={query_dim}",
+            )
+
     @staticmethod
     def _collect_keyword_hits(
         source_text: str, token_set: set[str], keywords: List[str]
@@ -2464,14 +2485,26 @@ class SQLiteClient:
     ) -> List[float]:
         normalized = re.sub(r"\s+", " ", content.strip().lower())
         text_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-        cache_key = f"{self._embedding_model}:{text_hash}"
+        cache_key = (
+            f"{self._embedding_backend}:{self._embedding_model}:"
+            f"{self._embedding_dim}:{text_hash}"
+        )
 
         cache_row = await session.get(EmbeddingCache, cache_key)
         if cache_row:
             try:
                 embedding = json.loads(cache_row.embedding)
                 if isinstance(embedding, list):
-                    return [float(v) for v in embedding]
+                    parsed_embedding = [float(v) for v in embedding]
+                    if len(parsed_embedding) == int(self._embedding_dim):
+                        return parsed_embedding
+                    self._append_degrade_reason(
+                        degrade_reasons, "embedding_cache_dim_mismatch"
+                    )
+                    self._append_degrade_reason(
+                        degrade_reasons,
+                        f"embedding_cache_dim_mismatch:{len(parsed_embedding)}!={self._embedding_dim}",
+                    )
             except (TypeError, ValueError):
                 pass
 
@@ -2695,6 +2728,7 @@ class SQLiteClient:
         query_embedding: List[float],
         semantic_pool_limit: int,
         candidate_limit: int,
+        degrade_reasons: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         semantic_result = await session.execute(
             text(
@@ -2715,6 +2749,7 @@ class SQLiteClient:
         )
 
         semantic_scored: List[Tuple[float, Dict[str, Any]]] = []
+        mismatched_dims: set[int] = set()
         for row in semantic_result.mappings().all():
             vector_payload = row.get("vector_json")
             if not vector_payload:
@@ -2723,15 +2758,58 @@ class SQLiteClient:
                 chunk_vec = [float(v) for v in json.loads(vector_payload)]
             except (TypeError, ValueError):
                 continue
+            if len(chunk_vec) != len(query_embedding):
+                mismatched_dims.add(len(chunk_vec))
+                continue
             similarity = self._cosine_similarity(query_embedding, chunk_vec)
             semantic_scored.append((similarity, dict(row)))
 
+        self._append_embedding_dim_mismatch_reasons(
+            degrade_reasons,
+            stored_dims=mismatched_dims,
+            query_dim=len(query_embedding),
+        )
         semantic_scored.sort(key=lambda item: item[0], reverse=True)
         semantic_rows: List[Dict[str, Any]] = []
         for similarity, row in semantic_scored[:candidate_limit]:
             row["vector_similarity"] = similarity
             semantic_rows.append(row)
         return semantic_rows
+
+    async def _get_indexed_vector_dims(
+        self,
+        session: AsyncSession,
+        *,
+        where_clause: str,
+        where_params: Dict[str, Any],
+    ) -> List[int]:
+        result = await session.execute(
+            text(
+                "SELECT DISTINCT mcv.dim "
+                "FROM memory_chunks_vec mcv "
+                "JOIN memory_chunks mc ON mc.id = mcv.chunk_id "
+                "JOIN memories m ON m.id = mc.memory_id "
+                "JOIN paths p ON p.memory_id = mc.memory_id "
+                f"WHERE {where_clause} "
+                "AND mcv.dim IS NOT NULL AND mcv.dim > 0 "
+                "LIMIT 3"
+            ),
+            where_params,
+        )
+        dims: List[int] = []
+        for row in result.all():
+            try:
+                raw_dim = row[0]
+            except (TypeError, IndexError, KeyError):
+                raw_dim = None
+            try:
+                dim = int(raw_dim)
+            except (TypeError, ValueError):
+                continue
+            if dim > 0 and dim not in dims:
+                dims.append(dim)
+        dims.sort()
+        return dims
 
     async def _fetch_semantic_rows_vec_native_topk(
         self,
@@ -5023,6 +5101,8 @@ class SQLiteClient:
             "vector_engine_effective": self._vector_engine_effective,
             "vector_engine_selected": "legacy",
             "vector_engine_path": "not_applicable",
+            "indexed_vector_dims": [],
+            "indexed_vector_dim_status": "unknown",
             "sqlite_vec_knn_ready": bool(self._sqlite_vec_knn_ready),
             "sqlite_vec_knn_dim": int(self._sqlite_vec_knn_dim),
             "sqlite_vec_enabled": self._sqlite_vec_enabled,
@@ -5078,6 +5158,7 @@ class SQLiteClient:
         async with self.session() as session:
             where_parts = ["m.deprecated = 0"]
             where_params: Dict[str, Any] = {}
+            indexed_vector_dims: List[int] = []
 
             domain_filter = filters.get("domain")
             path_prefix_filter = filters.get("path_prefix")
@@ -5118,6 +5199,40 @@ class SQLiteClient:
 
             keyword_rows: List[Dict[str, Any]] = []
             semantic_rows: List[Dict[str, Any]] = []
+
+            if mode_value in {"semantic", "hybrid"}:
+                indexed_vector_dims = await self._get_indexed_vector_dims(
+                    session,
+                    where_clause=where_clause,
+                    where_params=where_params,
+                )
+                vector_engine_metadata["indexed_vector_dims"] = indexed_vector_dims
+                if not indexed_vector_dims:
+                    vector_engine_metadata["indexed_vector_dim_status"] = "empty"
+                elif len(indexed_vector_dims) > 1:
+                    vector_engine_metadata["indexed_vector_dim_status"] = "mixed"
+                    mode_value = "keyword"
+                    self._append_embedding_dim_mismatch_reasons(
+                        degrade_reasons,
+                        stored_dims=set(indexed_vector_dims),
+                        query_dim=int(self._embedding_dim),
+                    )
+                    self._append_degrade_reason(
+                        degrade_reasons, "vector_dim_mixed_requires_reindex"
+                    )
+                elif indexed_vector_dims[0] != int(self._embedding_dim):
+                    vector_engine_metadata["indexed_vector_dim_status"] = "mismatch"
+                    mode_value = "keyword"
+                    self._append_embedding_dim_mismatch_reasons(
+                        degrade_reasons,
+                        stored_dims={int(indexed_vector_dims[0])},
+                        query_dim=int(self._embedding_dim),
+                    )
+                    self._append_degrade_reason(
+                        degrade_reasons, "vector_dim_mismatch_requires_reindex"
+                    )
+                else:
+                    vector_engine_metadata["indexed_vector_dim_status"] = "aligned"
 
             if mode_value in {"keyword", "hybrid"}:
                 if self._fts_available:
@@ -5265,6 +5380,7 @@ class SQLiteClient:
                             query_embedding=query_embedding,
                             semantic_pool_limit=semantic_pool_limit,
                             candidate_limit=candidate_limit,
+                            degrade_reasons=degrade_reasons,
                         )
                         vector_engine_metadata["vector_engine_path"] = (
                             "legacy_python_fallback"
@@ -5293,6 +5409,7 @@ class SQLiteClient:
                                 query_embedding=query_embedding,
                                 semantic_pool_limit=semantic_pool_limit,
                                 candidate_limit=candidate_limit,
+                                degrade_reasons=degrade_reasons,
                             )
                             vector_engine_metadata["vector_engine_path"] = (
                                 "legacy_python_fallback"
@@ -5305,6 +5422,7 @@ class SQLiteClient:
                         query_embedding=query_embedding,
                         semantic_pool_limit=semantic_pool_limit,
                         candidate_limit=candidate_limit,
+                        degrade_reasons=degrade_reasons,
                     )
                     vector_engine_metadata["vector_engine_path"] = (
                         "legacy_python_scoring"

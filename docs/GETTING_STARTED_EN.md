@@ -110,6 +110,8 @@ bash scripts/apply_profile.sh macos b
 >
 > `apply_profile.sh/.ps1` currently deduplicates environment keys after generation; however, running it again in the target environment is still recommended for native Windows / native `pwsh`.
 >
+> Local `profile c/d` now also keeps `RUNTIME_AUTO_FLUSH_ENABLED=true` by default, so unless you override it yourself, the generated `.env` keeps the same auto-flush default as A/B.
+>
 > If you are running `apply_profile.ps1` from PowerShell on Linux / WSL, `-Platform linux` is now accepted as well; it maps to the same local template family as `macos`. On native Windows, keep using `-Platform windows`.
 >
 > In addition, `profile c/d` now fail-closed at the script stage when endpoint/key/model placeholders are still unresolved. If values such as `PORT`, `replace-with-your-key`, or `your-embedding-model-id` are still present, the script stops immediately instead of carrying an obviously broken config into later startup steps.

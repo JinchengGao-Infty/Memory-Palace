@@ -85,6 +85,7 @@ backend/
 - 当前这组写接口也会先写 Review snapshot；在 Review 里看到的 session 名会带当前数据库作用域（例如 `dashboard-<scope>`），避免不同 SQLite 目标混到一起
 - `POST / PUT /browse/node` 默认还会对单次 `content` 做长度校验（`BROWSE_CONTENT_MAX_CHARS`，默认 1 MiB），防止把超大正文直接塞进 Dashboard 写接口
 - `POST /browse/node` 还会对生成后的路径长度做前置校验（`BROWSE_PATH_MAX_CHARS`，默认 512），如果 `parent_path + title` 太长，会在真正写入前直接返回 `422`
+- 如果 write lane 长时间拿不到写槽位，这组写接口现在会直接返回结构化 `503`（`write_lane_timeout`），而不是只冒一个通用 `500`
 
 ### 审查与回滚（`/review`）
 
@@ -95,6 +96,7 @@ backend/
 - snapshot 文件仍然位于仓库级 `snapshots/` 目录；
 - 但会话列表、快照列表和快照读取会按**当前数据库作用域**过滤，避免你在同一 checkout 下切换 `DATABASE_URL`、临时 SQLite 文件或 Docker 数据卷后，把另一份库的 rollback 会话混进当前审查列表；
 - 同一个 `session_id` 下的 snapshot 写路径现在会串行化，`manifest.json` 和单个快照 JSON 文件也会通过原子替换落盘；所以多个本地进程共用同一个 checkout 时，同一条 Review session 的快照元数据更不容易丢条目，也不容易出现半写入 JSON；
+- 如果 `manifest.json` 损坏，后端现在会优先使用 session 侧记录的数据库作用域去重建；只有在能保住原始作用域时才会把重建结果写回。拿不到可靠作用域时，这条会话会先保持隐藏，也不会被一次只读的会话列表请求自动删掉；
 - 没有数据库作用域标记的 legacy snapshot 会话，默认不会继续暴露在当前 Review 列表里。
 - 对 `create` 型 rollback，如果目标下面有很多后代节点，当前实现会把“删后代路径 + 清孤儿 memory + 删当前节点”收敛到一次 write-lane 执行里，减少大树回滚时反复进 lane 的开销。
 
@@ -280,6 +282,8 @@ frontend/src/
 4. 可选 **reranker** 重排序（通过远程 API 调用）。
 5. 支持额外的查询侧约束，例如 `scope_hint`、`domain`、`path_prefix`、`max_priority`。
 6. 返回 `results` 与 `degrade_reasons`。
+
+> 当前向量维度检查会跟着这次查询真正命中的 scope 走，而不是对全库做一遍全局判定；所以无关 domain 里的旧向量不会再把当前作用域的语义检索误降级。若当前作用域内确实存在维度不一致，`degrade_reasons` 会明确提示需要 reindex。
 
 > 意图分类使用 `keyword_scoring_v2` 方法实现（`db/sqlite_client.py` `classify_intent` 方法），通过关键词匹配评分与排名进行意图推断，无需外部模型调用。
 >

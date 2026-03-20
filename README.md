@@ -76,15 +76,21 @@ The same rule now applies to Dashboard tree writes as well: `POST /browse/node`,
 
 Within the same `session_id`, snapshot writes are now serialized through a per-session file lock, and both `manifest.json` and individual snapshot JSON files are written through atomic replace. In plain terms: if multiple local processes share one repo checkout and touch the same Review session, the snapshot ledger is much less likely to lose entries or leave behind half-written JSON files.
 
+If a Review session's `manifest.json` is damaged, the backend now only rebuilds it when it can preserve the original database scope. In plain terms: switching to another `.env`, compose project, or SQLite file no longer "claims" an old damaged session for the wrong database, and unreadable sessions stay hidden instead of being auto-deleted by a read-only session listing.
+
 Normal backend, SSE, and repo-local stdio shutdown paths now also do a **best-effort drain** for pending `compact_context` / auto-flush summaries. In plain language: before the process exits cleanly, the system tries once to persist any pending flush summary; if that step fails, it skips it instead of forcing a risky last-minute write.
 
 Same-session `compact_context` / auto-flush flushes now also take a database-file-backed per-session process lock. In plain language: if two local processes or workers try to compact the same session at the same time, the later one now gets `already_in_progress` instead of racing the write.
 
 Transient SQLite lock conflicts now also get a small bounded retry, and background index jobs go through the same global write gate instead of racing the foreground path. In plain language: foreground writes and async reindex work are less likely to trip over each other under local multi-process pressure.
 
+Dashboard tree writes now also surface write-lane saturation as a structured `503` (`write_lane_timeout`) instead of a generic `500`.
+
 ### 🔍 Unified Retrieval Engine
 
 Three retrieval modes — `keyword`, `semantic`, and `hybrid` — with automatic degradation. When external embedding services are unavailable, the system gracefully falls back to keyword search and reports `degrade_reasons` when degradation occurs.
+
+Embedding-dimension mismatch checks now follow the current query scope (`domain`, `path_prefix`, and similar filters) instead of scanning unrelated vectors globally. If the vectors inside that scope really do not match the current config, `degrade_reasons` now explicitly says that a reindex is required.
 
 `candidate_multiplier` is still only a first-round expansion hint, not an unlimited pool-size switch. The current implementation keeps a hard cap on the effective candidate pool and exposes the applied value as `candidate_limit_applied` in metadata.
 

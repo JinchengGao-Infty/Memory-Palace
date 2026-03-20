@@ -86,6 +86,9 @@ class WriteLaneCoordinator:
         self._global_concurrency = _env_int(
             "RUNTIME_WRITE_GLOBAL_CONCURRENCY", 1, minimum=1
         )
+        self._global_acquire_timeout_seconds = _env_float(
+            "RUNTIME_WRITE_GLOBAL_ACQUIRE_TIMEOUT_SECONDS", 30.0, minimum=0.1
+        )
         self._wait_warn_ms = _env_int("RUNTIME_WRITE_WAIT_WARN_MS", 2000, minimum=1)
         self._lock_retry_attempts = _env_int(
             "RUNTIME_WRITE_LOCK_RETRY_ATTEMPTS", 2, minimum=0
@@ -219,7 +222,13 @@ class WriteLaneCoordinator:
                     self._global_waiting += 1
 
                 try:
-                    await self._global_sem.acquire()
+                    try:
+                        await asyncio.wait_for(
+                            self._global_sem.acquire(),
+                            timeout=self._global_acquire_timeout_seconds,
+                        )
+                    except asyncio.TimeoutError as exc:
+                        raise RuntimeError("write_lane_timeout") from exc
                     global_acquired = True
                     waited_global_ms = int((time.monotonic() - global_wait_start) * 1000)
 
@@ -270,6 +279,8 @@ class WriteLaneCoordinator:
                     )
                     raise
                 except Exception as exc:
+                    if waited_global_ms <= 0:
+                        waited_global_ms = int((time.monotonic() - global_wait_start) * 1000)
                     duration_ms = int((time.monotonic() - write_start) * 1000)
                     await self._record_write_metrics(
                         success=False,

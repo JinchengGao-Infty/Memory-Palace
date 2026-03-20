@@ -85,28 +85,51 @@ function Dedupe-EnvKeys {
         return
     }
 
-    $keys = Read-LinesUtf8 -FilePath $FilePath |
-        Where-Object { $_ -match '^\s*[A-Z0-9_]+\s*=' } |
-        ForEach-Object {
-            $parts = $_ -split '=', 2
-            $parts[0].Trim()
-        } |
-        Group-Object |
-        Where-Object { $_.Count -gt 1 } |
-        Sort-Object Name
+    $lines = @(Read-LinesUtf8 -FilePath $FilePath)
+    $lastValues = [System.Collections.Generic.Dictionary[string, string]]::new()
+    $firstSeen = [System.Collections.Generic.HashSet[string]]::new()
+    $deduped = [System.Collections.Generic.List[string]]::new()
 
-    foreach ($group in $keys) {
-        $escaped = [regex]::Escape($group.Name)
-        $lastLine = Read-LinesUtf8 -FilePath $FilePath |
-            Where-Object { $_ -match "^\s*${escaped}\s*=" } |
-            Select-Object -Last 1
-        if (-not $lastLine) {
+    foreach ($line in $lines) {
+        if ($line -match '^\s*([A-Z0-9_]+)\s*=') {
+            $key = $Matches[1]
+            $value = ($line -split '=', 2)[1].TrimStart()
+            $lastValues[$key] = $value
+            if ($firstSeen.Contains($key)) {
+                continue
+            }
+            [void]$firstSeen.Add($key)
+            [void]$deduped.Add($key)
             continue
         }
-
-        $value = ($lastLine -split '=', 2)[1].TrimStart()
-        Set-EnvValueInFile -FilePath $FilePath -Key $group.Name -Value $value
+        [void]$deduped.Add([string]$line)
     }
+
+    $finalLines = [System.Collections.Generic.List[string]]::new()
+    foreach ($item in $deduped) {
+        if ($firstSeen.Contains($item) -and $lastValues.ContainsKey($item)) {
+            [void]$finalLines.Add("{0}={1}" -f $item, $lastValues[$item])
+            continue
+        }
+        [void]$finalLines.Add([string]$item)
+    }
+
+    Write-LinesUtf8 -FilePath $FilePath -Lines $finalLines.ToArray()
+}
+
+function Ensure-DefaultEnvValue {
+    param(
+        [string]$FilePath,
+        [string]$Key,
+        [string]$Value
+    )
+
+    $currentValue = (Get-EnvValueFromFile -FilePath $FilePath -Key $Key).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($currentValue)) {
+        return
+    }
+
+    Set-EnvValueInFile -FilePath $FilePath -Key $Key -Value $Value
 }
 
 function Get-EnvValueFromFile {
@@ -251,6 +274,7 @@ if ($Platform -eq 'docker') {
     Sync-DockerWalOverrides -FilePath $Target
 }
 
+Ensure-DefaultEnvValue -FilePath $Target -Key 'RUNTIME_AUTO_FLUSH_ENABLED' -Value 'true'
 Dedupe-EnvKeys -FilePath $Target
 Assert-ResolvedProfilePlaceholders -FilePath $Target -ResolvedProfile $profileLower
 

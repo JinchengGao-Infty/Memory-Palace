@@ -154,6 +154,8 @@ A filter toolbar sits above the child list:
 > **What is this page for?** Every time a memory is created, modified, or deleted, the system takes a "before" snapshot. This page shows you those changes so you can decide: keep the change, or roll it back.
 >
 > **Scope note**: the Review page only shows snapshot sessions for the **current database target**. If you switch to another local `.env`, another Docker compose project, or another SQLite file, sessions from the old database are intentionally hidden instead of being mixed into the current queue.
+>
+> **Damaged-session note**: if a snapshot session's metadata is damaged, the backend now first tries to recover it under the original database scope; if that scope cannot be recovered safely, the session stays hidden instead of being auto-deleted by a read-only list load or mixed into the wrong Review queue.
 
 ### 🗂️ Page Layout
 

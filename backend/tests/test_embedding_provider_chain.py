@@ -1,8 +1,10 @@
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
-from db.sqlite_client import SQLiteClient
+from db.sqlite_client import EmbeddingCache, SQLiteClient
 
 
 def _sqlite_url(db_path: Path) -> str:
@@ -23,6 +25,7 @@ def _clear_embedding_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "RETRIEVAL_EMBEDDING_MODEL",
         "ROUTER_EMBEDDING_MODEL",
         "OPENAI_EMBEDDING_MODEL",
+        "RETRIEVAL_EMBEDDING_DIM",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -169,6 +172,7 @@ async def test_embedding_provider_chain_cache_hit_avoids_second_remote_call(
     monkeypatch.setenv("RETRIEVAL_EMBEDDING_API_BASE", "https://embedding.example/v1")
     monkeypatch.setenv("RETRIEVAL_EMBEDDING_API_KEY", "test-key")
     monkeypatch.setenv("RETRIEVAL_EMBEDDING_MODEL", "cache-model")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "16")
 
     client = SQLiteClient(_sqlite_url(tmp_path / "provider-chain-cache.db"))
     await client.init_db()
@@ -177,7 +181,7 @@ async def test_embedding_provider_chain_cache_hit_avoids_second_remote_call(
 
     async def _fake_post_json(*_args, **_kwargs):
         call_counter["value"] += 1
-        return {"data": [{"embedding": [0.5, 0.4, 0.3]}]}
+        return {"data": [{"embedding": [0.5] * 16}]}
 
     monkeypatch.setattr(client, "_post_json", _fake_post_json)
     async with client.session() as session:
@@ -186,6 +190,96 @@ async def test_embedding_provider_chain_cache_hit_avoids_second_remote_call(
         second = await client._get_embedding(session, "provider chain cache sample")
     await client.close()
 
-    assert first == [0.5, 0.4, 0.3]
-    assert second == [0.5, 0.4, 0.3]
+    assert first == [0.5] * 16
+    assert second == [0.5] * 16
     assert call_counter["value"] == 1
+
+
+@pytest.mark.asyncio
+async def test_embedding_provider_chain_refreshes_stale_cached_embedding_dimension(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _clear_embedding_env(monkeypatch)
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_BACKEND", "hash")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "64")
+
+    client = SQLiteClient(_sqlite_url(tmp_path / "provider-chain-cache-dim.db"))
+    await client.init_db()
+
+    async with client.session() as session:
+        first = await client._get_embedding(session, "provider chain cache dim sample")
+        await session.flush()
+
+        client._embedding_dim = 1024
+        normalized = "provider chain cache dim sample"
+        text_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        cache_key = (
+            f"{client._embedding_backend}:{client._embedding_model}:"
+            f"{client._embedding_dim}:{text_hash}"
+        )
+        session.add(
+            EmbeddingCache(
+                cache_key=cache_key,
+                text_hash=text_hash,
+                model=client._embedding_model,
+                embedding=json.dumps(first),
+            )
+        )
+        await session.flush()
+        degrade_reasons: list[str] = []
+        refreshed = await client._get_embedding(
+            session,
+            normalized,
+            degrade_reasons=degrade_reasons,
+        )
+
+    await client.close()
+
+    assert len(first) == 64
+    assert len(refreshed) == 1024
+    assert "embedding_cache_dim_mismatch" in degrade_reasons
+    assert "embedding_cache_dim_mismatch:64!=1024" in degrade_reasons
+
+
+@pytest.mark.asyncio
+async def test_embedding_cache_key_includes_dimension(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_BACKEND", "api")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_API_BASE", "https://embedding.example/v1")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_API_KEY", "test-key")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_MODEL", "cache-model")
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "16")
+
+    db_path = tmp_path / "provider-chain-cache-dim.db"
+    client64 = SQLiteClient(_sqlite_url(db_path))
+    await client64.init_db()
+
+    call_counter = {"value": 0}
+
+    async def _fake_post_json_64(*_args, **_kwargs):
+        call_counter["value"] += 1
+        return {"data": [{"embedding": [0.64] * 16}]}
+
+    monkeypatch.setattr(client64, "_post_json", _fake_post_json_64)
+    async with client64.session() as session:
+        first = await client64._get_embedding(session, "dimension-sensitive sample")
+        await session.flush()
+    await client64.close()
+
+    monkeypatch.setenv("RETRIEVAL_EMBEDDING_DIM", "32")
+    client1024 = SQLiteClient(_sqlite_url(db_path))
+    await client1024.init_db()
+
+    async def _fake_post_json_1024(*_args, **_kwargs):
+        call_counter["value"] += 1
+        return {"data": [{"embedding": [1.024] * 32}]}
+
+    monkeypatch.setattr(client1024, "_post_json", _fake_post_json_1024)
+    async with client1024.session() as session:
+        second = await client1024._get_embedding(session, "dimension-sensitive sample")
+    await client1024.close()
+
+    assert first == [0.64] * 16
+    assert second == [1.024] * 32
+    assert call_counter["value"] == 2

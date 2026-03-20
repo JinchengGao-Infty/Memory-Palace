@@ -245,3 +245,144 @@ def test_snapshot_manager_maps_file_lock_timeout_to_timeout_error(
     with pytest.raises(TimeoutError, match="Timed out waiting for snapshot session lock"):
         with manager._session_write_lock("busy-session"):
             pass
+
+
+def test_snapshot_manager_rebuilds_manifest_from_resource_files_when_manifest_corrupted(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    snapshot_dir = tmp_path / "snapshots"
+    session_dir = snapshot_dir / "corrupt-session"
+    resources_dir = session_dir / "resources"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setenv("DATABASE_URL", _sqlite_url(tmp_path / "active.db"))
+    scope = snapshot_module._resolve_current_database_scope()
+    (session_dir / "manifest.json").write_text("{not-valid-json", encoding="utf-8")
+    (session_dir / ".scope.json").write_text(
+        json.dumps(scope),
+        encoding="utf-8",
+    )
+    (resources_dir / "memory_alpha.json").write_text(
+        json.dumps(
+            {
+                "resource_id": "notes://alpha",
+                "resource_type": "path",
+                "snapshot_time": "2026-03-20T10:00:00",
+                "data": {
+                    "uri": "notes://alpha",
+                    "operation_type": "create",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    manager = SnapshotManager(str(snapshot_dir))
+
+    snapshots = manager.list_snapshots("corrupt-session")
+    rebuilt_manifest = json.loads(
+        (session_dir / "manifest.json").read_text(encoding="utf-8")
+    )
+
+    assert [item["resource_id"] for item in snapshots] == ["notes://alpha"]
+    assert rebuilt_manifest["resources"]["notes://alpha"]["file"] == "memory_alpha.json"
+
+
+def test_snapshot_manager_logs_and_recovers_when_manifest_json_is_invalid(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    snapshot_dir = tmp_path / "snapshots"
+    session_dir = snapshot_dir / "broken-session"
+    resources_dir = session_dir / "resources"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    (resources_dir / "notes_alpha.json").write_text(
+        json.dumps(
+            {
+                "resource_id": "notes://alpha",
+                "resource_type": "path",
+                "snapshot_time": "2026-03-20T12:00:00",
+                "data": {
+                    "uri": "notes://alpha",
+                    "operation_type": "create",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (session_dir / "manifest.json").write_text("{broken-json", encoding="utf-8")
+
+    monkeypatch.setenv("DATABASE_URL", _sqlite_url(tmp_path / "active.db"))
+    scope = snapshot_module._resolve_current_database_scope()
+    (session_dir / ".scope.json").write_text(
+        json.dumps(scope),
+        encoding="utf-8",
+    )
+    manager = SnapshotManager(str(snapshot_dir))
+
+    with caplog.at_level("WARNING"):
+        snapshots = manager.list_snapshots("broken-session")
+
+    assert snapshots == [
+        {
+            "resource_id": "notes://alpha",
+            "resource_type": "path",
+            "snapshot_time": "2026-03-20T12:00:00",
+            "operation_type": "create",
+            "uri": "notes://alpha",
+        }
+    ]
+    assert "Failed to load snapshot manifest for session broken-session" in caplog.text
+    assert "Recovered snapshot manifest for session broken-session" in caplog.text
+
+
+def test_snapshot_manager_does_not_rebind_corrupted_manifest_to_current_database_scope(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    snapshot_dir = tmp_path / "snapshots"
+    manager = SnapshotManager(str(snapshot_dir))
+    db_a = tmp_path / "scope-a.db"
+    db_b = tmp_path / "scope-b.db"
+
+    monkeypatch.setenv("DATABASE_URL", _sqlite_url(db_a))
+    assert manager.create_snapshot(
+        "cross-db-session",
+        "notes://alpha",
+        "path",
+        {
+            "uri": "notes://alpha",
+            "operation_type": "create",
+        },
+    )
+
+    manifest_path = snapshot_dir / "cross-db-session" / "manifest.json"
+    manifest_path.write_text("{broken-json", encoding="utf-8")
+
+    monkeypatch.setenv("DATABASE_URL", _sqlite_url(db_b))
+    sessions = manager.list_sessions()
+    rebuilt_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert sessions == []
+    assert rebuilt_manifest["database_label"] == "scope-a.db"
+    assert rebuilt_manifest["database_fingerprint"] != snapshot_module._resolve_current_database_scope()[
+        "database_fingerprint"
+    ]
+
+
+def test_snapshot_manager_list_sessions_does_not_delete_unrecoverable_corrupted_session(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    snapshot_dir = tmp_path / "snapshots"
+    session_dir = snapshot_dir / "broken-session"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "manifest.json").write_text("{broken-json", encoding="utf-8")
+
+    monkeypatch.setenv("DATABASE_URL", _sqlite_url(tmp_path / "active.db"))
+    manager = SnapshotManager(str(snapshot_dir))
+
+    assert manager.list_sessions() == []
+    assert session_dir.exists() is True

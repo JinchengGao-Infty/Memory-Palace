@@ -20,7 +20,9 @@ Design Principles:
 
 import json
 import hashlib
+import logging
 import os
+import re
 import shutil
 import stat
 import tempfile
@@ -42,6 +44,8 @@ DEFAULT_SNAPSHOT_DIR = os.path.join(
 
 _SQLITE_URL_PREFIXES = ("sqlite+aiosqlite:///", "sqlite:///")
 _SESSION_LOCK_WAIT_SECONDS = 5.0
+logger = logging.getLogger(__name__)
+_SCOPE_MARKER_FILENAME = ".scope.json"
 
 
 def _resolve_current_database_scope() -> Dict[str, str]:
@@ -215,6 +219,10 @@ class SnapshotManager:
         safe_id = self._sanitize_resource_id(resource_id)
         return os.path.join(self._get_resources_dir(session_id), f"{safe_id}.json")
 
+    def _get_scope_marker_path(self, session_id: str) -> str:
+        """Persist session database scope outside manifest recovery paths."""
+        return os.path.join(self._get_session_dir(session_id), _SCOPE_MARKER_FILENAME)
+
     def _get_session_lock_path(self, session_id: str) -> str:
         """Store per-session write locks outside the session tree."""
         safe_session_id = self._validate_session_id(session_id)
@@ -264,23 +272,207 @@ class SnapshotManager:
             raise TimeoutError(
                 f"Timed out waiting for snapshot session lock: {session_id}"
             ) from exc
+
+    @staticmethod
+    def _build_manifest_payload(
+        session_id: str,
+        *,
+        created_at: Optional[str] = None,
+        resources: Optional[Dict[str, Any]] = None,
+        scope: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "session_id": session_id,
+            "created_at": created_at or datetime.now().isoformat(),
+            "resources": resources or {},
+        }
+        if isinstance(scope, dict):
+            fingerprint = str(scope.get("database_fingerprint") or "").strip()
+            label = str(scope.get("database_label") or "").strip()
+            if fingerprint:
+                payload["database_fingerprint"] = fingerprint
+            if label:
+                payload["database_label"] = label
+        return payload
+
+    @staticmethod
+    def _extract_scope_from_manifest_text(raw_text: str) -> Optional[Dict[str, str]]:
+        fingerprint_match = re.search(
+            r'"database_fingerprint"\s*:\s*"([^"]+)"',
+            raw_text,
+        )
+        if fingerprint_match is None:
+            return None
+        label_match = re.search(
+            r'"database_label"\s*:\s*"([^"]*)"',
+            raw_text,
+        )
+        return {
+            "database_fingerprint": fingerprint_match.group(1),
+            "database_label": label_match.group(1) if label_match else "",
+        }
+
+    def _load_scope_marker(self, session_id: str) -> Optional[Dict[str, str]]:
+        scope_marker_path = self._get_scope_marker_path(session_id)
+        if not os.path.exists(scope_marker_path):
+            return None
+        try:
+            with open(scope_marker_path, "r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        fingerprint = str(payload.get("database_fingerprint") or "").strip()
+        if not fingerprint:
+            return None
+        return {
+            "database_fingerprint": fingerprint,
+            "database_label": str(payload.get("database_label") or "").strip(),
+        }
+
+    def _persist_scope_marker(self, session_id: str, manifest: Dict[str, Any]) -> None:
+        fingerprint = str(manifest.get("database_fingerprint") or "").strip()
+        if not fingerprint:
+            return
+        _write_json_atomic(
+            self._get_scope_marker_path(session_id),
+            {
+                "database_fingerprint": fingerprint,
+                "database_label": str(manifest.get("database_label") or "").strip(),
+            },
+        )
     
     def _load_manifest(self, session_id: str) -> Dict[str, Any]:
         """Load or create session manifest."""
         manifest_path = self._get_manifest_path(session_id)
         
         if os.path.exists(manifest_path):
-            with open(manifest_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        
-        scope = _resolve_current_database_scope()
-        return {
-            "session_id": session_id,
-            "created_at": datetime.now().isoformat(),
-            "database_fingerprint": scope["database_fingerprint"],
-            "database_label": scope["database_label"],
-            "resources": {}  # resource_id -> metadata
-        }
+            raw_manifest_text = ""
+            try:
+                with open(manifest_path, 'r', encoding='utf-8') as f:
+                    raw_manifest_text = f.read()
+                manifest = json.loads(raw_manifest_text)
+                if isinstance(manifest, dict) and isinstance(manifest.get("resources"), dict):
+                    return manifest
+                raise ValueError("snapshot_manifest_invalid_payload")
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Failed to load snapshot manifest for session %s: %s",
+                    session_id,
+                    exc,
+                )
+                recovered_scope = (
+                    self._load_scope_marker(session_id)
+                    or self._extract_scope_from_manifest_text(raw_manifest_text)
+                )
+                rebuilt_manifest = self._rebuild_manifest_from_resources(
+                    session_id,
+                    scope=recovered_scope,
+                )
+                if rebuilt_manifest is not None:
+                    if recovered_scope is not None:
+                        logger.warning(
+                            "Recovered snapshot manifest for session %s using resource files",
+                            session_id,
+                        )
+                        try:
+                            _write_json_atomic(manifest_path, rebuilt_manifest)
+                            self._persist_scope_marker(session_id, rebuilt_manifest)
+                        except OSError as save_exc:
+                            logger.warning(
+                                "Failed to persist rebuilt snapshot manifest for session %s: %s",
+                                session_id,
+                                save_exc,
+                            )
+                    else:
+                        logger.warning(
+                            "Recovered snapshot resources for session %s but database scope is unknown; leaving manifest unmodified",
+                            session_id,
+                        )
+                    return rebuilt_manifest
+
+            return self._build_manifest_payload(session_id)
+
+        return self._build_manifest_payload(
+            session_id,
+            scope=_resolve_current_database_scope(),
+        )
+
+    def _rebuild_manifest_from_resources(
+        self,
+        session_id: str,
+        *,
+        scope: Optional[Dict[str, str]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Best-effort manifest recovery from per-resource snapshot files."""
+        resources_dir = self._get_resources_dir(session_id)
+        if not os.path.isdir(resources_dir):
+            return None
+
+        recovered_resources: Dict[str, Dict[str, Any]] = {}
+        recovered_created_at: Optional[str] = None
+
+        for entry in sorted(os.listdir(resources_dir)):
+            if not entry.endswith(".json"):
+                continue
+            snapshot_path = os.path.join(resources_dir, entry)
+            if not os.path.isfile(snapshot_path):
+                continue
+            try:
+                with open(snapshot_path, "r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Skipping unreadable snapshot payload %s while rebuilding session %s: %s",
+                    entry,
+                    session_id,
+                    exc,
+                )
+                continue
+            if not isinstance(payload, dict):
+                logger.warning(
+                    "Skipping invalid snapshot payload %s while rebuilding session %s",
+                    entry,
+                    session_id,
+                )
+                continue
+
+            resource_id = str(payload.get("resource_id") or "").strip()
+            resource_type = str(payload.get("resource_type") or "").strip()
+            snapshot_time = str(payload.get("snapshot_time") or "").strip()
+            snapshot_data = payload.get("data")
+            if not resource_id or not resource_type:
+                logger.warning(
+                    "Skipping incomplete snapshot payload %s while rebuilding session %s",
+                    entry,
+                    session_id,
+                )
+                continue
+            if not isinstance(snapshot_data, dict):
+                snapshot_data = {}
+
+            recovered_resources[resource_id] = {
+                "resource_type": resource_type,
+                "snapshot_time": snapshot_time,
+                "operation_type": snapshot_data.get("operation_type", "modify"),
+                "file": entry,
+                "uri": snapshot_data.get("uri"),
+            }
+            if snapshot_time and (
+                recovered_created_at is None or snapshot_time < recovered_created_at
+            ):
+                recovered_created_at = snapshot_time
+
+        if not recovered_resources:
+            return None
+
+        return self._build_manifest_payload(
+            session_id,
+            created_at=recovered_created_at or datetime.now().isoformat(),
+            resources=recovered_resources,
+            scope=scope,
+        )
 
     @staticmethod
     def _manifest_matches_current_database(manifest: Dict[str, Any]) -> bool:
@@ -304,6 +496,7 @@ class SnapshotManager:
         manifest.setdefault("database_label", scope["database_label"])
 
         _write_json_atomic(manifest_path, manifest)
+        self._persist_scope_marker(session_id, manifest)
 
     def _clear_session_unlocked(
         self, session_id: str, manifest: Optional[Dict[str, Any]] = None
@@ -473,9 +666,7 @@ class SnapshotManager:
                     continue
                 resource_count = len(manifest.get("resources", {}))
                 
-                # Auto-cleanup empty sessions
                 if resource_count == 0:
-                    self.clear_session(session_id)
                     continue
 
                 sessions.append({

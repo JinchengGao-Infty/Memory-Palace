@@ -495,6 +495,8 @@ cd backend
    | `embedding_fallback_hash` | Embedding API 不可达，回退到本地 hash | `backend/db/sqlite_client.py` |
    | `embedding_config_missing` | Embedding 配置缺失 | `backend/db/sqlite_client.py` |
    | `embedding_request_failed` | Embedding API 请求失败 | `backend/db/sqlite_client.py` |
+   | `embedding_dim_mismatch_requires_reindex` | 当前查询作用域内的向量维度和当前配置不一致，需要重建索引 | `backend/db/sqlite_client.py` |
+   | `vector_dim_mixed_requires_reindex` / `vector_dim_mismatch_requires_reindex` | 当前查询作用域内混入了多种向量维度，或该作用域整体维度和当前配置不一致，需要重建索引 | `backend/db/sqlite_client.py` |
    | `reranker_request_failed` | Reranker API 请求失败 | `backend/db/sqlite_client.py` |
    | `reranker_config_missing` | Reranker 配置缺失 | `backend/db/sqlite_client.py` |
    | `compact_gist_llm_empty` | Compact Gist LLM 返回空结果 | `backend/mcp_server.py` |
@@ -531,6 +533,8 @@ cd backend
    # 检查索引状态
    index_status()
    ```
+
+   > 如果看到的是向量维度相关的降级原因，先重建**当前查询作用域**对应的数据就够了。现在这类检查已经会跟着 `domain` / `path_prefix` / `scope_hint` 等查询范围走，不应该再被别的无关 domain 误触发。
 
 4. **查看观测摘要**（通过 HTTP API）：
 

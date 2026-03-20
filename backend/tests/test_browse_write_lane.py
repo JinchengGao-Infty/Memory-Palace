@@ -228,6 +228,46 @@ async def test_browse_write_endpoints_run_through_write_lane(
     ]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["create", "update", "delete"])
+async def test_browse_write_endpoints_surface_write_lane_timeout_as_503(
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    fake_client = _FakeBrowseClient()
+
+    async def _run_write(*, session_id: Optional[str], operation: str, task):
+        _ = session_id, operation, task
+        raise RuntimeError("write_lane_timeout")
+
+    monkeypatch.setattr(browse_api, "get_sqlite_client", lambda: fake_client)
+    monkeypatch.setattr(browse_api.runtime_state.write_lanes, "run_write", _run_write)
+    monkeypatch.setattr(browse_api, "ENABLE_WRITE_LANE_QUEUE", True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        if operation == "create":
+            await browse_api.create_node(
+                browse_api.NodeCreate(
+                    parent_path="agent",
+                    title="new_note",
+                    content="create payload",
+                    priority=1,
+                    domain="core",
+                )
+            )
+        elif operation == "update":
+            await browse_api.update_node(
+                path="agent/new_note",
+                domain="core",
+                body=browse_api.NodeUpdate(content="update payload"),
+            )
+        else:
+            await browse_api.delete_node(path="agent/new_note", domain="core")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == {"error": "write_lane_timeout"}
+
+
 def test_browse_node_models_reject_oversized_content() -> None:
     oversized_content = "x" * (browse_api._BROWSE_CONTENT_MAX_CHARS + 1)
 

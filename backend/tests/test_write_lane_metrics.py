@@ -175,6 +175,57 @@ async def test_write_lane_metrics_count_cancelled_global_wait_as_failure(
 
 
 @pytest.mark.asyncio
+async def test_write_lane_times_out_when_global_slot_is_held_too_long(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("RUNTIME_WRITE_GLOBAL_CONCURRENCY", "1")
+    monkeypatch.setenv("RUNTIME_WRITE_GLOBAL_ACQUIRE_TIMEOUT_SECONDS", "0.01")
+    coordinator = WriteLaneCoordinator()
+    release_holder = asyncio.Event()
+
+    async def _hold_global_slot() -> str:
+        await release_holder.wait()
+        return "holder_done"
+
+    async def _quick_success() -> str:
+        return "quick_done"
+
+    holder = asyncio.create_task(
+        coordinator.run_write(
+            session_id="holder-timeout",
+            operation="create_memory",
+            task=_hold_global_slot,
+        )
+    )
+
+    for _ in range(100):
+        if (await coordinator.status())["global_active"] == 1:
+            break
+        await asyncio.sleep(0.001)
+    else:
+        pytest.fail("holder did not acquire global write slot in time")
+
+    with pytest.raises(RuntimeError, match="write_lane_timeout"):
+        await coordinator.run_write(
+            session_id="timed-out",
+            operation="update_memory",
+            task=_quick_success,
+        )
+
+    release_holder.set()
+    assert await holder == "holder_done"
+
+    status = await coordinator.status()
+
+    assert status["global_waiting"] == 0
+    assert status["global_active"] == 0
+    assert status["writes_total"] == 2
+    assert status["writes_success"] == 1
+    assert status["writes_failed"] == 1
+    assert status["last_error"] == "write_lane_timeout"
+
+
+@pytest.mark.asyncio
 async def test_write_lane_releases_idle_session_locks_after_write_completion() -> None:
     coordinator = WriteLaneCoordinator()
 

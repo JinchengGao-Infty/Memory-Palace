@@ -425,6 +425,42 @@ def test_snapshot_manager_rejects_traversal_session_id(tmp_path: Path) -> None:
         manager.clear_session("..")
 
 
+def test_snapshot_manager_recovers_from_corrupted_manifest_using_resource_files(
+    tmp_path: Path,
+) -> None:
+    manager = SnapshotManager(str(tmp_path / "snapshots"))
+    created = manager.create_snapshot(
+        "session-1",
+        "memory:1",
+        "memory",
+        {
+            "uri": "core://agent/example",
+            "content": "before update",
+            "operation_type": "modify",
+        },
+    )
+
+    assert created is True
+
+    manifest_path = tmp_path / "snapshots" / "session-1" / "manifest.json"
+    manifest_path.write_text("{not valid json", encoding="utf-8")
+
+    snapshot = manager.get_snapshot("session-1", "memory:1")
+    listed = manager.list_snapshots("session-1")
+
+    assert snapshot is not None
+    assert snapshot["resource_id"] == "memory:1"
+    assert listed == [
+        {
+            "resource_id": "memory:1",
+            "resource_type": "memory",
+            "snapshot_time": snapshot["snapshot_time"],
+            "operation_type": "modify",
+            "uri": "core://agent/example",
+        }
+    ]
+
+
 @pytest.mark.asyncio
 async def test_rollback_path_create_alias_routes_writes_through_write_lane(
     monkeypatch: pytest.MonkeyPatch,

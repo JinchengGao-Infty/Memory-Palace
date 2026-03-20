@@ -255,6 +255,40 @@ def test_apply_profile_shell_docker_profile_syncs_compose_wal_overrides(
     assert values.get("MEMORY_PALACE_DOCKER_JOURNAL_MODE") == "delete"
 
 
+def test_apply_profile_shell_injects_runtime_auto_flush_default_when_profile_omits_it(
+    tmp_path: Path,
+) -> None:
+    project_root = tmp_path / "repo"
+    script_path = project_root / "scripts" / "apply_profile.sh"
+    _copy_script(PROJECT_ROOT / "scripts" / "apply_profile.sh", script_path)
+
+    (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
+    profile_path = project_root / "deploy" / "profiles" / "macos" / "profile-c.env"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db",
+                "SEARCH_DEFAULT_MODE=hybrid",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/apply_profile.sh", "macos", "c", ".env.generated"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    values = dotenv_values(project_root / ".env.generated")
+    assert values.get("RUNTIME_AUTO_FLUSH_ENABLED") == "true"
+
+
 def test_apply_profile_shell_tightens_generated_env_permissions(
     tmp_path: Path,
 ) -> None:
@@ -453,8 +487,10 @@ def test_apply_profile_powershell_declares_utf8_no_bom_and_placeholder_guard() -
     assert "function Write-LinesUtf8" in script_text
     assert "function Assert-ResolvedProfilePlaceholders" in script_text
     assert "function Sync-DockerWalOverrides" in script_text
+    assert "function Ensure-DefaultEnvValue" in script_text
     assert "MEMORY_PALACE_DOCKER_WAL_ENABLED" in script_text
     assert "MEMORY_PALACE_DOCKER_JOURNAL_MODE" in script_text
+    assert "Ensure-DefaultEnvValue -FilePath $Target -Key 'RUNTIME_AUTO_FLUSH_ENABLED' -Value 'true'" in script_text
     assert "$line -match '^\\s*(ROUTER_API_BASE|RETRIEVAL_EMBEDDING_API_BASE|RETRIEVAL_RERANKER_API_BASE)\\s*=\\s*.*:PORT/'" in script_text
     assert "$line -match '=\\s*replace-with-your-key(\\s+#.*)?\\s*$'" in script_text
     assert "$line -match '=\\s*your-embedding-model-id(\\s+#.*)?\\s*$'" in script_text
@@ -482,3 +518,12 @@ def test_docker_profiles_align_wal_defaults_with_compose_runtime_env() -> None:
         assert "MEMORY_PALACE_DOCKER_JOURNAL_MODE=wal" in profile_text
         assert "RUNTIME_WRITE_WAL_ENABLED=true" in profile_text
         assert "RUNTIME_WRITE_JOURNAL_MODE=wal" in profile_text
+
+
+def test_profile_cd_templates_keep_auto_flush_enabled_for_local_platforms() -> None:
+    for platform_name in ("macos", "windows"):
+        for profile_name in ("profile-c.env", "profile-d.env"):
+            profile_text = (
+                PROJECT_ROOT / "deploy" / "profiles" / platform_name / profile_name
+            ).read_text(encoding="utf-8")
+            assert "RUNTIME_AUTO_FLUSH_ENABLED=true" in profile_text

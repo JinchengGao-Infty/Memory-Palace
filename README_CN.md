@@ -72,15 +72,21 @@
 
 现在同一个 `session_id` 下的快照写入会通过每个 session 一把文件锁做串行化，`manifest.json` 和单个快照 JSON 文件都会通过原子替换方式落盘。用人话说就是：如果多个本地进程共用同一个仓库 checkout，并且刚好写到同一个 Review session，这条快照记录链更不容易丢条目，也不容易留下半写入的 JSON 文件。
 
+如果某条 Review session 的 `manifest.json` 损坏，后端现在只会在**能保住原始数据库作用域**时才重建它。说人话就是：你切到另一份 `.env`、另一个 compose project 或另一份 SQLite 文件后，不会再把旧的损坏会话误认成“当前库”的会话；如果这条会话暂时没法安全识别，它会先被隐藏，而不是被一次只读的会话列表请求顺手删掉。
+
 正常的 backend、SSE、repo-local stdio 退出路径上，`compact_context` / auto-flush 这类 pending summary 现在还会做一次 **best-effort drain**。说人话就是：如果进程准备正常退出，系统会先尽量把还没落盘的 flush summary 补写成记忆；如果这一步失败，就跳过，不会为了“硬写进去”再冒额外风险。
 
 同一条 session 的 `compact_context` / auto-flush flush 现在还会额外走一层基于数据库文件的 session 级进程锁。说人话就是：如果两个本地进程或 worker 同时想把同一个 session 压缩成摘要，后来的那个会直接拿到 `already_in_progress`，而不是继续和前一个抢着写。
 
 现在 SQLite 的短暂锁冲突也会做一次小范围重试，后台索引任务写库时也会经过同一条全局 write lane。说人话就是：前台写入和异步重建在本地多进程压力下更不容易互相撞上。
 
+Dashboard 树形写接口现在在 write lane 等太久时，也会返回结构化的 `503`（`write_lane_timeout`），不再只给一个很难排查的通用 `500`。
+
 ### 🔍 统一检索引擎
 
 三种检索模式——`keyword`（关键词）、`semantic`（语义）、`hybrid`（混合）——支持自动降级。当外部 Embedding 服务不可用时，系统自动回退到关键词搜索，并在发生降级时于响应中报告 `degrade_reasons`。
+
+Embedding 维度不匹配的检查现在会跟着**当前查询作用域**走（例如 `domain`、`path_prefix` 这类过滤条件），不会再因为别的无关 domain 里残留的旧向量把当前查询误降级。如果当前作用域里的向量确实和现配置不一致，`degrade_reasons` 会明确提示需要重建索引。
 
 `candidate_multiplier` 现在仍然只是“第一轮扩候选池”的提示值，不是无限放大开关。当前实现会继续保留硬上限，并在 metadata 里返回实际生效的 `candidate_limit_applied`。
 
