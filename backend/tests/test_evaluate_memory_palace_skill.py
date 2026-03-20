@@ -278,6 +278,18 @@ def test_check_mirrors_returns_partial_when_workspace_mirrors_are_not_installed(
     assert str(mirror_dir) in result.details
 
 
+def test_gemini_test_model_is_env_configurable(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MEMORY_PALACE_GEMINI_TEST_MODEL", "gemini-2.5-flash")
+    monkeypatch.setenv("MEMORY_PALACE_GEMINI_FALLBACK_MODEL", "gemini-2.5-pro")
+
+    module = _load_skill_eval_module()
+
+    assert module.GEMINI_TEST_MODEL == "gemini-2.5-flash"
+    assert module.GEMINI_FALLBACK_MODEL == "gemini-2.5-pro"
+
+
 def test_check_sync_script_returns_partial_when_workspace_mirrors_are_not_installed(
     monkeypatch,
 ) -> None:

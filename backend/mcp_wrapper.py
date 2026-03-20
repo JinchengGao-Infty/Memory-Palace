@@ -16,13 +16,17 @@ aligned with scripts/run_memory_palace_mcp_stdio.sh:
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
 from pathlib import Path
 from typing import List, Tuple
 
-from dotenv import dotenv_values
+try:
+    from dotenv import dotenv_values
+except Exception:  # pragma: no cover
+    dotenv_values = None
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -34,15 +38,55 @@ WINDOWS_VENV_PYTHON = BACKEND_DIR / ".venv" / "Scripts" / "python.exe"
 POSIX_VENV_PYTHON = BACKEND_DIR / ".venv" / "bin" / "python"
 DOCKER_INTERNAL_SQLITE_PREFIXES = ("/app/", "/data/")
 
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _read_env_value_without_dotenv(file_path: Path, key: str) -> str:
+    try:
+        lines = file_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+
+    last_value = ""
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in raw_line:
+            continue
+        raw_key, raw_value = raw_line.split("=", 1)
+        candidate_key = raw_key.strip()
+        if not _ENV_KEY_RE.match(candidate_key) or candidate_key != key:
+            continue
+        candidate_value = raw_value.strip()
+        if not candidate_value:
+            last_value = ""
+            continue
+        if candidate_value[0] in {'"', "'"}:
+            quote = candidate_value[0]
+            closing_idx = candidate_value.find(quote, 1)
+            if closing_idx > 0:
+                last_value = candidate_value[1:closing_idx]
+                continue
+        comment_idx = len(candidate_value)
+        for marker in (" #", "\t#", "  #"):
+            idx = candidate_value.find(marker)
+            if idx != -1:
+                comment_idx = min(comment_idx, idx)
+        last_value = candidate_value[:comment_idx].strip()
+    return last_value
+
 
 def read_env_value(file_path: Path, key: str) -> str:
     if not file_path.is_file():
         return ""
-    parsed = dotenv_values(file_path)
-    value = parsed.get(key)
-    if value is None:
-        return ""
-    return str(value)
+    if dotenv_values is not None:
+        try:
+            parsed = dotenv_values(file_path)
+            value = parsed.get(key)
+            if value is not None:
+                return str(value)
+        except Exception:
+            pass
+    return _read_env_value_without_dotenv(file_path, key)
 
 
 def _normalize_env_string_value(value: str | None) -> str:

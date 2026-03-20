@@ -189,7 +189,7 @@ The following security configurations can be directly verified in the project's 
 | Frontend proxy authentication | Nginx forwards `X-MCP-API-Key` at the server side; the real key is not stored on the browser side, and special characters in the proxy-held key are escaped before the final config is generated | `deploy/docker/nginx.conf.template` |
 | Prohibit privilege escalation | `security_opt: no-new-privileges:true` | `docker-compose.yml` |
 | Data persistence | Docker volumes are isolated per compose project by default: `<compose-project>_data` → `/app/data`, `<compose-project>_snapshots` → `/app/snapshots` | `docker-compose.yml` |
-| Health check (Backend) | Python `urllib.request.urlopen('http://127.0.0.1:8000/health')` | `backend.healthcheck` in `docker-compose.yml` |
+| Health check (Backend) | `python /usr/local/bin/backend-healthcheck.py`; internally it requests `http://127.0.0.1:8000/health` and requires the payload to report `status == "ok"` | `backend.healthcheck` in `docker-compose.yml`, `deploy/docker/backend-healthcheck.py` |
 | Health check (Frontend) | `wget -q -O - http://127.0.0.1:8080/` | `frontend.healthcheck` in `docker-compose.yml` |
 
 ---

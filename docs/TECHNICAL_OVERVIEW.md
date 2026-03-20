@@ -49,7 +49,7 @@ backend/
 
 ### 核心模块说明
 
-- **`main.py`**：FastAPI 应用入口，负责生命周期管理（数据库初始化、legacy 数据库文件兼容恢复、退出前 best-effort drain pending auto-flush summary）、CORS 配置、路由注册（`review`、`browse`、`maintenance`、`setup`）和健康检查。当前 `/health` 对本机 loopback 或带有效 `MCP_API_KEY` 的请求会返回索引状态、write lane 与 index worker 的详细运行时信息；未鉴权的远端探活只返回浅健康结果，避免把内部状态直接暴露出去。默认 CORS origin 收敛为本地常用列表（`localhost/127.0.0.1` 的 `5173/3000`）；显式配置 wildcard（`*`）时会自动禁用 credentials；legacy sqlite 恢复前会执行 regular-file + quick_check + 核心表存在校验，并在解析 SQLite URL 时剥离 query / fragment，跳过 `:memory:` / `file::memory:` 这类非文件目标。
+- **`main.py`**：FastAPI 应用入口，负责生命周期管理（数据库初始化、legacy 数据库文件兼容恢复、退出前 best-effort drain pending auto-flush summary）、CORS 配置、路由注册（`review`、`browse`、`maintenance`、`setup`）和健康检查。当前 `/health` 对本机 loopback 或带有效 `MCP_API_KEY` 的请求会返回索引状态、write lane 与 index worker 的详细运行时信息；未鉴权的远端探活只返回浅健康结果，避免把内部状态直接暴露出去。如果这类详细健康检查已经进入降级态，HTTP 状态码也会直接变成 `503`，方便 Docker healthcheck 和运维探活按“未就绪”处理。默认 CORS origin 收敛为本地常用列表（`localhost/127.0.0.1` 的 `5173/3000`）；显式配置 wildcard（`*`）时会自动禁用 credentials；legacy sqlite 恢复前会执行 regular-file + quick_check + 核心表存在校验，并在解析 SQLite URL 时剥离 query / fragment，跳过 `:memory:` / `file::memory:` 这类非文件目标。
 - **`mcp_server.py`**：实现 9 个 MCP 工具，包括 URI 解析（`domain://path` 格式）、快照管理、write guard 决策、会话缓存、异步索引入队等核心逻辑。同时提供系统 URI（`system://boot`、`system://index`、`system://index-lite`、`system://audit`、`system://recent`）资源。当前公开支持的 MCP 入口是 `stdio` 和 SSE：`stdio` 直接连工具进程；远程访问则通过 `/sse + /messages` 这条 SSE 链路，并继续受 API Key 与网络侧安全控制约束。`search_memory` 现在还会把极端 `candidate_multiplier` 再压回一个硬上限，并通过 metadata 暴露实际生效的 `candidate_limit_applied`；在 session-first 合并之后，最终返回结果也会再按对外暴露的 `score` 做一次稳定排序，避免出现“顺序和分数字段不一致”的返回契约；如果调用方只关心结果本身，也可以传 `verbose=false` 省掉高噪音调试字段。`compact_context` / auto-flush 这条摘要落盘路径现在还会额外走一层基于数据库文件的 session 级进程锁，避免两个本地进程同时压同一条 session 时重复写入。
 - **`runtime_state.py`**：管理写入 lane（串行化写操作）、索引 worker（异步队列处理索引重建任务）、vitality 衰减调度、cleanup review 审批流程和 sleep consolidation 调度等运行时状态。当前 session-first 检索缓存与 flush tracker 都采用“**单 session 限长 + 总 session 数上限**”的进程内边界，避免长时间运行后按 session 数无限增长；session-first 命中缓存还会惰性清理过期条目，避免旧命中长期占着容量。
 - **`run_sse.py`**：SSE 传输层，负责 API Key 鉴权和 `/sse`、`/messages` 两条链路的会话管理。当前实现会在客户端断开后清理 session；如果你继续拿旧的 `session_id` 往 `/messages` 发请求，服务端会明确返回 `404/410`，而不是假装 `202 Accepted`。它现在还会在受信代理链路下优先按 `X-Forwarded-For` / `X-Real-IP` 识别真实客户端地址来做 `/messages` burst limit，并默认发送 15 秒 heartbeat ping。仓库当前保留两种使用方式：本地可独立运行 `run_sse.py` 做 standalone 调试；Docker 默认路径则把同一套 SSE 入口直接挂进 `main.py` 的 backend 进程，通过前端代理暴露。
@@ -315,9 +315,10 @@ Docker 端口环境变量：
 
 - Compose 文件：`docker-compose.yml`
 - 镜像定义：`deploy/docker/Dockerfile.backend`（基于 `python:3.11-slim`）、`deploy/docker/Dockerfile.frontend`（构建阶段 `node:22-alpine`，运行阶段 `nginxinc/nginx-unprivileged:1.27-alpine`）
+- Backend 健康检查脚本：`deploy/docker/backend-healthcheck.py`（容器内对 `/health` 做二次检查，要求返回 payload 的 `status == "ok"`）
 - Nginx 配置模板：`deploy/docker/nginx.conf.template`（服务端转发 `X-MCP-API-Key`，并对 `/index.html` 返回 no-store/no-cache/must-revalidate，减少前端更新后继续命中旧入口页面；前端入口脚本会先对代理持有的 key 做一次特殊字符转义，再生成最终 Nginx 配置）
 - 入口脚本：`deploy/docker/backend-entrypoint.sh`、`deploy/docker/frontend-entrypoint.sh`
-- 备份脚本：`scripts/backup_memory.sh`、`scripts/backup_memory.ps1`
+- 备份脚本：`scripts/backup_memory.sh`、`scripts/backup_memory.ps1`（默认保留最近 `20` 份备份，可通过 `--keep` / `-Keep` 调整）
 - 分享前检查：`scripts/pre_publish_check.sh`
 
 ---

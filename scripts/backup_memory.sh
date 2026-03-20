@@ -6,6 +6,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 ENV_FILE="${PROJECT_ROOT}/.env"
 OUTPUT_DIR="${PROJECT_ROOT}/backups"
+KEEP_COUNT="${MEMORY_PALACE_BACKUP_KEEP:-20}"
 
 normalize_cli_path() {
   local raw_path="${1:-}"
@@ -31,8 +32,10 @@ normalize_cli_path() {
 usage() {
   cat <<'EOF'
 Usage: bash scripts/backup_memory.sh [--env-file <path>] [--output-dir <path>]
+       [--keep <count>]
 
 Creates a consistent SQLite backup using Python's sqlite3 backup API.
+Use `--keep 0` to disable backup rotation. Default: 20.
 EOF
 }
 
@@ -44,6 +47,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --output-dir)
       OUTPUT_DIR="$(normalize_cli_path "${2:-}")"
+      shift 2
+      ;;
+    --keep)
+      KEEP_COUNT="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -61,6 +68,11 @@ done
 if [[ ! -f "${ENV_FILE}" ]]; then
   echo "Environment file not found: ${ENV_FILE}" >&2
   exit 1
+fi
+
+if [[ ! "${KEEP_COUNT}" =~ ^[0-9]+$ ]]; then
+  echo "--keep must be a non-negative integer, got: ${KEEP_COUNT}" >&2
+  exit 2
 fi
 
 resolve_python_bin() {
@@ -101,6 +113,7 @@ fi
 export MEMORY_PALACE_PROJECT_ROOT="${PROJECT_ROOT}"
 export MEMORY_PALACE_BACKUP_ENV_FILE="${ENV_FILE}"
 export MEMORY_PALACE_BACKUP_OUTPUT_DIR="${OUTPUT_DIR}"
+export MEMORY_PALACE_BACKUP_KEEP_COUNT="${KEEP_COUNT}"
 
 "${PYTHON_BIN}" - <<'PY'
 import os
@@ -192,6 +205,7 @@ def resolve_sqlite_path(project_root: Path, database_url: str) -> Path:
 project_root = Path(os.environ["MEMORY_PALACE_PROJECT_ROOT"])
 env_file = Path(os.environ["MEMORY_PALACE_BACKUP_ENV_FILE"])
 output_dir = Path(os.environ["MEMORY_PALACE_BACKUP_OUTPUT_DIR"])
+keep_count = int(os.environ["MEMORY_PALACE_BACKUP_KEEP_COUNT"])
 
 database_url = read_database_url(env_file)
 sqlite_path = resolve_sqlite_path(project_root, database_url)
@@ -218,4 +232,16 @@ except (OSError, sqlite3.Error) as exc:
 print("Backup completed.")
 print(f"Source: {sqlite_path}")
 print(f"Target: {dest_file}")
+
+if keep_count > 0:
+    backups = sorted(output_dir.glob("memory_palace_backup_*.db"))
+    stale_backups = backups[:-keep_count]
+    for stale_backup in stale_backups:
+        try:
+            stale_backup.unlink()
+        except OSError:
+            pass
+    print(
+        f"Rotation: kept {min(len(backups), keep_count)} backup(s), removed {len(stale_backups)}."
+    )
 PY

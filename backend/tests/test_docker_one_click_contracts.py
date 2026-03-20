@@ -118,7 +118,7 @@ def test_compose_waits_for_healthy_sse_service() -> None:
     frontend_block = compose_text.split("\n  frontend:\n", 1)[1]
 
     assert "healthcheck:" in backend_block
-    assert "http://127.0.0.1:8000/health" in backend_block
+    assert 'python", "/usr/local/bin/backend-healthcheck.py' in backend_block
     assert 'host.docker.internal:host-gateway' in backend_block
     assert "HOST: 0.0.0.0" in backend_block
     assert "# Docker defaults to WAL for the repository's named-volume deployment path." in backend_block
@@ -225,6 +225,15 @@ def test_pull_based_ghcr_compose_matches_repo_two_service_topology() -> None:
     assert "\n  sse:\n" not in ghcr_compose
     assert "backend:\n        condition: service_healthy" in frontend_block
     assert "sse:\n        condition: service_healthy" not in frontend_block
+
+
+def test_backend_dockerfile_installs_healthcheck_script() -> None:
+    dockerfile = (PROJECT_ROOT / "deploy" / "docker" / "Dockerfile.backend").read_text(
+        encoding="utf-8"
+    )
+
+    assert "COPY deploy/docker/backend-healthcheck.py /usr/local/bin/backend-healthcheck.py" in dockerfile
+    assert "chmod +x /usr/local/bin/backend-entrypoint.sh /usr/local/bin/backend-healthcheck.py" in dockerfile
 
 
 def test_docker_publish_workflow_uses_repo_backend_venv_for_validation() -> None:

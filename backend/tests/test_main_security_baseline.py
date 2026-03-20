@@ -183,6 +183,26 @@ async def test_health_hides_internal_exception_details(
     assert "boom-secret-detail" not in serialized
 
 
+def test_health_endpoint_returns_503_for_detailed_internal_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _boom():
+        raise RuntimeError("boom-secret-detail")
+
+    monkeypatch.setenv("MCP_API_KEY", "health-secret")
+    monkeypatch.setattr(main, "get_sqlite_client", _boom)
+
+    with TestClient(main.app) as client:
+        response = client.get("/health", headers={"X-MCP-API-Key": "health-secret"})
+
+    payload = response.json()
+    assert response.status_code == 503
+    assert payload["status"] == "degraded"
+    assert payload["index"]["reason"] == "internal_error"
+    assert payload["index"]["error_type"] == "RuntimeError"
+    assert "boom-secret-detail" not in json.dumps(payload, ensure_ascii=False)
+
+
 def test_health_endpoint_returns_shallow_payload_without_loopback_or_api_key(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -241,6 +261,33 @@ def test_health_endpoint_keeps_detailed_payload_when_api_key_matches(
     assert payload["index"]["index_available"] is True
     assert payload["runtime"]["write_lanes"] == {"pending": 0}
     assert payload["runtime"]["index_worker"] == {"running": True}
+
+
+def test_health_endpoint_returns_503_for_degraded_detailed_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeClient:
+        async def get_index_status(self):
+            return {"index_available": False, "degraded": True, "reason": "rebuild_required"}
+
+    async def _lane_status():
+        return {"pending": 2}
+
+    async def _worker_status():
+        return {"running": True}
+
+    monkeypatch.setenv("MCP_API_KEY", "health-secret")
+    monkeypatch.setattr(main, "get_sqlite_client", lambda: _FakeClient())
+    monkeypatch.setattr(main.runtime_state.write_lanes, "status", _lane_status)
+    monkeypatch.setattr(main.runtime_state.index_worker, "status", _worker_status)
+
+    with TestClient(main.app) as client:
+        response = client.get("/health", headers={"X-MCP-API-Key": "health-secret"})
+
+    payload = response.json()
+    assert response.status_code == 503
+    assert payload["status"] == "degraded"
+    assert payload["index"]["reason"] == "rebuild_required"
 
 
 def test_main_script_binds_loopback_by_default(

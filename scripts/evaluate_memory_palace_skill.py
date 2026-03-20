@@ -55,8 +55,14 @@ REQUIRED_FILES = [
     Path("references/mcp-workflow.md"),
     Path("references/trigger-samples.md"),
 ]
-GEMINI_TEST_MODEL = "gemini-3-flash-preview"
-GEMINI_FALLBACK_MODEL = "gemini-3-flash-preview"
+GEMINI_TEST_MODEL = (
+    str(os.getenv("MEMORY_PALACE_GEMINI_TEST_MODEL") or "").strip()
+    or "gemini-3-flash-preview"
+)
+GEMINI_FALLBACK_MODEL = (
+    str(os.getenv("MEMORY_PALACE_GEMINI_FALLBACK_MODEL") or "").strip()
+    or GEMINI_TEST_MODEL
+)
 SKIP_GEMINI_LIVE = os.getenv("MEMORY_PALACE_SKIP_GEMINI_LIVE", "").lower() in {"1", "true", "yes"}
 
 

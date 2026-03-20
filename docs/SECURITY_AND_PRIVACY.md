@@ -189,7 +189,7 @@ Authorization: Bearer <MCP_API_KEY>
 | 前端代理鉴权 | 由 Nginx 在服务端转发 `X-MCP-API-Key`，浏览器侧不保存真实 key；生成配置前会先转义代理持有 key 里的特殊字符 | `deploy/docker/nginx.conf.template` |
 | 禁止提权 | `security_opt: no-new-privileges:true` | `docker-compose.yml` |
 | 数据持久化 | Docker Volumes 默认按 compose project 隔离：`<compose-project>_data` → `/app/data`，`<compose-project>_snapshots` → `/app/snapshots` | `docker-compose.yml` |
-| 健康检查（后端） | Python `urllib.request.urlopen('http://127.0.0.1:8000/health')` | `docker-compose.yml` 中的 `backend.healthcheck` |
+| 健康检查（后端） | `python /usr/local/bin/backend-healthcheck.py`；脚本内部会请求 `http://127.0.0.1:8000/health`，并要求返回 payload 的 `status == "ok"` | `docker-compose.yml` 中的 `backend.healthcheck`、`deploy/docker/backend-healthcheck.py` |
 | 健康检查（前端） | `wget -q -O - http://127.0.0.1:8080/` | `docker-compose.yml` 中的 `frontend.healthcheck` |
 
 ---

@@ -16,7 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend /app/backend
 COPY deploy/docker/backend-entrypoint.sh /usr/local/bin/backend-entrypoint.sh
-RUN chmod +x /usr/local/bin/backend-entrypoint.sh \
+COPY deploy/docker/backend-healthcheck.py /usr/local/bin/backend-healthcheck.py
+RUN chmod +x /usr/local/bin/backend-entrypoint.sh /usr/local/bin/backend-healthcheck.py \
     && sed -i 's/\r$//' /usr/local/bin/backend-entrypoint.sh \
     && mkdir -p /app/data /app/snapshots \
     && chown -R app:app /app/backend /app/data /app/snapshots

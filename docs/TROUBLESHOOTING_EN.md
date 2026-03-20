@@ -25,7 +25,7 @@ This document helps you quickly locate and resolve common issues encountered whi
    curl -fsS http://127.0.0.1:8000/health
    ```
 
-   > The backend health check endpoint `GET /health` returns detailed fields such as `status`, `index`, and `runtime` for local loopback requests or requests carrying a valid `MCP_API_KEY`; unauthenticated remote requests only receive a shallow health payload (see the `health()` function in `backend/main.py`).
+   > The backend health check endpoint `GET /health` returns detailed fields such as `status`, `index`, and `runtime` for local loopback requests or requests carrying a valid `MCP_API_KEY`; unauthenticated remote requests only receive a shallow health payload (see the `health()` function in `backend/main.py`). If that detailed health check is already degraded, it now also returns HTTP `503`; treat that as the normal “not ready” signal rather than as a separate proxy-layer failure.
 
 2. Confirm **frontend proxy target is correct**:
 

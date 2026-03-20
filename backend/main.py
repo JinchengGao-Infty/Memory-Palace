@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 
 def _load_project_dotenv(project_root: Optional[Path] = None) -> Optional[Path]:
@@ -181,11 +182,11 @@ async def health(
         x_mcp_api_key=x_mcp_api_key,
         authorization=authorization,
     )
+    if not include_details:
+        return payload
 
     try:
         sqlite_client = get_sqlite_client()
-        if not include_details:
-            return payload
         index_payload: Optional[Dict[str, Any]] = None
 
         for method_name in (
@@ -257,7 +258,11 @@ async def health(
             "write_lanes": {"degraded": True, "reason": "internal_error"},
             "index_worker": {"degraded": True, "reason": "internal_error"},
         }
+        if request is not None:
+            return JSONResponse(status_code=503, content=payload)
 
+    if request is not None and include_details and payload["status"] != "ok":
+        return JSONResponse(status_code=503, content=payload)
     return payload
 
 

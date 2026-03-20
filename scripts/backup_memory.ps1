@@ -2,6 +2,7 @@
 param(
     [string]$EnvFile = '',
     [string]$OutputDir = '',
+    [int]$Keep = 20,
     [Alias('h', '?')]
     [switch]$Help,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -14,8 +15,10 @@ $projectRoot = Split-Path -Parent $scriptDir
 function Show-Usage {
     @'
 Usage: .\scripts\backup_memory.ps1 [-EnvFile <path>] [-OutputDir <path>]
+                               [-Keep <count>]
 
 Creates a consistent SQLite backup using Python's sqlite3 backup API.
+Use `-Keep 0` to disable backup rotation. Default: 20.
 '@
 }
 
@@ -44,6 +47,11 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 if (-not (Test-Path $EnvFile)) {
     Write-Error "Environment file not found: $EnvFile"
     exit 1
+}
+
+if ($Keep -lt 0) {
+    Write-Error "-Keep must be a non-negative integer."
+    exit 2
 }
 
 function Normalize-EnvValue {
@@ -207,3 +215,17 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Backup completed." -ForegroundColor Green
 Write-Host "Source: $sqlitePath"
 Write-Host "Target: $destFile"
+
+if ($Keep -gt 0) {
+    $backups = @(Get-ChildItem -Path $OutputDir -Filter 'memory_palace_backup_*.db' | Sort-Object Name)
+    if ($backups.Count -gt $Keep) {
+        $toRemove = @($backups | Select-Object -First ($backups.Count - $Keep))
+        foreach ($item in $toRemove) {
+            Remove-Item -Path $item.FullName -Force -ErrorAction SilentlyContinue
+        }
+        Write-Host ("Rotation: kept {0} backup(s), removed {1}." -f $Keep, $toRemove.Count)
+    }
+    else {
+        Write-Host ("Rotation: kept {0} backup(s), removed 0." -f $backups.Count)
+    }
+}

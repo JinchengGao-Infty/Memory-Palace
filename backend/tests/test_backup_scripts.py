@@ -125,6 +125,7 @@ def test_backup_memory_ps1_help_flag_shows_usage_without_writing_files(tmp_path:
 
     assert proc.returncode == 0, proc.stderr
     assert "backup_memory.ps1" in proc.stdout
+    assert "-Keep <count>" in proc.stdout
     assert not output_dir.exists()
 
 
@@ -168,6 +169,47 @@ def test_backup_memory_ps1_uses_repo_venv_when_python_missing_from_path(tmp_path
     _assert_backup_has_sample(backups[0])
 
 
+def test_backup_memory_ps1_rotates_old_backups_when_keep_is_set(tmp_path: Path) -> None:
+    pwsh_bin = _pwsh_executable()
+    if not pwsh_bin:
+        pytest.skip("PowerShell is not available")
+
+    db_path = tmp_path / "memory.db"
+    env_path = tmp_path / ".env"
+    output_dir = tmp_path / "backups"
+    _create_sample_sqlite(db_path)
+    env_path.write_text(
+        f"DATABASE_URL=sqlite+aiosqlite:///{db_path.as_posix()}\n",
+        encoding="utf-8",
+    )
+    output_dir.mkdir()
+    for name in ("memory_palace_backup_20240101_000000.db", "memory_palace_backup_20240101_000001.db"):
+        (output_dir / name).write_text("old", encoding="utf-8")
+
+    proc = subprocess.run(
+        [
+            pwsh_bin,
+            "-File",
+            str(BACKUP_PS1),
+            "-EnvFile",
+            str(env_path),
+            "-OutputDir",
+            str(output_dir),
+            "-Keep",
+            "2",
+        ],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    backups = _backup_files(output_dir)
+    assert len(backups) == 2
+    assert not (output_dir / "memory_palace_backup_20240101_000000.db").exists()
+
+
 def test_backup_memory_sh_accepts_database_url_suffixes(tmp_path: Path) -> None:
     bash_bin = _git_bash_executable()
     if not bash_bin:
@@ -209,20 +251,68 @@ def test_backup_memory_sh_accepts_database_url_suffixes(tmp_path: Path) -> None:
     _assert_backup_has_sample(backups[0])
 
 
+def test_backup_memory_sh_rotates_old_backups_when_keep_is_set(tmp_path: Path) -> None:
+    bash_bin = _git_bash_executable()
+    if not bash_bin:
+        pytest.skip("Git Bash is not available")
+
+    db_path = tmp_path / "memory.db"
+    env_path = tmp_path / ".env"
+    output_dir = tmp_path / "backups"
+    _create_sample_sqlite(db_path)
+    env_path.write_text(
+        f"DATABASE_URL=sqlite+aiosqlite:///{db_path.as_posix()}\n",
+        encoding="utf-8",
+    )
+    output_dir.mkdir()
+    for name in ("memory_palace_backup_20240101_000000.db", "memory_palace_backup_20240101_000001.db"):
+        (output_dir / name).write_text("old", encoding="utf-8")
+
+    command = " ".join(
+        [
+            shlex.quote("scripts/backup_memory.sh"),
+            "--env-file",
+            shlex.quote(str(env_path).replace("\\", "/")),
+            "--output-dir",
+            shlex.quote(str(output_dir).replace("\\", "/")),
+            "--keep",
+            "2",
+        ]
+    )
+
+    proc = subprocess.run(
+        [bash_bin, "-lc", command],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    backups = _backup_files(output_dir)
+    assert len(backups) == 2
+    assert not (output_dir / "memory_palace_backup_20240101_000000.db").exists()
+
+
 def test_backup_memory_sh_uses_incremental_backup_and_cleans_partial_file() -> None:
     script_text = BACKUP_SH.read_text(encoding="utf-8")
 
+    assert "--keep <count>" in script_text
+    assert 'KEEP_COUNT="${MEMORY_PALACE_BACKUP_KEEP:-20}"' in script_text
     assert 'sqlite3.connect(sqlite_path, timeout=30.0)' in script_text
     assert 'source_conn.execute("PRAGMA busy_timeout = 30000")' in script_text
     assert 'target_conn.execute("PRAGMA busy_timeout = 30000")' in script_text
     assert "source_conn.backup(target_conn, pages=256, sleep=0.05)" in script_text
     assert "dest_file.unlink(missing_ok=True)" in script_text
+    assert "MEMORY_PALACE_BACKUP_KEEP_COUNT" in script_text
     assert 'fail(f"SQLite backup failed: {exc}")' in script_text
 
 
 def test_backup_memory_ps1_uses_incremental_backup_and_cleans_partial_file() -> None:
     script_text = BACKUP_PS1.read_text(encoding="utf-8")
 
+    assert "[-Keep <count>]" in script_text
+    assert "[int]$Keep = 20" in script_text
     assert 'sqlite3.connect(source, timeout=30.0)' in script_text
     assert 'source_conn.execute("PRAGMA busy_timeout = 30000")' in script_text
     assert 'target_conn.execute("PRAGMA busy_timeout = 30000")' in script_text

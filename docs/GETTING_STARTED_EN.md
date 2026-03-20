@@ -342,6 +342,8 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 >
 > Currently, Docker Compose first waits for the `backend` `/health` check to pass, and the one-click script then adds one extra frontend-proxied `/sse` reachability check before treating the frontend as truly ready. In practice, when the container first shows `running`, the page may still take a few more seconds to become truly available, which is normal.
 >
+> The backend container-side check is no longer “HTTP 200 from `/health` is enough”. It also runs `deploy/docker/backend-healthcheck.py`, which requires the payload to report `status == "ok"`. If detailed `/health` is already degraded, Docker keeps the backend unhealthy.
+>
 > Keep the WAL safety boundary in mind as well: the repository defaults only treat **Docker named volume + WAL** as a supported path. If you replace backend `/app/data` with a bind mount to NFS/CIFS/SMB or another network filesystem, explicitly switch back to `MEMORY_PALACE_DOCKER_WAL_ENABLED=false` and `MEMORY_PALACE_DOCKER_JOURNAL_MODE=delete`. `docker_one_click.sh/.ps1` now performs that preflight check before `docker compose up` and aborts on the risky combination; manual `docker compose up` / `docker compose -f docker-compose.ghcr.yml up` does not do that validation for you.
 >
 > The Docker frontend also serves `/index.html` with `Cache-Control: no-store, no-cache, must-revalidate` to reduce the chance that a browser keeps an old entry page after a frontend update. If you still see an obviously old page right after upgrading the image, first confirm the new container is actually running, then refresh the page once. Only continue checking cache behavior if you also put your own reverse proxy or corporate cache in front of it.
@@ -400,16 +402,22 @@ bash scripts/backup_memory.sh
 
 # Specify env / output directory
 bash scripts/backup_memory.sh --env-file .env --output-dir backups
+
+# Keep only the latest 10 backups
+bash scripts/backup_memory.sh --env-file .env --output-dir backups --keep 10
 ```
 
 ```powershell
 # Windows PowerShell
 .\scripts\backup_memory.ps1
+
+# Keep only the latest 10 backups
+.\scripts\backup_memory.ps1 -EnvFile .env -OutputDir backups -Keep 10
 ```
 
 > Backup files are written to `backups/` by default. If you are preparing to share the repository or package it for delivery, you usually don't need to include them.
 >
-> Both backup scripts read `DATABASE_URL` from the selected env file, strip optional query / fragment suffixes such as `?mode=...` or `#...`, and then back up the resolved SQLite file. On native Windows, prefer `backup_memory.ps1`; on `Git Bash` / `WSL`, `backup_memory.sh` is fine. Both scripts now add `busy_timeout`, copy in small page batches, and remove a partial backup file if the run fails halfway, so a failed backup does not leave behind a misleading artifact.
+> Both backup scripts read `DATABASE_URL` from the selected env file, strip optional query / fragment suffixes such as `?mode=...` or `#...`, and then back up the resolved SQLite file. On native Windows, prefer `backup_memory.ps1`; on `Git Bash` / `WSL`, `backup_memory.sh` is fine. Both scripts now add `busy_timeout`, copy in small page batches, and remove a partial backup file if the run fails halfway, so a failed backup does not leave behind a misleading artifact. They also keep the latest `20` backups by default; use `--keep <count>` / `-Keep <count>` to change that, or pass `0` to disable rotation.
 >
 > If you only want to see the usage first, run `bash scripts/backup_memory.sh --help` or `.\scripts\backup_memory.ps1 -?`. On native Windows, the PowerShell script now checks the repo `backend/.venv` first and then falls back to common launchers such as `python3` / `py`, so a normal local repo setup usually does not need a special PATH tweak before backup.
 
@@ -444,7 +452,7 @@ python scripts/evaluate_memory_palace_skill.py
 cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
-The scripts default to generating summaries in `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` and `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` respectively. These two results are mainly for local review and are not the primary instruction documents. `evaluate_memory_palace_skill.py` now returns a non-zero exit code whenever any check is `FAIL`; `SKIP` / `PARTIAL` / `MANUAL` do not fail the process by themselves, and the current default Gemini smoke model is `gemini-3-flash-preview`. If `codex exec` does not emit structured output before the smoke timeout, the `codex` item is now reported as `PARTIAL` instead of stalling the whole run.
+The scripts default to generating summaries in `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` and `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` respectively. These two results are mainly for local review and are not the primary instruction documents. `evaluate_memory_palace_skill.py` now returns a non-zero exit code whenever any check is `FAIL`; `SKIP` / `PARTIAL` / `MANUAL` do not fail the process by themselves, and the current default Gemini smoke model is `gemini-3-flash-preview`. If you only want to override that model locally for one run, set `MEMORY_PALACE_GEMINI_TEST_MODEL`; if you also need a separate fallback model, add `MEMORY_PALACE_GEMINI_FALLBACK_MODEL`. If `codex exec` does not emit structured output before the smoke timeout, the `codex` item is now reported as `PARTIAL` instead of stalling the whole run.
 If you need isolated output during parallel review or CI, set `MEMORY_PALACE_SKILL_REPORT_PATH` / `MEMORY_PALACE_MCP_E2E_REPORT_PATH` first.
 If you just cloned the GitHub repository, it is normal if you don't see these two files yet; they are local artifacts generated after running the scripts.
 
@@ -483,7 +491,7 @@ Expected return (from the `/health` endpoint in `main.py`):
 
 > This detailed payload with `index` / `runtime` is returned by default only for local loopback requests, or for requests carrying a valid `MCP_API_KEY`. Unauthenticated remote `/health` probes intentionally receive only a shallow payload such as `status` and `timestamp`.
 >
-> `status` as `"ok"` indicates the system is normal; if the index is unavailable or an error occurs, `status` will become `"degraded"`.
+> `status` as `"ok"` indicates the system is normal; if the index is unavailable or an error occurs, `status` will become `"degraded"`. For these **detailed health checks** on loopback or authenticated requests, the endpoint now also returns HTTP `503` whenever it is degraded, so Docker health checks and operators can treat it as not ready. Unauthenticated remote shallow health checks still stay on HTTP `200`.
 
 ### 5.2 Browsing Memory Tree
 

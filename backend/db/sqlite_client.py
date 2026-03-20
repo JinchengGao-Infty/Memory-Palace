@@ -13,6 +13,7 @@ import json
 import math
 import hashlib
 import sqlite3
+import subprocess
 import time
 import httpx
 from pathlib import Path as FilePath
@@ -58,6 +59,8 @@ if os.path.exists(_dotenv_path):
 Base = declarative_base()
 
 _SQLITE_ADAPTERS_REGISTERED = False
+_DATABASE_URL_PLACEHOLDER_MARKERS = ("<your-user>", "__REPLACE_ME__")
+_NETWORK_FILESYSTEM_TYPES = {"nfs", "nfs4", "cifs", "smb", "smbfs"}
 
 
 def _register_sqlite_adapters() -> None:
@@ -106,6 +109,79 @@ def _resolve_init_lock_path(database_file: Optional[FilePath]) -> Optional[FileP
     if database_file.suffix:
         return database_file.with_suffix(f"{database_file.suffix}.init.lock")
     return FilePath(f"{database_file}.init.lock")
+
+
+def _validate_database_url_placeholders(database_url: str) -> None:
+    database_file = _extract_sqlite_file_path(database_url)
+    if database_file is None:
+        return
+    normalized_path = str(database_file).strip()
+    for marker in _DATABASE_URL_PLACEHOLDER_MARKERS:
+        if marker in normalized_path:
+            raise ValueError(
+                "DATABASE_URL still contains an unresolved profile placeholder. "
+                "Generate your local .env via scripts/apply_profile.sh/.ps1 or "
+                "replace the placeholder with a real host path before starting the backend."
+            )
+
+
+def _resolve_existing_probe_path(path: Optional[FilePath]) -> Optional[FilePath]:
+    if path is None:
+        return None
+    candidate = path if path.is_absolute() else (FilePath.cwd() / path)
+    candidate = candidate.expanduser()
+    while not candidate.exists():
+        parent = candidate.parent
+        if parent == candidate:
+            return None
+        candidate = parent
+    return candidate
+
+
+def _detect_filesystem_type(probe_path: Optional[FilePath]) -> str:
+    if probe_path is None:
+        return ""
+    commands = (
+        ("stat", "-f", "%T", str(probe_path)),
+        ("stat", "-f", "-c", "%T", str(probe_path)),
+        ("df", "-T", str(probe_path)),
+    )
+    for command in commands:
+        try:
+            output = subprocess.check_output(
+                command,
+                stderr=subprocess.DEVNULL,
+                text=True,
+            ).strip()
+        except Exception:
+            continue
+        if not output:
+            continue
+        if command[0] == "df":
+            lines = [line for line in output.splitlines() if line.strip()]
+            if len(lines) < 2:
+                continue
+            parts = lines[1].split()
+            if len(parts) >= 2:
+                return parts[1].strip().lower()
+            continue
+        return output.splitlines()[-1].strip().lower()
+    return ""
+
+
+def _detect_sqlite_wal_network_filesystem_signal(
+    database_file: Optional[FilePath],
+) -> str:
+    if database_file is None:
+        return ""
+    normalized_path = str(database_file).replace("\\", "/").strip()
+    if normalized_path.startswith("//"):
+        return "unc_path"
+    probe_path = _resolve_existing_probe_path(database_file)
+    filesystem_type = _detect_filesystem_type(probe_path)
+    if filesystem_type in _NETWORK_FILESYSTEM_TYPES:
+        return filesystem_type
+    return ""
 
 
 def _utc_now_naive() -> datetime:
@@ -305,8 +381,12 @@ class SQLiteClient:
                          "sqlite+aiosqlite:///memory_palace.db"
         """
         self.database_url = database_url
+        _validate_database_url_placeholders(database_url)
         self._database_file = _extract_sqlite_file_path(database_url)
         self._init_lock_path = _resolve_init_lock_path(self._database_file)
+        self._runtime_write_wal_network_filesystem_signal = (
+            _detect_sqlite_wal_network_filesystem_signal(self._database_file)
+        )
         self._init_lock_timeout_seconds = max(
             0.0, float(os.getenv("DB_INIT_LOCK_TIMEOUT_SEC", "30") or "30")
         )
@@ -592,6 +672,16 @@ class SQLiteClient:
                 )
                 else "delete"
             )
+            if (
+                requested_mode == "wal"
+                and self._runtime_write_wal_network_filesystem_signal
+            ):
+                requested_mode = "delete"
+                status = "fallback_delete"
+                error = (
+                    "network_filesystem_risk:"
+                    f"{self._runtime_write_wal_network_filesystem_signal}"
+                )
             cursor.execute(f"PRAGMA journal_mode={requested_mode.upper()}")
             journal_mode_row = cursor.fetchone()
             if journal_mode_row and journal_mode_row[0] is not None:
@@ -639,7 +729,8 @@ class SQLiteClient:
                             1, int(wal_checkpoint_row[0])
                         )
             else:
-                status = "disabled"
+                if status != "fallback_delete":
+                    status = "disabled"
         except Exception as exc:
             status = "fallback_delete"
             error = f"pragma_apply_failed:{type(exc).__name__}"

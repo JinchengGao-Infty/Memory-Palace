@@ -341,6 +341,8 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 >
 > 当前 Docker Compose 会先等 `backend` 的 `/health` 通过，同时一键脚本还会补做一次前端代理 `/sse` 的可达性检查，才把 frontend 视为真正 ready。也就是说，容器刚显示 `running` 时，页面可能还会晚几秒才真正可用，这属于正常现象。
 >
+> backend 容器侧的检查现在也不再是“`/health` 只要回 `200` 就算好”，而是会继续执行 `deploy/docker/backend-healthcheck.py`，确认返回 payload 里的 `status == "ok"`。如果详细 `/health` 已经降级，Docker 也会把 backend 继续视为 unhealthy。
+>
 > WAL 风险边界也请一起记住：仓库默认只把“Docker **named volume** + WAL”当成受支持路径。如果你把 backend 的 `/app/data` 改成 NFS/CIFS/SMB 或其它网络文件系统 bind mount，就必须显式切回 `MEMORY_PALACE_DOCKER_WAL_ENABLED=false` 和 `MEMORY_PALACE_DOCKER_JOURNAL_MODE=delete`。当前 `docker_one_click.sh/.ps1` 已经会在 `docker compose up` 前做这层 preflight，并在发现高风险组合时直接拒绝启动；但手动 `docker compose up` / `docker compose -f docker-compose.ghcr.yml up` 不会代你做这一步。
 >
 > 当前 Docker 前端还会对 `/index.html` 返回 `Cache-Control: no-store, no-cache, must-revalidate`，尽量减少“前端已经更新，但浏览器还拿着旧入口页面”的情况。如果你刚升级完镜像仍看到明显旧页面，先确认容器已经是新版本，再手动刷新一次页面；只有在你额外接了自己的反向代理或企业缓存层时，才需要继续检查这些中间层是否改写了缓存头。
@@ -399,16 +401,22 @@ bash scripts/backup_memory.sh
 
 # 指定 env / 输出目录
 bash scripts/backup_memory.sh --env-file .env --output-dir backups
+
+# 只保留最近 10 份备份
+bash scripts/backup_memory.sh --env-file .env --output-dir backups --keep 10
 ```
 
 ```powershell
 # Windows PowerShell
 .\scripts\backup_memory.ps1
+
+# 只保留最近 10 份备份
+.\scripts\backup_memory.ps1 -EnvFile .env -OutputDir backups -Keep 10
 ```
 
 > 备份文件默认写入 `backups/`。如果你准备分享仓库或打包交付，通常不需要把它一并带上。
 >
-> 这两条备份脚本都会先读取你指定 env 文件里的 `DATABASE_URL`，自动去掉可选的 query / fragment（例如 `?mode=...`、`#...`），再对实际 SQLite 文件做一致性备份。原生 Windows 优先用 `backup_memory.ps1`；`Git Bash` / `WSL` 继续用 `backup_memory.sh` 即可。当前这两条脚本都会先给源/目标连接加 `busy_timeout`，再按小批量页面做增量 backup；如果中途失败，也都会清理半成品备份文件，避免留下看起来像成功的空备份。
+> 这两条备份脚本都会先读取你指定 env 文件里的 `DATABASE_URL`，自动去掉可选的 query / fragment（例如 `?mode=...`、`#...`），再对实际 SQLite 文件做一致性备份。原生 Windows 优先用 `backup_memory.ps1`；`Git Bash` / `WSL` 继续用 `backup_memory.sh` 即可。当前这两条脚本都会先给源/目标连接加 `busy_timeout`，再按小批量页面做增量 backup；如果中途失败，也都会清理半成品备份文件，避免留下看起来像成功的空备份。默认还会只保留最近 `20` 份备份；如果你想自己控留存数，用 `--keep <count>` / `-Keep <count>` 即可，传 `0` 则表示不做轮转。
 >
 > 如果你只是想先看脚本用法，直接运行 `bash scripts/backup_memory.sh --help` 或 `.\scripts\backup_memory.ps1 -?`。原生 Windows 的 PowerShell 脚本现在也会优先检查仓库里的 `backend/.venv`，找不到时再回退到常见的 `python3` / `py`，正常本地仓库环境一般不需要额外改 PATH。
 
@@ -443,7 +451,7 @@ python scripts/evaluate_memory_palace_skill.py
 cd backend && python ../scripts/evaluate_memory_palace_mcp_e2e.py
 ```
 
-脚本默认会分别在 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 和 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` 生成摘要。这两份结果主要用于本地复核，不是主说明文档。`evaluate_memory_palace_skill.py` 现在只要任一检查是 `FAIL` 就会返回非零退出码；`SKIP` / `PARTIAL` / `MANUAL` 不会单独让进程失败，当前默认的 Gemini smoke 模型是 `gemini-3-flash-preview`。如果 `codex exec` 在 smoke 超时前没有产出结构化输出，`codex` 那一项会记成 `PARTIAL`，而不是把整轮卡住。
+脚本默认会分别在 `<repo-root>/docs/skills/TRIGGER_SMOKE_REPORT.md` 和 `<repo-root>/docs/skills/MCP_LIVE_E2E_REPORT.md` 生成摘要。这两份结果主要用于本地复核，不是主说明文档。`evaluate_memory_palace_skill.py` 现在只要任一检查是 `FAIL` 就会返回非零退出码；`SKIP` / `PARTIAL` / `MANUAL` 不会单独让进程失败，当前默认的 Gemini smoke 模型是 `gemini-3-flash-preview`。如果你只想在本机临时换一套 Gemini smoke 模型，可设置 `MEMORY_PALACE_GEMINI_TEST_MODEL`；如果还要把 fallback 模型单独改开，再额外设置 `MEMORY_PALACE_GEMINI_FALLBACK_MODEL`。如果 `codex exec` 在 smoke 超时前没有产出结构化输出，`codex` 那一项会记成 `PARTIAL`，而不是把整轮卡住。
 如果你在并行 review 或 CI 里想隔离输出，也可以先设置 `MEMORY_PALACE_SKILL_REPORT_PATH` / `MEMORY_PALACE_MCP_E2E_REPORT_PATH`。
 如果你是刚 clone 下来的 GitHub 仓库，暂时看不到这两份文件也正常；它们是运行脚本后才生成的本地产物。
 
@@ -482,7 +490,7 @@ curl -fsS http://localhost:18000/health
 
 > 上面这类带 `index` / `runtime` 的详细 payload，默认只会返回给本机 loopback 请求，或带有效 `MCP_API_KEY` 的请求。未鉴权的远端 `/health` 调用只会拿到 `status` 和 `timestamp` 这类浅健康信息。
 >
-> `status` 为 `"ok"` 表示系统正常；若 index 不可用或报错，`status` 会变为 `"degraded"`。
+> `status` 为 `"ok"` 表示系统正常；若 index 不可用或报错，`status` 会变为 `"degraded"`。对本机 loopback 或带有效 key 的这类**详细健康检查**，当前一旦进入降级态，HTTP 状态码也会直接变成 `503`，方便 Docker 健康检查和运维探活把它当成“未就绪”；未鉴权远端的浅健康结果仍保持 `200`。
 
 ### 5.2 浏览记忆树
 

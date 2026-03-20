@@ -194,6 +194,22 @@ def test_read_env_value_parses_quoted_value_with_inline_comment(tmp_path: Path) 
     )
 
 
+def test_read_env_value_falls_back_when_python_dotenv_is_unavailable(tmp_path: Path) -> None:
+    module = _load_module()
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'DATABASE_URL="sqlite+aiosqlite:////tmp/memory_palace.db" # local db\n',
+        encoding="utf-8",
+    )
+
+    module.dotenv_values = None
+
+    assert (
+        module.read_env_value(env_file, "DATABASE_URL")
+        == "sqlite+aiosqlite:////tmp/memory_palace.db"
+    )
+
+
 def test_normalize_env_string_value_strips_quotes_and_whitespace() -> None:
     module = _load_module()
 

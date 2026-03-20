@@ -106,3 +106,32 @@ async def test_runtime_write_wal_mode_is_forced_to_delete_when_wal_disabled(
     assert capabilities["runtime_write_journal_mode_requested"] == "delete"
     assert capabilities["runtime_write_journal_mode_effective"] == "delete"
     assert capabilities["runtime_write_pragma_status"] == "disabled"
+
+
+def test_database_url_rejects_unresolved_profile_placeholder() -> None:
+    with pytest.raises(ValueError, match="unresolved profile placeholder"):
+        SQLiteClient(
+            "sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db"
+        )
+
+
+@pytest.mark.asyncio
+async def test_runtime_write_wal_falls_back_on_risky_network_filesystem(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("RUNTIME_WRITE_WAL_ENABLED", "true")
+    monkeypatch.setenv("RUNTIME_WRITE_JOURNAL_MODE", "wal")
+    monkeypatch.setattr(
+        "db.sqlite_client._detect_sqlite_wal_network_filesystem_signal",
+        lambda _path: "nfs",
+    )
+
+    client = SQLiteClient(_sqlite_url(tmp_path / "runtime-write-wal-network-fs.db"))
+    await client.init_db()
+    status = await client.get_index_status()
+    await client.close()
+
+    capabilities = status["capabilities"]
+    assert capabilities["runtime_write_journal_mode_effective"] == "delete"
+    assert capabilities["runtime_write_pragma_status"] == "fallback_delete"
+    assert capabilities["runtime_write_pragma_error"] == "network_filesystem_risk:nfs"

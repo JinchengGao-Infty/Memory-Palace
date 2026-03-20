@@ -78,7 +78,7 @@ def test_pull_based_ghcr_compose_matches_backend_frontend_proxy_topology() -> No
     frontend_block = compose_text.split("\n  frontend:\n", 1)[1]
 
     assert "\n  sse:\n" not in compose_text
-    assert "http://127.0.0.1:8000/health" in backend_block
+    assert 'python", "/usr/local/bin/backend-healthcheck.py' in backend_block
     assert "RUNTIME_WRITE_WAL_ENABLED: ${MEMORY_PALACE_DOCKER_WAL_ENABLED:-true}" in backend_block
     assert "backend:\n        condition: service_healthy" in frontend_block
 
@@ -92,6 +92,10 @@ def test_frontend_nginx_template_targets_repo_managed_sse_port() -> None:
     assert template_text.count("proxy_pass http://backend:8000;") == 2
     assert "location = /sse/ {" in template_text
     assert "return 307 /sse;" in template_text
+
+
+def test_frontend_static_nginx_reference_is_removed() -> None:
+    assert not (PROJECT_ROOT / "deploy" / "docker" / "nginx.conf").exists()
 
 
 def test_frontend_entrypoint_escapes_dollar_signs_in_api_key() -> None:
