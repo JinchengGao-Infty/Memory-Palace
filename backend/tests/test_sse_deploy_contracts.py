@@ -65,7 +65,7 @@ def test_frontend_nginx_template_targets_repo_managed_sse_port() -> None:
     assert "proxy_pass http://backend:8000/sse/;" in template_text
     assert template_text.count("proxy_pass http://backend:8000;") == 2
     assert "location = /sse/ {" in template_text
-    assert "return 301 /sse;" in template_text
+    assert "return 307 /sse;" in template_text
 
 
 def test_frontend_entrypoint_escapes_dollar_signs_in_api_key() -> None:

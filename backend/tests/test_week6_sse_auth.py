@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
@@ -736,6 +738,54 @@ async def test_sse_rate_limit_state_is_cleared_when_session_closes() -> None:
     )
 
     assert transport._message_rate_limit_buckets == {}
+
+
+@pytest.mark.anyio
+async def test_sse_cancelled_run_propagates_after_transport_cleanup(monkeypatch) -> None:
+    events: list[object] = []
+
+    class _FakeServer:
+        def create_initialization_options(self) -> dict[str, str]:
+            events.append("init")
+            return {"mode": "test"}
+
+        async def run(self, read_stream, write_stream, options) -> None:
+            events.append(("run", read_stream, write_stream, options))
+            raise asyncio.CancelledError()
+
+    class _FakeTransport:
+        @asynccontextmanager
+        async def connect_sse(self, scope, receive, send):
+            events.append(("enter", scope["path"]))
+            try:
+                yield ("read-stream", "write-stream")
+            finally:
+                events.append(("exit", scope["path"]))
+
+    monkeypatch.setattr(run_sse.mcp, "_mcp_server", _FakeServer())
+    sse_endpoint, _health_endpoint = run_sse._build_sse_handlers(_FakeTransport())
+    request = Request(
+        {
+            "type": "http",
+            "path": "/sse",
+            "headers": [],
+            "client": ("127.0.0.1", 50000),
+            "method": "GET",
+            "scheme": "http",
+            "query_string": b"",
+            "server": ("127.0.0.1", 8000),
+        }
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await sse_endpoint(request)
+
+    assert events == [
+        ("enter", "/sse"),
+        "init",
+        ("run", "read-stream", "write-stream", {"mode": "test"}),
+        ("exit", "/sse"),
+    ]
 
 
 def test_sse_main_runs_mcp_startup_before_uvicorn(monkeypatch) -> None:

@@ -28,7 +28,7 @@ server {
   }
 
   location = /sse/ {
-    return 301 /sse;
+    return 307 /sse;
   }
 
   location ^~ /messages {

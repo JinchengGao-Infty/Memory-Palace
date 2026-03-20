@@ -80,18 +80,24 @@ describe('i18n bootstrap', () => {
     expect(document.title).toBe('Memory Palace 控制台');
   });
 
-  it('escapes interpolated html-like values in translated strings', async () => {
+  it('renders interpolated html-like values without double-escaping in React', async () => {
     vi.resetModules();
     const [{ default: freshI18n }] = await Promise.all([
       import('./i18n'),
     ]);
 
-    const translated = freshI18n.t('setup.messages.serverSaved', {
-      target: '<script>alert(1)</script>',
-    });
+    const Probe = () => (
+      <div>
+        {freshI18n.t('setup.messages.serverSaved', {
+          target: '<script>alert(1)</script> & notes',
+        })}
+      </div>
+    );
 
-    expect(translated).not.toContain('<script>');
-    expect(translated).toContain('&lt;script&gt;');
-    expect(translated).toMatch(/&lt;(?:&#x2F;|\/)script&gt;/);
+    render(<Probe />);
+
+    expect(
+      screen.getByText('Saved local setup to <script>alert(1)</script> & notes.')
+    ).toBeInTheDocument();
   });
 });

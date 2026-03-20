@@ -34,7 +34,7 @@ i18n
       lookupLocalStorage: LOCALE_STORAGE_KEY,
     },
     interpolation: {
-      escapeValue: true,
+      escapeValue: false,
     },
     react: {
       useSuspense: false,

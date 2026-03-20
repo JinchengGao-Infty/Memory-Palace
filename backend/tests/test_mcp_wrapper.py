@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import importlib.util
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -190,3 +192,40 @@ def test_read_env_value_parses_quoted_value_with_inline_comment(tmp_path: Path) 
         module.read_env_value(env_file, "DATABASE_URL")
         == "sqlite+aiosqlite:////tmp/memory_palace.db"
     )
+
+
+def test_read_stream_chunk_prefers_read1_when_available() -> None:
+    module = _load_module()
+
+    class _FakeStream:
+        def __init__(self) -> None:
+            self.read1_sizes: list[int] = []
+            self.read_sizes: list[int] = []
+
+        def read1(self, size: int) -> bytes:
+            self.read1_sizes.append(size)
+            return b"payload"
+
+        def read(self, size: int) -> bytes:
+            self.read_sizes.append(size)
+            return b"fallback"
+
+    stream = _FakeStream()
+
+    assert module._read_stream_chunk(stream) == b"payload"
+    assert stream.read1_sizes == [module._IO_CHUNK_SIZE]
+    assert stream.read_sizes == []
+
+
+def test_forward_stream_chunked_strips_carriage_returns_per_chunk() -> None:
+    module = _load_module()
+    source = io.BytesIO(b"line1\r\nline2\rline3")
+    destination = io.BytesIO()
+
+    module._forward_stream_chunked(
+        source,
+        destination,
+        stop_event=threading.Event(),
+    )
+
+    assert destination.getvalue() == b"line1\nline2line3"

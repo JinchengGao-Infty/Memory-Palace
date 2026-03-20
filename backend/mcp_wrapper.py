@@ -173,6 +173,28 @@ def spawn_backend_process() -> subprocess.Popen[bytes]:
         raise SystemExit(1) from exc
 
 
+_IO_CHUNK_SIZE = 4096
+
+
+def _read_stream_chunk(stream) -> bytes:
+    read1 = getattr(stream, "read1", None)
+    if callable(read1):
+        return read1(_IO_CHUNK_SIZE)
+    return stream.read(_IO_CHUNK_SIZE)
+
+
+def _forward_stream_chunked(source, destination, *, stop_event: threading.Event) -> None:
+    while not stop_event.is_set():
+        data = _read_stream_chunk(source)
+        if not data:
+            break
+        cleaned = data.replace(b"\r", b"")
+        if not cleaned:
+            continue
+        destination.write(cleaned)
+        destination.flush()
+
+
 def main() -> None:
     process = spawn_backend_process()
 
@@ -185,16 +207,10 @@ def main() -> None:
 
     def forward_stdin() -> None:
         try:
-            while not stop_forwarding.is_set():
-                data = sys.stdin.buffer.read(1)
-                if not data:
-                    break
-                if data == b"\r":
-                    continue
-                if process.stdin is None:
-                    break
-                process.stdin.write(data)
-                process.stdin.flush()
+            if process.stdin is not None:
+                _forward_stream_chunked(
+                    sys.stdin.buffer, process.stdin, stop_event=stop_forwarding
+                )
         except Exception as exc:  # pragma: no cover
             record_io_error("stdin", exc)
         finally:
@@ -206,16 +222,10 @@ def main() -> None:
 
     def forward_stdout() -> None:
         try:
-            while not stop_forwarding.is_set():
-                if process.stdout is None:
-                    break
-                data = process.stdout.read(1)
-                if not data:
-                    break
-                if data == b"\r":
-                    continue
-                sys.stdout.buffer.write(data)
-                sys.stdout.buffer.flush()
+            if process.stdout is not None:
+                _forward_stream_chunked(
+                    process.stdout, sys.stdout.buffer, stop_event=stop_forwarding
+                )
         except Exception as exc:  # pragma: no cover
             record_io_error("stdout", exc)
 

@@ -56,7 +56,7 @@
 - **写入链路的恢复能力更强了**：同一 session 的 snapshot 现在改成文件锁，SQLite 短暂锁冲突会做一次小范围重试，后台索引任务也会和前台写入共用同一条写入门控。
 - **高干扰检索在当前基准集里表现更稳**：对照旧版本时，`s8,d200` 与 `s100,d200` 这类更容易被干扰的场景，C/D 档位显示出更好的召回。
 - **前端语言切换更直接了**：当前前端默认英文，右上角新增中英切换按钮，浏览器会记住你的选择。
-- **本地 operator 路径也更稳了**：repo-local stdio wrapper 现在会继续复用 `.env` 里的 `RETRIEVAL_REMOTE_TIMEOUT_SEC`，而且 Observability 搜索和活力清理确认这类长请求会给浏览器更长的等待时间。
+- **本地 operator 路径也更稳了**：repo-local stdio wrapper 现在会继续复用 `.env` 里的 `RETRIEVAL_REMOTE_TIMEOUT_SEC`，stdio 转发也改成了分块而不是逐字节，Observability 搜索和活力清理确认这类长请求还会给浏览器更长的等待时间。
 - **公开口径更保守了**：文档现在已经补上原生 Windows 的 repo-local `python-wrapper` 路径，但你自己的远程环境 / GUI 宿主环境仍建议按目标环境再复核一次。
 - **客户端边界写清楚了**：`Claude/Codex/OpenCode/Gemini` 走文档里的 CLI 路径；`Cursor / Windsurf / VSCode-host / Antigravity` 走 `AGENTS.md + MCP 配置片段`；`Gemini live` 和 GUI 宿主验证仍保留边界说明。
 
@@ -517,6 +517,8 @@ python run_sse.py
 >
 > 这两条 launcher 都会优先复用当前仓库的 `backend/.venv` 和 `.env` / `DATABASE_URL`；如果 `.env` 里已经设置了 `RETRIEVAL_REMOTE_TIMEOUT_SEC`，它们也会继续复用这个值；没设置时 repo-local 默认仍是 `8` 秒。只有在仓库里既没有本地 `.env`、也没有 `.env.docker` 时，才会回退到仓库默认 SQLite 路径。若仓库里只有 `.env.docker`，或者本地 `.env` 里的 `DATABASE_URL` 仍写成 Docker 容器内路径（例如 `sqlite+aiosqlite:////app/data/memory_palace.db`，或你自己改成 `/data/...` 的变体），它都会明确拒绝启动，并提示你改走 Docker 暴露的 `/sse` 或改回宿主机绝对路径。repo-local `stdio` wrapper 现在也不再只依赖 `python-dotenv` 才能读取 `.env`；如果本地启动仍然失败，更常见的原因已经变成 `.env` 内容或路径本身有问题，而不是少装了这个额外包。
 >
+> 在原生 Windows 或其它更依赖 wrapper 的宿主路径里，repo-local stdio launcher 现在也会按块转发 stdin/stdout，而不是逐字节转发。说人话就是：遇到更大的 MCP 响应时，体感会比以前顺一些，但原来的 CRLF 清理规则不变。
+>
 > 再补一个这轮实测过的细节：如果某个客户端 / IDE host 把 `DATABASE_URL` 传成了空字符串，这两条 wrapper 也会把它当成“没设置”，继续回退到当前仓库 `.env` 里的有效值；不会因为“变量名存在但值为空”就把 repo-local 启动误判成缺配置。
 >
 > 同样地，如果 `.env` 或你显式传入的 `DATABASE_URL` 仍是 `/app/...` 或 `/data/...` 这类 Docker 容器路径，wrapper 现在也会直接拒绝启动。这不是 MCP 协议故障，而是本机路径配置错了；改成宿主机绝对路径，或者继续走 Docker `/sse`。
@@ -549,6 +551,8 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 > - SSE：`http://127.0.0.1:3000/sse`
 >
 > 如果 Docker env 文件里的 `MCP_API_KEY` 为空，脚本会自动生成一把本地 key。前端会在代理层自动带上这把 key，所以按推荐的一键脚本路径启动时，**受保护请求通常已经能直接用**；但页面右上角仍可能继续显示 `设置 API 密钥`（英文模式下会显示 `Set API key`），因为浏览器页面本身并不知道代理层的真实 key。这不一定代表配置坏了；只有当受保护数据也一起报 `401` 或空态时，才需要继续排查 env / 代理配置。
+>
+> 客户端配置里仍然请把 `/sse` 当成规范公开入口来写。`/sse/` 现在只保留成一个临时兼容重定向，所以新的示例和你自己的配置都继续写 `/sse` 即可。
 >
 > 也请把这个 Docker 前端端口当成可信操作员 / 管理入口。只要有人能直接访问 `http://<你的主机>:3000`，他就能使用 Dashboard 以及被代理的受保护接口，所以不要把这个端口当成“有 `MCP_API_KEY` 就等于终端用户鉴权”的公网入口；若要给受信范围之外的人访问，请先在前面加你自己的 VPN、反向代理鉴权或网络访问控制。
 >

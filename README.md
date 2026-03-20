@@ -60,7 +60,7 @@ If you want the AI to guide installation step by step, start with the standalone
 - **Write-path recovery is tighter**: same-session snapshots now use file locks, transient SQLite lock conflicts get a small bounded retry, and background index jobs share the same write gate as foreground writes.
 - **High-noise retrieval looks stronger in the current benchmark set**: compared with the old project, the C/D profiles show better recall in harder `s8,d200` and `s100,d200` style scenarios.
 - **Dashboard language is now easier to control**: the frontend defaults to English and adds a one-click English / Chinese toggle in the top-right corner, with the selection remembered in the browser.
-- **Local operator paths are less brittle**: repo-local stdio wrappers now reuse `.env` `RETRIEVAL_REMOTE_TIMEOUT_SEC`, and longer-running Dashboard observability / vitality confirmation actions get a longer client-side timeout before the browser gives up.
+- **Local operator paths are less brittle**: repo-local stdio wrappers now reuse `.env` `RETRIEVAL_REMOTE_TIMEOUT_SEC`, forward stdio in chunks instead of one byte at a time, and longer-running Dashboard observability / vitality confirmation actions get a longer client-side timeout before the browser gives up.
 - **Public claims stay conservative**: the docs now include a native-Windows repo-local stdio path through `backend/mcp_wrapper.py`, while still asking you to re-check your own remote / GUI-host deployment environment.
 - **Client boundaries are explicit**: `Claude/Codex/OpenCode/Gemini` use the documented CLI path; IDE hosts such as `Cursor / Windsurf / VSCode-host / Antigravity` use repo-local rules plus an MCP snippet; `Gemini live` and GUI-only host validation still carry explicit caveats.
 
@@ -517,6 +517,8 @@ python run_sse.py
 >
 > Both launchers use the repository `backend/.venv`, read the repository `.env` first, and only fall back to the repo's default SQLite path when neither `DATABASE_URL` nor `.env` is present. They also reuse `RETRIEVAL_REMOTE_TIMEOUT_SEC` from the repository `.env` when it is set; if you leave it unset, the repo-local default remains `8` seconds. If `.env` is missing but `.env.docker` exists, or if a local `.env` still points `DATABASE_URL` at a Docker-internal path such as `sqlite+aiosqlite:////app/data/memory_palace.db` or a `/data/...` variant, the wrapper now refuses to start on purpose because the repo-local stdio path does **not** reuse container-only sqlite paths. In a Docker-only setup, connect the client to `/sse` instead of assuming the wrapper will pick up container data. The repo-local stdio wrapper also no longer depends on `python-dotenv` alone just to read `.env`; if local startup still fails after this change, the problem is usually the `.env` content or path itself rather than that extra package being missing.
 >
+> On native Windows or other wrapper-heavy host paths, the repo-local stdio launcher now forwards stdin/stdout in chunks instead of byte by byte. In plain language: larger MCP responses should feel less sluggish than before, while the same CRLF cleanup rules still apply.
+>
 > One more detail rechecked in the current validation round: if a client or IDE host passes `DATABASE_URL` as an empty string, these wrappers still treat that as “not set” and keep reusing the repository `.env` value. They do not misclassify that case as a missing repo-local configuration just because the variable name exists.
 >
 > The same rule now applies when `.env` itself is wrong: if `.env` or an explicit `DATABASE_URL` still points to `/app/...` or `/data/...`, the wrapper refuses to start on purpose. That is a local path configuration error, not an MCP protocol failure.
@@ -549,6 +551,8 @@ bash scripts/docker_one_click.sh --profile c --allow-runtime-env-injection
 > - SSE: `http://127.0.0.1:3000/sse`
 >
 > If `MCP_API_KEY` is empty in the Docker env file, the profile helper generates a local key automatically. The frontend proxy uses that key on the server side, so on the recommended one-click path, **protected requests usually already work**. The page may still keep showing `Set API key`, because the browser itself does not know the proxy-held key. Treat that as expected unless protected data also starts failing with `401` or empty states.
+>
+> Keep using `/sse` as the canonical public URL in client configs. `/sse/` is only kept as a temporary compatibility redirect, so new examples and operator docs should continue to point to `/sse`.
 >
 > Treat that Docker frontend port as a trusted operator/admin surface. Anyone who can directly reach `http://<host>:3000` can use the Dashboard and its proxied protected routes, so do not expose this port to untrusted networks as if `MCP_API_KEY` were end-user auth. Add your own VPN, reverse-proxy auth, or network ACL in front of it.
 >

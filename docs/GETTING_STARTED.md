@@ -227,6 +227,8 @@ VITE v7.x.x  ready in xxx ms
 - `docs/DASHBOARD_GUIDE_CN.md`
 
 > 如果你在本地手动启动时看到右上角的 `设置 API 密钥`（英文模式下会显示 `Set API key`），这是正常现象：页面已经打开，但 `/browse/*`、`/review/*`、`/maintenance/*` 等受保护接口还没授权。现在点击这个按钮会打开**首启配置向导**，你可以只把 `MCP_API_KEY` 保存到当前浏览器，也可以在“本地 checkout + 非 Docker 运行”场景下把常见运行参数写进 `.env`。向导右上角也自带语言切换按钮，不需要先关掉弹窗才能切中文。第 5 节会继续说明本地验证方式。
+>
+> 再补一个这轮按代码实际行为复核过的小细节：如果向导里显示的占位文本本身带 `&` 或 `<...>` 这类字符，现在会按普通文本正常显示，不会再把 HTML 实体原样露给用户。
 
 > 如果你配置了 `MCP_API_KEY`，打开页面后请点右上角 `设置 API 密钥`（英文模式下会显示 `Set API key`），在向导里输入同一把 key；如果你只想先让 Dashboard 鉴权通过，优先选择“只保存 Dashboard 密钥”即可。
 > 如果你启用了 `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`，本机回环地址上的直连请求可直接访问这些受保护数据接口。
@@ -676,6 +678,7 @@ claude mcp list
 说明：
 
 - `Claude Code` 当前官方 CLI 同时支持 `stdio`、`sse`、`http`
+- 公开文档里仍以 `/sse` 作为规范入口；`/sse/` 只保留成临时兼容重定向
 - 如果未来 Memory Palace 公开提供了更明确的 HTTP / streamable HTTP MCP 入口，优先按官方推荐切到 `http`
 - 就当前仓库公开暴露的远程入口来说，用户可直接连接的是 `/sse`
 

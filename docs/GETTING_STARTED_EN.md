@@ -228,6 +228,8 @@ If you wish to view the Dashboard buttons, fields, and typical operation flows p
 - `docs/DASHBOARD_GUIDE_EN.md`
 
 > If you see `Set API key` in the top right corner when starting manually, this is normal: the page is open, but protected interfaces like `/browse/*`, `/review/*`, and `/maintenance/*` are not yet authorized. Clicking this button now opens the **first-run setup assistant**, which can either save the Dashboard key in the current browser or, when you are running against a non-Docker local checkout, write the common runtime fields into `.env`. The assistant also has its own language toggle in the upper right corner, so you do not need to close it first just to switch to Chinese. Section 5 will explain local validation.
+>
+> Small UI detail rechecked against the current code path: if the assistant shows interpolated labels that contain characters like `&` or `<...>`, they now render as normal text instead of showing HTML entities literally.
 
 > If you configured `MCP_API_KEY`, click `Set API key` in the top right and enter the same key in the assistant. If you only want the Dashboard to authenticate first, prefer the browser-only save path.
 > If you enabled `MCP_API_KEY_ALLOW_INSECURE_LOCAL=true`, direct requests from the local loopback address can access these protected data interfaces.
@@ -681,6 +683,7 @@ Notes:
 - Claude Code officially supports `stdio`, `sse`, and `http`
 - if Memory Palace later exposes a clearer HTTP / streamable HTTP MCP entry, prefer `http`
 - for the current public repository, the remote entry users can connect to directly is `/sse`
+- treat `/sse` as the canonical public URL; `/sse/` only exists as a temporary compatibility redirect
 - for the GHCR / Docker path above, `<YOUR_MCP_API_KEY>` normally comes from `.env.docker`, not from a repo-local stdio wrapper
 
 ### 6.3.3 Gemini CLI manual `/sse` connection
