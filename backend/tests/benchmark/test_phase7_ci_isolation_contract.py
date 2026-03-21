@@ -53,6 +53,7 @@ def test_phase7_dockerignore_excludes_test_and_doc_assets_from_images() -> None:
     assert "backend/tests/" in lines
     assert "docs/" in lines
     assert "snapshots/" in lines
+    assert "**/__pycache__/" in lines
 
 
 def test_phase7_backend_dockerfile_relies_on_backend_copy_with_dockerignore_guard() -> None:

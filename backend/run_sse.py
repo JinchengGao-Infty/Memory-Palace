@@ -578,17 +578,19 @@ def _create_sse_transport() -> MemoryPalaceSseServerTransport:
 def _build_sse_handlers(
     transport: MemoryPalaceSseServerTransport,
 ) -> Tuple[Any, Any]:
-    async def handle_sse(scope: Scope, receive: Receive, send: Send) -> Response:
-        async with transport.connect_sse(scope, receive, send) as streams:
-            await mcp._mcp_server.run(
-                streams[0],
-                streams[1],
-                mcp._mcp_server.create_initialization_options(),
-            )
-        return Response()
+    class _SseEndpoint:
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            async with transport.connect_sse(scope, receive, send) as streams:
+                await mcp._mcp_server.run(
+                    streams[0],
+                    streams[1],
+                    mcp._mcp_server.create_initialization_options(),
+                )
 
-    async def sse_endpoint(request: Request) -> Response:
-        return await handle_sse(request.scope, request.receive, request._send)  # type: ignore[reportPrivateUsage]
+            response = Response()
+            await response(scope, receive, send)
+
+    sse_endpoint = _SseEndpoint()
 
     async def health_endpoint(_request: Request) -> Response:
         return JSONResponse({"status": "ok", "service": "memory-palace-sse"})

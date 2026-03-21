@@ -1,5 +1,6 @@
 import builtins
 import importlib.util
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -7,6 +8,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from api import _write_lane as write_lane_api
 from api import review as review_api
 from db.snapshot import SnapshotManager
 from db.sqlite_client import SQLiteClient
@@ -14,6 +16,14 @@ from db.sqlite_client import SQLiteClient
 
 def _sqlite_url(db_path: Path) -> str:
     return f"sqlite+aiosqlite:///{db_path}"
+
+
+def test_review_api_source_uses_english_only_strings_and_docstrings() -> None:
+    source = (Path(__file__).resolve().parents[1] / "api" / "review.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert re.search(r"[\u4e00-\u9fff]", source) is None
 
 
 @pytest.mark.asyncio
@@ -24,7 +34,7 @@ async def test_review_run_write_lane_surfaces_write_lane_timeout_as_503(
         _ = session_id, operation, task
         raise RuntimeError("write_lane_timeout")
 
-    monkeypatch.setattr(review_api.runtime_state.write_lanes, "run_write", _raise_timeout)
+    monkeypatch.setattr(write_lane_api.runtime_state.write_lanes, "run_write", _raise_timeout)
     monkeypatch.setattr(review_api, "_ENABLE_WRITE_LANE_QUEUE", True)
 
     with pytest.raises(HTTPException) as exc_info:
@@ -32,6 +42,120 @@ async def test_review_run_write_lane_surfaces_write_lane_timeout_as_503(
 
     assert exc_info.value.status_code == 503
     assert exc_info.value.detail == {"error": "write_lane_timeout"}
+
+
+def test_review_formats_permanently_deleted_details_in_english() -> None:
+    assert review_api._format_permanently_deleted_detail(
+        17,
+        action="restore",
+        uri="core://agent/note",
+    ) == (
+        "Old version (memory_id=17) was permanently deleted. "
+        "Cannot restore 'core://agent/note'."
+    )
+    assert review_api._format_permanently_deleted_detail(
+        23,
+        action="roll back",
+    ) == "Old version (memory_id=23) was permanently deleted. Cannot roll back."
+
+
+@pytest.mark.asyncio
+async def test_review_run_write_lane_preserves_review_operation_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: dict[str, str | None] = {}
+
+    async def _capture_run_write(*, session_id: Optional[str], operation: str, task):
+        recorded["session_id"] = session_id
+        recorded["operation"] = operation
+        return await task()
+
+    async def _task() -> str:
+        return "ok"
+
+    monkeypatch.setattr(write_lane_api.runtime_state.write_lanes, "run_write", _capture_run_write)
+    monkeypatch.setattr(review_api, "_ENABLE_WRITE_LANE_QUEUE", True)
+
+    result = await review_api._run_write_lane("unit_test", _task)
+
+    assert result == "ok"
+    assert recorded == {
+        "session_id": "review.unit_test",
+        "operation": "review.unit_test",
+    }
+
+
+def test_review_module_source_contains_only_english_docstrings_and_literals() -> None:
+    source = Path(review_api.__file__).read_text(encoding="utf-8")
+
+    assert not any("\u4e00" <= char <= "\u9fff" for char in source)
+
+
+@pytest.mark.asyncio
+async def test_diff_memory_content_uses_english_deleted_placeholder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _DeletedOldVersionClient:
+        async def get_memory_version(self, memory_id: int):
+            _ = memory_id
+            return None
+
+        async def get_memory_by_path(
+            self,
+            path: str,
+            domain: str,
+            reinforce_access: bool = False,
+        ):
+            _ = path, domain, reinforce_access
+            return None
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: _DeletedOldVersionClient())
+
+    payload = await review_api._diff_memory_content(
+        {
+            "data": {
+                "memory_id": 123,
+                "path": "agent/node",
+                "domain": "core",
+                "uri": "core://agent/node",
+                "all_paths": [],
+            }
+        },
+        "memory:123",
+    )
+
+    assert payload["snapshot_data"]["content"] == (
+        "[Permanently deleted, old content unavailable]"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rollback_memory_content_returns_english_deleted_version_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _DeletedVersionClient:
+        async def get_memory_version(self, memory_id: int):
+            _ = memory_id
+            return None
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: _DeletedVersionClient())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await review_api._rollback_memory_content(
+            {
+                "memory_id": 123,
+                "path": "agent/node",
+                "domain": "core",
+                "uri": "core://agent/node",
+                "all_paths": [],
+            }
+        )
+
+    assert exc_info.value.status_code == 410
+    assert (
+        exc_info.value.detail
+        == "Old version (memory_id=123) was permanently deleted. Cannot roll back."
+    )
 
 
 @pytest.mark.asyncio
@@ -417,6 +541,42 @@ def test_utils_module_imports_without_diff_match_patch() -> None:
     assert "--- old_version" in diff_unified
     assert "+++ new_version" in diff_unified
     assert "change" in summary.lower()
+
+
+def test_review_module_keeps_deleted_messages_in_english() -> None:
+    review_text = Path(review_api.__file__).read_text(encoding="utf-8")
+
+    assert "[Permanently deleted, old content unavailable]" in review_text
+    assert "[已被永久删除，无法显示旧内容]" not in review_text
+    assert "旧版本" not in review_text
+
+
+@pytest.mark.asyncio
+async def test_rollback_memory_content_reports_deleted_version_in_english(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _MissingVersionClient:
+        async def get_memory_version(self, memory_id: int):
+            _ = memory_id
+            return None
+
+    monkeypatch.setattr(review_api, "get_sqlite_client", lambda: _MissingVersionClient())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await review_api._rollback_memory_content(
+            {
+                "memory_id": 17,
+                "path": "legacy",
+                "domain": "core",
+                "uri": "core://legacy",
+            }
+        )
+
+    assert exc_info.value.status_code == 410
+    assert (
+        exc_info.value.detail
+        == "Old version (memory_id=17) was permanently deleted. Cannot roll back."
+    )
 
 
 @pytest.mark.asyncio

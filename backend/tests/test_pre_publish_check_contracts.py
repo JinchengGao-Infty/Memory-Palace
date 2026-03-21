@@ -192,6 +192,7 @@ def test_repo_ignore_rules_cover_local_review_reports_and_local_scan_artifacts()
         ".playwright-cli/",
         ".tmp/",
         ".pytest_cache/",
+        "**/__pycache__/",
         "frontend/dist/",
     ):
         assert expected in dockerignore_text

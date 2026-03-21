@@ -407,7 +407,9 @@ bash scripts/apply_profile.sh macos b
 
 后端现在也会对**当前实际启用的远端检索配置**做同样的 fail-closed 检查。如果你绕过 `apply_profile.*`，直接手工复制了 C/D 模板，并且还保留着 `host.docker.internal:PORT`、`replace-with-your-key`、`your-embedding-model-id`、`your-reranker-model-id` 这类示例值，启动会直接报错，而不是带着一份明显无效的 provider 配置继续运行。
 
-在 macOS / Linux 上，`apply_profile.sh` 现在还会在覆盖已有目标文件前先备份一份 `*.bak`。如果另一份 `apply_profile.sh` 正在写同一个目标文件，后来的进程会直接提示你稍后重试，而不是两边互相覆盖。它生成 staged / update 临时文件时，也会放到目标文件同目录，而不是统一丢到共享 `/tmp`，这样自定义目标路径时更不容易撞上跨文件系统替换的坑。如果你只是想先看看最终会生成什么内容，可以用 `bash scripts/apply_profile.sh --dry-run ...`；这条路径只打印最终结果，不会真正改目标文件。Windows PowerShell 现在也支持同样的预览方式：`.\scripts\apply_profile.ps1 -Platform windows -Profile b -DryRun`。如果你只是想先看脚本用法，可以直接运行 `.\scripts\apply_profile.ps1 -Help`。
+在 macOS / Linux 上，`apply_profile.sh` 现在还会在覆盖已有目标文件前先备份一份 `*.bak`。如果另一份 `apply_profile.sh` 正在写同一个目标文件，后来的进程会直接提示你稍后重试，而不是两边互相覆盖。它生成 staged / update 临时文件时，也会放到目标文件同目录，而不是统一丢到共享 `/tmp`，这样自定义目标路径时更不容易撞上跨文件系统替换的坑。
+
+原生 Windows PowerShell 现在也补齐了同一套操作习惯。简单说：`apply_profile.ps1` 现在也会在覆盖前先备份 `*.bak`，如果另一份 `apply_profile.ps1` 正在写同一个目标文件，也会直接拒绝第二个写入，并且 staged 临时文件同样放在目标文件所在目录，而不是默认共享临时目录。如果你只是想先看看最终会生成什么内容，可以用 `bash scripts/apply_profile.sh --dry-run ...`，或者在 PowerShell 下用 `.\scripts\apply_profile.ps1 -Platform windows -Profile b -DryRun`；这两条路径都只打印最终结果，不会真正改目标文件。如果你只是想先看 PowerShell 脚本用法，可以直接运行 `.\scripts\apply_profile.ps1 -Help`。
 
 如果你前面已经生成过 `.env.docker`，也不要直接把那份 Docker 文件改名成 `.env`。Docker profile 里的 `/app/data/...` 这类容器路径只对容器有效；如果你自己把挂载点改成 `/data/...`，本机 `stdio` MCP 也一样不能直接拿来用，还是需要宿主机自己的绝对路径。
 

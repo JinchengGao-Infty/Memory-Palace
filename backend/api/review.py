@@ -27,9 +27,9 @@ from models import (
 )
 from .utils import get_text_diff
 from .maintenance import require_maintenance_api_key
+from ._write_lane import run_write_lane as _run_api_write_lane
 from db.snapshot import get_snapshot_manager
 from db.sqlite_client import get_sqlite_client
-from runtime_state import runtime_state
 from shared_utils import env_bool as _env_bool
 
 router = APIRouter(
@@ -40,6 +40,9 @@ router = APIRouter(
 
 _VERSION_CHAIN_MAX_HOPS = 64
 _ENABLE_WRITE_LANE_QUEUE = _env_bool("RUNTIME_WRITE_LANE_QUEUE", True)
+_PERMANENTLY_DELETED_OLD_CONTENT_PLACEHOLDER = (
+    "[Permanently deleted, old content unavailable]"
+)
 
 
 async def _run_write_lane(
@@ -48,22 +51,26 @@ async def _run_write_lane(
     *,
     session_id: Optional[str] = None,
 ) -> Any:
-    if not _ENABLE_WRITE_LANE_QUEUE:
-        return await task()
     resolved_session_id = str(session_id or "").strip() or f"review.{operation}"
-    try:
-        return await runtime_state.write_lanes.run_write(
-            session_id=resolved_session_id,
-            operation=f"review.{operation}",
-            task=task,
-        )
-    except RuntimeError as exc:
-        if str(exc) == "write_lane_timeout":
-            raise HTTPException(
-                status_code=503,
-                detail={"error": "write_lane_timeout"},
-            ) from exc
-        raise
+    return await _run_api_write_lane(
+        f"review.{operation}",
+        task,
+        enabled=_ENABLE_WRITE_LANE_QUEUE,
+        session_id=resolved_session_id,
+    )
+
+
+def _format_permanently_deleted_detail(
+    memory_id: Any,
+    *,
+    action: str,
+    uri: Optional[str] = None,
+) -> str:
+    target_suffix = f" '{uri}'" if uri else ""
+    return (
+        f"Old version (memory_id={memory_id}) was permanently deleted. "
+        f"Cannot {action}{target_suffix}."
+    )
 
 
 def _validate_session_id_or_400(session_id: str) -> str:
@@ -164,10 +171,10 @@ def _raise_if_newer_review_snapshot_exists(
 @router.get("/sessions", response_model=List[SessionInfo])
 async def list_sessions():
     """
-    列出所有有快照的 session
-    
-    每个 MCP 服务器实例运行期间算作一个 session。
-    Session ID 格式: mcp_YYYYMMDD_HHMMSS_{random}
+    List all sessions that currently have snapshots.
+
+    Each MCP server runtime instance is treated as one session.
+    Session IDs look like: mcp_YYYYMMDD_HHMMSS_{random}
     """
     manager = get_snapshot_manager()
     sessions = manager.list_sessions()
@@ -177,9 +184,9 @@ async def list_sessions():
 @router.get("/sessions/{session_id}/snapshots", response_model=List[SnapshotInfo])
 async def list_session_snapshots(session_id: str):
     """
-    列出指定 session 中的所有快照
-    
-    返回每个被修改过的资源的快照元信息。
+    List all snapshots recorded for one session.
+
+    Returns snapshot metadata for each modified resource.
     """
     session_id = _validate_session_id_or_400(session_id)
     manager = get_snapshot_manager()
@@ -197,9 +204,9 @@ async def list_session_snapshots(session_id: str):
 @router.get("/sessions/{session_id}/snapshots/{resource_id:path}", response_model=SnapshotDetail)
 async def get_snapshot_detail(session_id: str, resource_id: str):
     """
-    获取指定快照的详细数据
-    
-    resource_id 示例:
+    Return the full payload for one snapshot.
+
+    Example resource_id values:
     - Memory path: "memory-palace", "memory-palace/salem"
     """
     session_id = _validate_session_id_or_400(session_id)
@@ -227,8 +234,7 @@ async def get_snapshot_detail(session_id: str, resource_id: str):
 
 def _compute_diff(old_content: str, new_content: str) -> tuple:
     """
-    计算两个文本的 diff
-    返回 (unified_diff, summary)
+    Compute a textual diff and return ``(unified_diff, summary)``.
     """
     old_lines = old_content.splitlines(keepends=True)
     new_lines = new_content.splitlines(keepends=True)
@@ -411,7 +417,7 @@ async def _diff_path_delete(snapshot: dict, resource_id: str) -> dict:
     if old_version:
         old_content = old_version.get("content", "")
     else:
-        old_content = "[已被永久删除，无法显示旧内容]"
+        old_content = _PERMANENTLY_DELETED_OLD_CONTENT_PLACEHOLDER
     
     snapshot_data = {
         "content": old_content,
@@ -502,7 +508,7 @@ async def _diff_memory_content(snapshot: dict, resource_id: str) -> dict:
     if old_version:
         old_content = old_version.get("content", "")
     else:
-        old_content = "[已被永久删除，无法显示旧内容]"
+        old_content = _PERMANENTLY_DELETED_OLD_CONTENT_PLACEHOLDER
     
     snapshot_data = {
         "content": old_content,
@@ -566,7 +572,7 @@ _LEGACY_DIFF_HANDLERS = {
 @router.get("/sessions/{session_id}/diff/{resource_id:path}", response_model=ResourceDiff)
 async def get_resource_diff(session_id: str, resource_id: str):
     """
-    获取快照与当前状态的 diff
+    Compare a snapshot against the current resource state.
 
     Handles both new split snapshots (path/memory) and legacy snapshots.
     """
@@ -809,7 +815,11 @@ async def _rollback_path(data: dict, *, lane_session_id: Optional[str] = None) -
         if not target_version:
             raise HTTPException(
                 status_code=410,
-                detail=f"旧版本 (memory_id={memory_id}) 已被永久删除，无法恢复 '{uri}'。"
+                detail=_format_permanently_deleted_detail(
+                    memory_id,
+                    action="restore",
+                    uri=uri,
+                ),
             )
         
         try:
@@ -880,7 +890,10 @@ async def _rollback_memory_content(
     if not target_version:
         raise HTTPException(
             status_code=410,
-            detail=f"旧版本 (memory_id={memory_id}) 已被永久删除，无法回滚。"
+            detail=_format_permanently_deleted_detail(
+                memory_id,
+                action="roll back",
+            ),
         )
     
     current = await client.get_memory_by_path(
@@ -959,7 +972,10 @@ async def _rollback_legacy_modify(
     if not target_version:
         raise HTTPException(
             status_code=410,
-            detail=f"旧版本 (memory_id={snapshot_memory_id}) 已被永久删除，无法回滚。"
+            detail=_format_permanently_deleted_detail(
+                snapshot_memory_id,
+                action="roll back",
+            ),
         )
     
     current = await client.get_memory_by_path(
@@ -1046,16 +1062,16 @@ async def _rollback_legacy_modify(
 @router.post("/sessions/{session_id}/rollback/{resource_id:path}", response_model=RollbackResponse)
 async def rollback_resource(session_id: str, resource_id: str, request: RollbackRequest):
     """
-    执行回滚：将资源恢复到快照状态
+    Roll a resource back to the selected snapshot state.
 
-    路径快照 (resource_type="path"):
-    - create → 删除新创建的 memory 和 path
-    - create_alias → 移除别名路径
-    - delete → 恢复被删除的路径
-    - modify_meta → 恢复 priority/disclosure
+    Path snapshots (resource_type="path"):
+    - create -> delete the newly created memory/path
+    - create_alias -> remove the alias path
+    - delete -> restore the deleted path
+    - modify_meta -> restore priority/disclosure
 
-    内容快照 (resource_type="memory"):
-    - modify_content → 将 path 指回旧版本的 memory
+    Content snapshots (resource_type="memory"):
+    - modify_content -> point the path back to the older memory version
     """
     session_id = _validate_session_id_or_400(session_id)
     resource_id = unquote(resource_id)
@@ -1148,7 +1164,7 @@ def _build_rollback_message(resource_id: str, operation_type: str, result: dict)
 @router.delete("/sessions/{session_id}/snapshots/{resource_id:path}")
 async def delete_snapshot(session_id: str, resource_id: str):
     """
-    删除指定的快照（确认不需要回滚后）
+    Delete one snapshot after confirming rollback is no longer needed.
     """
     session_id = _validate_session_id_or_400(session_id)
     # Ensure resource_id is decoded
@@ -1169,9 +1185,9 @@ async def delete_snapshot(session_id: str, resource_id: str):
 @router.delete("/sessions/{session_id}")
 async def clear_session(session_id: str):
     """
-    清除整个 session 的所有快照
-    
-    当 human 确认所有修改都 OK 后调用此端点清理。
+    Clear every snapshot belonging to one session.
+
+    Call this after the human confirms the session no longer needs review.
     """
     session_id = _validate_session_id_or_400(session_id)
     manager = get_snapshot_manager()
@@ -1191,9 +1207,10 @@ async def clear_session(session_id: str):
 @router.get("/deprecated")
 async def list_deprecated_memories():
     """
-    列出所有被标记为 deprecated 的记忆
-    
-    这些是 AI 更新/删除后留下的旧版本，等待 human 审核后永久删除。
+    List all memories currently marked as deprecated.
+
+    These are older versions left behind by AI updates/deletes and waiting for
+    human review before permanent deletion.
     """
     client = get_sqlite_client()
     
@@ -1214,10 +1231,10 @@ async def list_deprecated_memories():
 @router.delete("/memories/{memory_id}")
 async def permanently_delete_memory(memory_id: int):
     """
-    永久删除一条记忆（human 专用）
-    
-    这是真正的删除操作，不可恢复。
-    AI 无法调用此接口（仅限 human 通过前端操作）。
+    Permanently delete one memory.
+
+    This is irreversible and intended for human-triggered dashboard actions
+    only.
     """
     client = get_sqlite_client()
     
@@ -1251,13 +1268,13 @@ async def permanently_delete_memory(memory_id: int):
 @router.post("/diff", response_model=DiffResponse)
 async def compare_text(request: DiffRequest):
     """
-    比较两个文本并返回diff
+    Compare two texts and return HTML plus unified diff output.
 
     Args:
-        request: 包含text_a和text_b
+        request: Request body with ``text_a`` and ``text_b``.
 
     Returns:
-        DiffResponse: 包含diff_html, diff_unified, summary
+        DiffResponse: Includes ``diff_html``, ``diff_unified``, and ``summary``.
     """
     try:
         diff_html, diff_unified, summary = get_text_diff(

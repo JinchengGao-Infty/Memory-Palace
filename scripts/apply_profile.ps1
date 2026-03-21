@@ -82,6 +82,106 @@ function Write-LinesUtf8 {
     [System.IO.File]::WriteAllLines($FilePath, $Lines, $utf8NoBom)
 }
 
+function New-AdjacentTempFile {
+    param(
+        [string]$TargetPath,
+        [string]$Label = 'tmp'
+    )
+
+    $parent = Split-Path -Parent $TargetPath
+    if ([string]::IsNullOrWhiteSpace($parent)) {
+        $parent = (Get-Location).Path
+    }
+    elseif (-not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $targetName = [System.IO.Path]::GetFileName($TargetPath)
+    do {
+        $candidate = Join-Path $parent (".{0}.{1}.{2}" -f $targetName, $Label, [guid]::NewGuid().ToString('N'))
+    } while (Test-Path $candidate)
+
+    return $candidate
+}
+
+function Acquire-TargetFileLock {
+    param([string]$TargetPath)
+
+    $parent = Split-Path -Parent $TargetPath
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    $lockPath = "$TargetPath.lock"
+    try {
+        $stream = [System.IO.File]::Open(
+            $lockPath,
+            [System.IO.FileMode]::OpenOrCreate,
+            [System.IO.FileAccess]::ReadWrite,
+            [System.IO.FileShare]::None
+        )
+    }
+    catch {
+        throw "[apply-profile-lock] another apply_profile.ps1 process is already writing $TargetPath; wait for it to finish before retrying."
+    }
+
+    try {
+        $stream.SetLength(0)
+        $payload = [System.Diagnostics.Process]::GetCurrentProcess().Id.ToString()
+        $bytes = $utf8NoBom.GetBytes($payload)
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Flush()
+    }
+    catch {
+        # Lock ownership metadata is best-effort only.
+    }
+
+    return @{
+        Stream = $stream
+        Path = $lockPath
+    }
+}
+
+function Release-TargetFileLock {
+    param($LockInfo)
+
+    if ($null -eq $LockInfo) {
+        return
+    }
+
+    try {
+        if ($null -ne $LockInfo.Stream) {
+            $LockInfo.Stream.Dispose()
+        }
+    }
+    finally {
+        if (-not [string]::IsNullOrWhiteSpace($LockInfo.Path)) {
+            Remove-Item -Path $LockInfo.Path -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Finalize-GeneratedEnvFile {
+    param(
+        [string]$TempPath,
+        [string]$DestinationPath
+    )
+
+    $parent = Split-Path -Parent $DestinationPath
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and -not (Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    if (Test-Path $DestinationPath) {
+        $backupPath = "$DestinationPath.bak"
+        [System.IO.File]::Replace($TempPath, $DestinationPath, $backupPath, $true)
+        Write-Host "[backup] Existing $DestinationPath saved to $backupPath"
+        return
+    }
+
+    [System.IO.File]::Move($TempPath, $DestinationPath)
+}
+
 function Set-EnvValueInFile {
     param(
         [string]$FilePath,
@@ -291,77 +391,95 @@ if (-not (Test-Path $overrideEnv)) {
 }
 
 $workingTarget = $Target
+$targetLock = $null
+$dryRunOutput = $null
+
 if ($DryRun.IsPresent) {
     $workingTarget = [System.IO.Path]::GetTempFileName()
 }
-
-$combinedLines = [System.Collections.Generic.List[string]]::new()
-foreach ($line in Read-LinesUtf8 -FilePath $baseEnv) {
-    [void]$combinedLines.Add([string]$line)
+else {
+    $targetLock = Acquire-TargetFileLock -TargetPath $Target
+    $workingTarget = New-AdjacentTempFile -TargetPath $Target -Label 'staged'
 }
-[void]$combinedLines.Add("")
-[void]$combinedLines.Add("# -----------------------------------------------------------------------------")
-[void]$combinedLines.Add("# Appended profile overrides ($Platform/profile-$profileLower)")
-[void]$combinedLines.Add("# -----------------------------------------------------------------------------")
-foreach ($line in Read-LinesUtf8 -FilePath $overrideEnv) {
-    [void]$combinedLines.Add([string]$line)
-}
-Write-LinesUtf8 -FilePath $workingTarget -Lines $combinedLines.ToArray()
 
-if ($Platform -eq 'macos') {
-    $placeholderPattern = '^\s*DATABASE_URL\s*=\s*sqlite\+aiosqlite:////Users/<your-user>/memory_palace/agent_memory\.db(\s+#.*)?\s*$'
-    if (Select-String -Path $workingTarget -Pattern $placeholderPattern -Quiet) {
-        $dbPath = (Join-Path $projectRoot 'demo.db') -replace '\\', '/'
-        $dbUrl = 'DATABASE_URL=sqlite+aiosqlite:////' + $dbPath.TrimStart('/')
-        Set-EnvValueInFile -FilePath $workingTarget -Key 'DATABASE_URL' -Value $dbUrl.Substring('DATABASE_URL='.Length)
-        Write-Host "[auto-fill] DATABASE_URL set to $dbPath"
+try {
+    $combinedLines = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in Read-LinesUtf8 -FilePath $baseEnv) {
+        [void]$combinedLines.Add([string]$line)
     }
-}
+    [void]$combinedLines.Add("")
+    [void]$combinedLines.Add("# -----------------------------------------------------------------------------")
+    [void]$combinedLines.Add("# Appended profile overrides ($Platform/profile-$profileLower)")
+    [void]$combinedLines.Add("# -----------------------------------------------------------------------------")
+    foreach ($line in Read-LinesUtf8 -FilePath $overrideEnv) {
+        [void]$combinedLines.Add([string]$line)
+    }
+    Write-LinesUtf8 -FilePath $workingTarget -Lines $combinedLines.ToArray()
 
-if ($Platform -eq 'windows') {
-    $placeholderPattern = '^\s*DATABASE_URL\s*=\s*sqlite\+aiosqlite:///C:/memory_palace/agent_memory\.db(\s+#.*)?\s*$'
-    if (Select-String -Path $workingTarget -Pattern $placeholderPattern -Quiet) {
-        $dbPath = (Join-Path $projectRoot 'demo.db') -replace '\\', '/'
-        if ($dbPath -match '^/([a-zA-Z])/(.*)$') {
-            $drive = $Matches[1].ToUpperInvariant()
-            $dbPath = "${drive}:/$($Matches[2])"
+    if ($Platform -eq 'macos') {
+        $placeholderPattern = '^\s*DATABASE_URL\s*=\s*sqlite\+aiosqlite:////Users/<your-user>/memory_palace/agent_memory\.db(\s+#.*)?\s*$'
+        if (Select-String -Path $workingTarget -Pattern $placeholderPattern -Quiet) {
+            $dbPath = (Join-Path $projectRoot 'demo.db') -replace '\\', '/'
+            $dbUrl = 'DATABASE_URL=sqlite+aiosqlite:////' + $dbPath.TrimStart('/')
+            Set-EnvValueInFile -FilePath $workingTarget -Key 'DATABASE_URL' -Value $dbUrl.Substring('DATABASE_URL='.Length)
+            Write-Host "[auto-fill] DATABASE_URL set to $dbPath"
         }
-        elseif ($dbPath -match '^/mnt/([a-zA-Z])/(.*)$') {
-            $drive = $Matches[1].ToUpperInvariant()
-            $dbPath = "${drive}:/$($Matches[2])"
+    }
+
+    if ($Platform -eq 'windows') {
+        $placeholderPattern = '^\s*DATABASE_URL\s*=\s*sqlite\+aiosqlite:///C:/memory_palace/agent_memory\.db(\s+#.*)?\s*$'
+        if (Select-String -Path $workingTarget -Pattern $placeholderPattern -Quiet) {
+            $dbPath = (Join-Path $projectRoot 'demo.db') -replace '\\', '/'
+            if ($dbPath -match '^/([a-zA-Z])/(.*)$') {
+                $drive = $Matches[1].ToUpperInvariant()
+                $dbPath = "${drive}:/$($Matches[2])"
+            }
+            elseif ($dbPath -match '^/mnt/([a-zA-Z])/(.*)$') {
+                $drive = $Matches[1].ToUpperInvariant()
+                $dbPath = "${drive}:/$($Matches[2])"
+            }
+            elseif ($dbPath -notmatch '^[A-Za-z]:/') {
+                $dbPath = 'C:/memory_palace/demo.db'
+            }
+            $dbUrl = 'DATABASE_URL=sqlite+aiosqlite:///' + $dbPath
+            Set-EnvValueInFile -FilePath $workingTarget -Key 'DATABASE_URL' -Value $dbUrl.Substring('DATABASE_URL='.Length)
+            Write-Host "[auto-fill] DATABASE_URL set to $dbPath"
         }
-        elseif ($dbPath -notmatch '^[A-Za-z]:/') {
-            $dbPath = 'C:/memory_palace/demo.db'
+    }
+
+    if ($Platform -eq 'docker') {
+        $currentApiKey = Get-EnvValueFromFile -FilePath $workingTarget -Key 'MCP_API_KEY'
+        if ([string]::IsNullOrWhiteSpace($currentApiKey)) {
+            $generatedApiKey = New-DockerMcpApiKey
+            Set-EnvValueInFile -FilePath $workingTarget -Key 'MCP_API_KEY' -Value $generatedApiKey
+            Write-Host "[auto-fill] MCP_API_KEY generated for docker profile"
         }
-        $dbUrl = 'DATABASE_URL=sqlite+aiosqlite:///' + $dbPath
-        Set-EnvValueInFile -FilePath $workingTarget -Key 'DATABASE_URL' -Value $dbUrl.Substring('DATABASE_URL='.Length)
-        Write-Host "[auto-fill] DATABASE_URL set to $dbPath"
+        Sync-DockerWalOverrides -FilePath $workingTarget
+    }
+
+    Ensure-DefaultEnvValue -FilePath $workingTarget -Key 'RUNTIME_AUTO_FLUSH_ENABLED' -Value 'true'
+    Dedupe-EnvKeys -FilePath $workingTarget
+    Assert-ResolvedDatabaseUrlPlaceholder -FilePath $workingTarget -DisplayPath $Target
+    Assert-ResolvedProfilePlaceholders -FilePath $workingTarget -ResolvedProfile $profileLower
+
+    if ($DryRun.IsPresent) {
+        $dryRunOutput = [System.IO.File]::ReadAllText($workingTarget, $utf8NoBom)
+    }
+    else {
+        Finalize-GeneratedEnvFile -TempPath $workingTarget -DestinationPath $Target
+        Write-Host "Generated $Target from $overrideEnv"
     }
 }
-
-if ($Platform -eq 'docker') {
-    $currentApiKey = Get-EnvValueFromFile -FilePath $workingTarget -Key 'MCP_API_KEY'
-    if ([string]::IsNullOrWhiteSpace($currentApiKey)) {
-        $generatedApiKey = New-DockerMcpApiKey
-        Set-EnvValueInFile -FilePath $workingTarget -Key 'MCP_API_KEY' -Value $generatedApiKey
-        Write-Host "[auto-fill] MCP_API_KEY generated for docker profile"
-    }
-    Sync-DockerWalOverrides -FilePath $workingTarget
-}
-
-Ensure-DefaultEnvValue -FilePath $workingTarget -Key 'RUNTIME_AUTO_FLUSH_ENABLED' -Value 'true'
-Dedupe-EnvKeys -FilePath $workingTarget
-Assert-ResolvedDatabaseUrlPlaceholder -FilePath $workingTarget -DisplayPath $Target
-Assert-ResolvedProfilePlaceholders -FilePath $workingTarget -ResolvedProfile $profileLower
-
-if ($DryRun.IsPresent) {
-    try {
-        [Console]::Out.Write([System.IO.File]::ReadAllText($workingTarget, $utf8NoBom))
-    }
-    finally {
+finally {
+    if (Test-Path $workingTarget) {
         Remove-Item -Path $workingTarget -Force -ErrorAction SilentlyContinue
     }
-    exit 0
+    if (-not $DryRun.IsPresent) {
+        Release-TargetFileLock -LockInfo $targetLock
+    }
 }
 
-Write-Host "Generated $Target from $overrideEnv"
+if ($DryRun.IsPresent) {
+    [Console]::Out.Write($dryRunOutput)
+    exit 0
+}

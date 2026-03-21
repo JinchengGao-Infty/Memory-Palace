@@ -108,11 +108,13 @@ bash scripts/apply_profile.sh macos b
 
 > apply_profile 脚本会先生成一份环境文件，再追加对应 Profile 的覆盖配置。本地 shell 路径（`macos` / `linux`）和原生 `windows` 默认目标仍是 `.env`；如果你跑的是 `docker` 变体且没有显式传目标文件，默认目标现在会是 `.env.docker`。对 shell 路径来说，`apply_profile.sh` 也会自动改写常见的本地 `DATABASE_URL` 占位路径，包括 `/Users/...` 和 `/home/...`。其中 macOS / Linux 下的 `apply_profile.sh` 现在还会在覆盖已有目标文件前先备份一份 `*.bak`。如果另一份 `apply_profile.sh` 正在写同一个目标文件，后来的进程会直接提示你稍后重试，而不是两边互相覆盖；它生成 staged / update 临时文件时，也会直接放到目标文件同目录，减少跨文件系统替换时的意外。
 >
+> 原生 Windows PowerShell 现在也补齐了同样的操作逻辑。`apply_profile.ps1` 现在也会在覆盖前先备份 `*.bak`，如果另一份 `apply_profile.ps1` 正在写同一个目标文件，也会直接拒绝第二个写入，并且 staged 临时文件同样放在目标文件所在目录，而不是默认共享临时目录。
+>
 > `apply_profile.sh/.ps1` 当前会在生成后统一去重重复 env key；原生 Windows / native `pwsh` 仍建议在目标环境单独补跑一次。
 >
 > 如果你只是想先看最终会生成什么内容，macOS / Linux 下可以直接用 `bash scripts/apply_profile.sh --dry-run ...`。这条路径只打印最终结果，不会真正写目标文件。
 >
-> PowerShell 版本现在也支持同样的预览和帮助入口：
+> PowerShell 版本现在也支持同样的预览和帮助入口，而且这条预览路径和 shell 一样不会真的改目标文件：
 >
 > ```powershell
 > .\scripts\apply_profile.ps1 -DryRun -Platform windows -Profile b -Target .env.generated

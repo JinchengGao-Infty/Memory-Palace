@@ -25,6 +25,7 @@ from shared_utils import (
     is_loopback_hostname as _is_loopback_hostname,
     utc_iso_now as _utc_iso_now,
 )
+from ._write_lane import run_write_lane as _run_api_write_lane
 
 _MCP_API_KEY_ENV = "MCP_API_KEY"
 _MCP_API_KEY_HEADER = "X-MCP-API-Key"
@@ -285,21 +286,12 @@ async def _run_write_lane(
     *,
     session_id: Optional[str] = None,
 ) -> Any:
-    if not ENABLE_WRITE_LANE_QUEUE:
-        return await task()
-    try:
-        return await runtime_state.write_lanes.run_write(
-            session_id=session_id,
-            operation=operation,
-            task=task,
-        )
-    except RuntimeError as exc:
-        if str(exc) == "write_lane_timeout":
-            raise HTTPException(
-                status_code=503,
-                detail={"error": "write_lane_timeout"},
-            ) from exc
-        raise
+    return await _run_api_write_lane(
+        operation,
+        task,
+        enabled=ENABLE_WRITE_LANE_QUEUE,
+        session_id=session_id,
+    )
 
 
 class _LazySQLiteClientProxy:

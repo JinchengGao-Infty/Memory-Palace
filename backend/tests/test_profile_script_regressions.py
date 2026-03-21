@@ -4,6 +4,7 @@ import os
 import shutil
 import stat
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -648,6 +649,141 @@ def test_apply_profile_powershell_defaults_docker_target_to_env_docker(
     assert not (project_root / ".env").exists()
 
 
+def test_apply_profile_powershell_backs_up_existing_target_before_overwrite(
+    tmp_path: Path,
+) -> None:
+    if shutil.which("pwsh") is None:
+        pytest.skip("pwsh not available")
+
+    project_root = tmp_path / "repo"
+    script_path = project_root / "scripts" / "apply_profile.ps1"
+    _copy_script(PROJECT_ROOT / "scripts" / "apply_profile.ps1", script_path)
+
+    existing_target = project_root / ".env.generated"
+    existing_target.write_text("EXISTING_KEY=keep-me\n", encoding="utf-8")
+
+    (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
+    profile_path = project_root / "deploy" / "profiles" / "macos" / "profile-b.env"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db",
+                "SEARCH_DEFAULT_MODE=hybrid",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            "pwsh",
+            "-NoLogo",
+            "-NoProfile",
+            "-File",
+            "scripts/apply_profile.ps1",
+            "-Platform",
+            "macos",
+            "-Profile",
+            "b",
+            "-Target",
+            ".env.generated",
+        ],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    backup_path = project_root / ".env.generated.bak"
+    assert backup_path.read_text(encoding="utf-8") == "EXISTING_KEY=keep-me\n"
+    assert "EXISTING_KEY=keep-me" not in existing_target.read_text(encoding="utf-8")
+    assert "[backup] Existing .env.generated saved to .env.generated.bak" in result.stdout
+
+
+def test_apply_profile_powershell_rejects_concurrent_writer_for_same_target(
+    tmp_path: Path,
+) -> None:
+    if shutil.which("pwsh") is None:
+        pytest.skip("pwsh not available")
+
+    project_root = tmp_path / "repo"
+    script_path = project_root / "scripts" / "apply_profile.ps1"
+    _copy_script(PROJECT_ROOT / "scripts" / "apply_profile.ps1", script_path)
+
+    (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
+    profile_path = project_root / "deploy" / "profiles" / "macos" / "profile-b.env"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db",
+                "SEARCH_DEFAULT_MODE=hybrid",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    lock_holder = subprocess.Popen(
+        [
+            "pwsh",
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            (
+                "$lockPath='.env.generated.lock'; "
+                "$stream=[System.IO.File]::Open("
+                "$lockPath,"
+                "[System.IO.FileMode]::OpenOrCreate,"
+                "[System.IO.FileAccess]::ReadWrite,"
+                "[System.IO.FileShare]::None"
+                "); "
+                "Start-Sleep -Seconds 5; "
+                "$stream.Dispose()"
+            ),
+        ],
+        cwd=project_root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    time.sleep(0.5)
+
+    try:
+        result = subprocess.run(
+            [
+                "pwsh",
+                "-NoLogo",
+                "-NoProfile",
+                "-File",
+                "scripts/apply_profile.ps1",
+                "-Platform",
+                "macos",
+                "-Profile",
+                "b",
+                "-Target",
+                ".env.generated",
+            ],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        lock_holder.terminate()
+        try:
+            lock_holder.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            lock_holder.kill()
+            lock_holder.wait(timeout=5)
+
+    assert result.returncode != 0
+    assert "another apply_profile.ps1 process is already writing .env.generated" in result.stderr
+
+
 def test_apply_profile_powershell_rejects_unresolved_database_url_placeholders(
     tmp_path: Path,
 ) -> None:
@@ -889,6 +1025,10 @@ def test_apply_profile_powershell_declares_utf8_no_bom_and_placeholder_guard() -
     assert "if ($Platform -eq 'linux') { $Platform = 'macos' }" in script_text
     assert "[System.Text.UTF8Encoding]::new($false)" in script_text
     assert "function Write-LinesUtf8" in script_text
+    assert "function New-AdjacentTempFile" in script_text
+    assert "function Acquire-TargetFileLock" in script_text
+    assert "function Release-TargetFileLock" in script_text
+    assert "function Finalize-GeneratedEnvFile" in script_text
     assert "function Assert-ResolvedDatabaseUrlPlaceholder" in script_text
     assert "function Assert-ResolvedProfilePlaceholders" in script_text
     assert "function Sync-DockerWalOverrides" in script_text
@@ -898,6 +1038,11 @@ def test_apply_profile_powershell_declares_utf8_no_bom_and_placeholder_guard() -
     assert '$workingTarget = $Target' in script_text
     assert 'if ($DryRun.IsPresent) {' in script_text
     assert '$workingTarget = [System.IO.Path]::GetTempFileName()' in script_text
+    assert "$targetLock = Acquire-TargetFileLock -TargetPath $Target" in script_text
+    assert "$workingTarget = New-AdjacentTempFile -TargetPath $Target -Label 'staged'" in script_text
+    assert "Finalize-GeneratedEnvFile -TempPath $workingTarget -DestinationPath $Target" in script_text
+    assert "Release-TargetFileLock -LockInfo $targetLock" in script_text
+    assert 'throw "[apply-profile-lock] another apply_profile.ps1 process is already writing $TargetPath; wait for it to finish before retrying."' in script_text
     assert 'Assert-ResolvedDatabaseUrlPlaceholder -FilePath $workingTarget -DisplayPath $Target' in script_text
     assert "[System.IO.File]::ReadAllText($workingTarget, $utf8NoBom)" in script_text
     assert "Remove-Item -Path $workingTarget -Force -ErrorAction SilentlyContinue" in script_text
@@ -908,6 +1053,24 @@ def test_apply_profile_powershell_declares_utf8_no_bom_and_placeholder_guard() -
     assert "$line -match '=\\s*your-reranker-model-id(\\s+#.*)?\\s*$'" in script_text
     assert "$placeholderPattern = '^\\s*DATABASE_URL\\s*=\\s*sqlite\\+aiosqlite:////Users/<your-user>/memory_palace/agent_memory\\.db(\\s+#.*)?\\s*$'" in script_text
     assert "$placeholderPattern = '^\\s*DATABASE_URL\\s*=\\s*sqlite\\+aiosqlite:///C:/memory_palace/agent_memory\\.db(\\s+#.*)?\\s*$'" in script_text
+
+
+def test_apply_profile_powershell_uses_target_adjacent_temp_files_and_locking_contract() -> None:
+    script_text = (
+        PROJECT_ROOT / "scripts" / "apply_profile.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "function New-AdjacentTempFile" in script_text
+    assert "function Acquire-TargetFileLock" in script_text
+    assert "function Release-TargetFileLock" in script_text
+    assert "function Finalize-GeneratedEnvFile" in script_text
+    assert "[apply-profile-lock] another apply_profile.ps1 process is already writing" in script_text
+    assert "$targetLock = Acquire-TargetFileLock -TargetPath $Target" in script_text
+    assert "$workingTarget = New-AdjacentTempFile -TargetPath $Target -Label 'staged'" in script_text
+    assert "Finalize-GeneratedEnvFile -TempPath $workingTarget -DestinationPath $Target" in script_text
+    assert "[System.IO.File]::Replace($TempPath, $DestinationPath, $backupPath, $true)" in script_text
+    assert '$dryRunOutput = [System.IO.File]::ReadAllText($workingTarget, $utf8NoBom)' in script_text
+    assert '[Console]::Out.Write($dryRunOutput)' in script_text
 
 
 def test_docker_profiles_align_wal_defaults_with_compose_runtime_env() -> None:

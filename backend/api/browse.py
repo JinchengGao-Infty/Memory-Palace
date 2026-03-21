@@ -13,8 +13,9 @@ from db import get_sqlite_client
 from db.snapshot import _resolve_current_database_scope, get_snapshot_manager
 from db.sqlite_client import Path as PathModel
 from runtime_state import runtime_state
-from shared_utils import env_bool as _env_bool
 from .maintenance import require_maintenance_api_key
+from ._write_lane import run_write_lane as _run_api_write_lane
+from shared_utils import env_bool as _env_bool
 from sqlalchemy import select
 
 router = APIRouter(prefix="/browse", tags=["browse"])
@@ -29,10 +30,7 @@ _VALID_DOMAINS = list(
         + sorted(_READ_ONLY_DOMAINS)
     )
 )
-_BROWSE_CONTENT_MAX_CHARS = max(
-    1,
-    int(os.getenv("BROWSE_CONTENT_MAX_CHARS", str(1024 * 1024)) or (1024 * 1024)),
-)
+_BROWSE_CONTENT_MAX_CHARS = max(1, int(os.getenv("BROWSE_CONTENT_MAX_CHARS") or (1024 * 1024)))
 _BROWSE_PATH_MAX_CHARS = 512
 
 
@@ -134,21 +132,12 @@ async def _record_guard_event(operation: str, decision: dict[str, Any], blocked:
 
 
 async def _run_write_lane(operation: str, task):
-    if not ENABLE_WRITE_LANE_QUEUE:
-        return await task()
-    try:
-        return await runtime_state.write_lanes.run_write(
-            session_id=_DASHBOARD_WRITE_SESSION_ID,
-            operation=operation,
-            task=task,
-        )
-    except RuntimeError as exc:
-        if str(exc) == "write_lane_timeout":
-            raise HTTPException(
-                status_code=503,
-                detail={"error": "write_lane_timeout"},
-            ) from exc
-        raise
+    return await _run_api_write_lane(
+        operation,
+        task,
+        enabled=ENABLE_WRITE_LANE_QUEUE,
+        default_session_id=_DASHBOARD_WRITE_SESSION_ID,
+    )
 
 
 def _make_uri(domain: str, path: str) -> str:

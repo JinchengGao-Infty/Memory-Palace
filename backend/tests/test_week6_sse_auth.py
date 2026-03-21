@@ -877,21 +877,25 @@ async def test_sse_cancelled_run_propagates_after_transport_cleanup(monkeypatch)
 
     monkeypatch.setattr(run_sse.mcp, "_mcp_server", _FakeServer())
     sse_endpoint, _health_endpoint = run_sse._build_sse_handlers(_FakeTransport())
-    request = Request(
-        {
-            "type": "http",
-            "path": "/sse",
-            "headers": [],
-            "client": ("127.0.0.1", 50000),
-            "method": "GET",
-            "scheme": "http",
-            "query_string": b"",
-            "server": ("127.0.0.1", 8000),
-        }
-    )
+    scope = {
+        "type": "http",
+        "path": "/sse",
+        "headers": [],
+        "client": ("127.0.0.1", 50000),
+        "method": "GET",
+        "scheme": "http",
+        "query_string": b"",
+        "server": ("127.0.0.1", 8000),
+    }
+
+    async def _receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def _send(_message: dict[str, object]) -> None:
+        return None
 
     with pytest.raises(asyncio.CancelledError):
-        await sse_endpoint(request)
+        await sse_endpoint(scope, _receive, _send)
 
     assert events == [
         ("enter", "/sse"),
@@ -899,6 +903,11 @@ async def test_sse_cancelled_run_propagates_after_transport_cleanup(monkeypatch)
         ("run", "read-stream", "write-stream", {"mode": "test"}),
         ("exit", "/sse"),
     ]
+
+
+def test_run_sse_source_does_not_use_request_private_send() -> None:
+    source = Path(run_sse.__file__).read_text(encoding="utf-8")
+    assert "request._send" not in source
 
 
 def test_sse_main_requests_runtime_initialization_before_uvicorn(monkeypatch) -> None:

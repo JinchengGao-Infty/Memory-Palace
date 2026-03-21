@@ -21,6 +21,7 @@
 # Python runtime cache / virtualenv
 .venv
 backend/.venv
+**/__pycache__/
 backend/__pycache__/
 backend/.pytest_cache/
 backend/backend.log
