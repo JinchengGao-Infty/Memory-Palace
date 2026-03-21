@@ -836,12 +836,8 @@ def test_apply_profile_powershell_rejects_concurrent_writer_for_same_target(
 
     assert result.returncode != 0
     stderr_text = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
-    assert re.search(
-        r"another apply_profile\.ps1 process is already\s+writing",
-        stderr_text,
-    )
-    assert ".env.generated" in stderr_text
-    assert "wait for it to finish before retrying." in stderr_text
+    assert "another apply_profile.ps1 process is already" in stderr_text
+    assert "writing .env.generated; wait for it to finish before retrying." in stderr_text
 
 
 def test_apply_profile_powershell_rejects_unresolved_database_url_placeholders(
