@@ -1,12 +1,46 @@
 from pathlib import Path
 import os
+import shutil
 import subprocess
 
+import pytest
 import run_sse
 from starlette.testclient import TestClient
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _frontend_entrypoint_shell() -> list[str]:
+    candidates = [
+        shutil.which("sh"),
+        r"C:\Program Files\Git\bin\sh.exe",
+        r"C:\Program Files\Git\usr\bin\sh.exe",
+        shutil.which("bash"),
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate)
+        if not path.is_file():
+            continue
+        return [str(path)]
+
+    pytest.skip("No POSIX shell is available to execute frontend-entrypoint.sh")
+
+
+def _run_frontend_entrypoint(script_path: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [*_frontend_entrypoint_shell(), str(script_path)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        check=False,
+    )
 
 
 def test_sse_main_falls_back_to_8010_when_loopback_8000_is_busy(monkeypatch) -> None:
@@ -149,13 +183,7 @@ def test_frontend_entrypoint_rejects_tab_in_api_key() -> None:
     env = os.environ.copy()
     env["MCP_API_KEY"] = "local\tkey"
 
-    result = subprocess.run(
-        ["sh", str(script_path)],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
+    result = _run_frontend_entrypoint(script_path, env)
 
     assert result.returncode == 1
     assert "unsupported control characters" in result.stderr
@@ -166,13 +194,7 @@ def test_frontend_entrypoint_rejects_backtick_in_api_key() -> None:
     env = os.environ.copy()
     env["MCP_API_KEY"] = "local`key"
 
-    result = subprocess.run(
-        ["sh", str(script_path)],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
+    result = _run_frontend_entrypoint(script_path, env)
 
     assert result.returncode == 1
     assert "unsupported control characters" in result.stderr
@@ -211,13 +233,7 @@ def test_frontend_entrypoint_accepts_default_connect_src_and_renders_template(
     env = os.environ.copy()
     env["MCP_API_KEY"] = "local-key"
 
-    result = subprocess.run(
-        ["sh", str(script_path)],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
+    result = _run_frontend_entrypoint(script_path, env)
 
     assert result.returncode == 0, result.stderr
     assert "connect-src 'self';" in target_path.read_text(encoding="utf-8")
@@ -229,13 +245,7 @@ def test_frontend_entrypoint_rejects_semicolon_in_connect_src() -> None:
     env["MCP_API_KEY"] = "local-key"
     env["FRONTEND_CSP_CONNECT_SRC"] = "'self'; script-src https://evil.example"
 
-    result = subprocess.run(
-        ["sh", str(script_path)],
-        capture_output=True,
-        text=True,
-        env=env,
-        check=False,
-    )
+    result = _run_frontend_entrypoint(script_path, env)
 
     assert result.returncode == 1
     assert "FRONTEND_CSP_CONNECT_SRC contains unsupported characters." in result.stderr

@@ -382,28 +382,30 @@ function Assert-ResolvedProfilePlaceholders {
 }
 
 if (-not (Test-Path $baseEnv)) {
-    Write-Error "Missing base env template: $baseEnv"
-    exit 1
+    throw "Missing base env template: $baseEnv"
 }
 
 if (-not (Test-Path $overrideEnv)) {
-    Write-Error "Missing profile template: $overrideEnv"
-    exit 1
+    throw "Missing profile template: $overrideEnv"
 }
 
 $workingTarget = $Target
+$workingTargetIsTemporary = $false
 $targetLock = $null
 $dryRunOutput = $null
-
-if ($DryRun.IsPresent) {
-    $workingTarget = [System.IO.Path]::GetTempFileName()
-}
-else {
-    $targetLock = Acquire-TargetFileLock -TargetPath $Target
-    $workingTarget = New-AdjacentTempFile -TargetPath $Target -Label 'staged'
-}
+$errorMessage = $null
 
 try {
+    if ($DryRun.IsPresent) {
+        $workingTarget = [System.IO.Path]::GetTempFileName()
+        $workingTargetIsTemporary = $true
+    }
+    else {
+        $targetLock = Acquire-TargetFileLock -TargetPath $Target
+        $workingTarget = New-AdjacentTempFile -TargetPath $Target -Label 'staged'
+        $workingTargetIsTemporary = $true
+    }
+
     $combinedLines = [System.Collections.Generic.List[string]]::new()
     foreach ($line in Read-LinesUtf8 -FilePath $baseEnv) {
         [void]$combinedLines.Add([string]$line)
@@ -421,7 +423,12 @@ try {
         $placeholderPattern = '^\s*DATABASE_URL\s*=\s*sqlite\+aiosqlite:////(Users|home)/[^/]+/memory_palace/agent_memory\.db(\s+#.*)?\s*$'
         if (Select-String -Path $workingTarget -Pattern $placeholderPattern -Quiet) {
             $dbPath = (Join-Path $projectRoot 'demo.db') -replace '\\', '/'
-            $dbUrl = 'DATABASE_URL=sqlite+aiosqlite:////' + $dbPath.TrimStart('/')
+            if ($dbPath -match '^[A-Za-z]:/') {
+                $dbUrl = 'DATABASE_URL=sqlite+aiosqlite:///' + $dbPath
+            }
+            else {
+                $dbUrl = 'DATABASE_URL=sqlite+aiosqlite:////' + $dbPath.TrimStart('/')
+            }
             Set-EnvValueInFile -FilePath $workingTarget -Key 'DATABASE_URL' -Value $dbUrl.Substring('DATABASE_URL='.Length)
             Write-Host "[auto-fill] DATABASE_URL set to $dbPath"
         }
@@ -471,13 +478,26 @@ try {
         Write-Host "Generated $Target from $overrideEnv"
     }
 }
+catch {
+    if ($null -ne $_.Exception -and -not [string]::IsNullOrWhiteSpace($_.Exception.Message)) {
+        $errorMessage = $_.Exception.Message
+    }
+    else {
+        $errorMessage = $_.ToString()
+    }
+}
 finally {
-    if (Test-Path $workingTarget) {
+    if ($workingTargetIsTemporary -and (Test-Path $workingTarget)) {
         Remove-Item -Path $workingTarget -Force -ErrorAction SilentlyContinue
     }
     if (-not $DryRun.IsPresent) {
         Release-TargetFileLock -LockInfo $targetLock
     }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($errorMessage)) {
+    [Console]::Error.WriteLine($errorMessage)
+    exit 1
 }
 
 if ($DryRun.IsPresent) {

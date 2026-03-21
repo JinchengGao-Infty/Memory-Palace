@@ -9,6 +9,31 @@ import sys
 from types import SimpleNamespace
 
 
+def _write_shell_script(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(content.replace("\r\n", "\n").replace("\r", ""))
+    path.chmod(0o755)
+
+
+def _run_command(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env=env,
+    )
+
+
 def _load_skill_eval_module():
     project_root = Path(__file__).resolve().parents[2]
     script_path = project_root / "scripts" / "evaluate_memory_palace_skill.py"
@@ -56,21 +81,17 @@ def test_repo_local_stdio_wrapper_rejects_docker_internal_database_url(
         handle.write(source_wrapper)
     script_path.chmod(0o755)
 
-    backend_python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    backend_python.chmod(0o755)
+    _write_shell_script(backend_python, "#!/usr/bin/env bash\nexit 0\n")
 
     (project_root / ".env").write_text(
         "DATABASE_URL=sqlite+aiosqlite:////app/data/memory_palace.db\n",
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
         env={key: value for key, value in os.environ.items() if key != "DATABASE_URL"},
-        check=False,
     )
 
     assert result.returncode == 1
@@ -97,21 +118,17 @@ def test_repo_local_stdio_wrapper_rejects_quoted_docker_internal_database_url(
         handle.write(source_wrapper)
     script_path.chmod(0o755)
 
-    backend_python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    backend_python.chmod(0o755)
+    _write_shell_script(backend_python, "#!/usr/bin/env bash\nexit 0\n")
 
     (project_root / ".env").write_text(
         'DATABASE_URL="sqlite+aiosqlite:////app/data/memory_palace.db"\n',
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
         env={key: value for key, value in os.environ.items() if key != "DATABASE_URL"},
-        check=False,
     )
 
     assert result.returncode == 1
@@ -138,21 +155,17 @@ def test_repo_local_stdio_wrapper_rejects_data_prefixed_docker_internal_database
         handle.write(source_wrapper)
     script_path.chmod(0o755)
 
-    backend_python.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    backend_python.chmod(0o755)
+    _write_shell_script(backend_python, "#!/usr/bin/env bash\nexit 0\n")
 
     (project_root / ".env").write_text(
         "DATABASE_URL=sqlite+aiosqlite:////data/memory_palace.db\n",
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
         env={key: value for key, value in os.environ.items() if key != "DATABASE_URL"},
-        check=False,
     )
 
     assert result.returncode == 1
@@ -180,24 +193,39 @@ def test_repo_local_stdio_wrapper_exports_repo_database_url_when_runtime_value_i
         handle.write(source_wrapper)
     script_path.chmod(0o755)
 
-    backend_python.write_text(
-        "#!/usr/bin/env bash\nprintf '%s' \"$DATABASE_URL\"\n",
-        encoding="utf-8",
+    _write_shell_script(
+        backend_python,
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                "if [[ \"${1:-}\" == \"-\" ]]; then",
+                "  file_path=\"$2\"",
+                "  key=\"$3\"",
+                "  awk -v key=\"$key\" '",
+                "    index($0, \"=\") > 0 {",
+                "      current_key = substr($0, 1, index($0, \"=\") - 1)",
+                "      if (current_key == key) {",
+                "        print substr($0, index($0, \"=\") + 1)",
+                "      }",
+                "    }",
+                "  ' \"$file_path\" | tail -n 1",
+                "  exit 0",
+                "fi",
+                "printf '%s' \"$DATABASE_URL\"",
+                "",
+            ]
+        ),
     )
-    backend_python.chmod(0o755)
 
     (project_root / ".env").write_text(
         f"DATABASE_URL=sqlite+aiosqlite:///{host_db.as_posix()}\n",
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
         env={**os.environ, "DATABASE_URL": ""},
-        check=False,
     )
 
     assert result.returncode == 0

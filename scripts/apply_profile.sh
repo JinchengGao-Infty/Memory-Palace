@@ -90,19 +90,121 @@ normalize_cli_path() {
   printf '%s\n' "${raw_path//\\//}"
 }
 
+is_windows_host_shell() {
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win32*)
+      return 0
+      ;;
+  esac
+
+  [[ "${OS:-}" == "Windows_NT" ]]
+}
+
+is_wsl_shell() {
+  if [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" ]]; then
+    return 0
+  fi
+
+  grep -qi 'microsoft' /proc/version 2>/dev/null
+}
+
+supports_owner_pid_stale_lock_recovery() {
+  if is_windows_host_shell || is_wsl_shell; then
+    return 1
+  fi
+  return 0
+}
+
+normalize_path_slashes() {
+  local raw_path="${1:-}"
+  printf '%s\n' "${raw_path//\\//}"
+}
+
+uppercase_windows_drive() {
+  local raw_path
+  raw_path="$(normalize_path_slashes "${1:-}")"
+  if [[ "${raw_path}" =~ ^([a-zA-Z]):/?(.*)$ ]]; then
+    local drive rest
+    drive="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')"
+    rest="${BASH_REMATCH[2]}"
+    if [[ -n "${rest}" ]]; then
+      printf '%s:/%s\n' "${drive}" "${rest}"
+    else
+      printf '%s:/\n' "${drive}"
+    fi
+    return 0
+  fi
+  printf '%s\n' "${raw_path}"
+}
+
+resolve_windows_host_path() {
+  local raw_path="${1:-}"
+  local converted=""
+
+  raw_path="$(normalize_path_slashes "${raw_path}")"
+  if [[ -z "${raw_path}" ]]; then
+    printf '%s\n' "${raw_path}"
+    return 0
+  fi
+
+  if command -v wslpath >/dev/null 2>&1; then
+    converted="$(wslpath -w "${raw_path}" 2>/dev/null || true)"
+    converted="$(uppercase_windows_drive "${converted}")"
+    if [[ "${converted}" =~ ^[A-Z]:/.*$ ]]; then
+      printf '%s\n' "${converted}"
+      return 0
+    fi
+  fi
+
+  if command -v cygpath >/dev/null 2>&1; then
+    converted="$(cygpath -am "${raw_path}" 2>/dev/null || true)"
+    converted="$(uppercase_windows_drive "${converted}")"
+    if [[ "${converted}" =~ ^[A-Z]:/.*$ ]]; then
+      printf '%s\n' "${converted}"
+      return 0
+    fi
+  fi
+
+  if [[ "${raw_path}" =~ ^/mnt/([a-zA-Z])/(.*)$ ]]; then
+    printf '%s:/%s\n' "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')" "${BASH_REMATCH[2]}"
+    return 0
+  fi
+
+  if [[ "${raw_path}" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+    printf '%s:/%s\n' "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')" "${BASH_REMATCH[2]}"
+    return 0
+  fi
+
+  printf '%s\n' "$(uppercase_windows_drive "${raw_path}")"
+}
+
 target_file="$(normalize_cli_path "${target_file}")"
 TARGET_FILE_LOCK=""
+
+write_lock_owner_metadata() {
+  local owner_file="$1"
+  local owner_scope_file="$2"
+
+  printf '%s\n' "${BASHPID:-$$}" > "${owner_file}" 2>/dev/null || true
+  if supports_owner_pid_stale_lock_recovery; then
+    printf '%s\n' 'posix-pid' > "${owner_scope_file}" 2>/dev/null || true
+  else
+    printf '%s\n' 'opaque' > "${owner_scope_file}" 2>/dev/null || true
+  fi
+}
 
 try_acquire_path_lock() {
   local target_path="$1"
   local lock_dir="${target_path}.lockdir"
   local owner_file="${lock_dir}/owner_pid"
+  local owner_scope_file="${lock_dir}/owner_scope"
   local owner_pid=""
+  local owner_scope=""
 
   mkdir -p "$(dirname "${target_path}")" >/dev/null 2>&1 || true
 
   if mkdir "${lock_dir}" 2>/dev/null; then
-    printf '%s\n' "${BASHPID:-$$}" > "${owner_file}" 2>/dev/null || true
+    write_lock_owner_metadata "${owner_file}" "${owner_scope_file}"
     echo "${lock_dir}"
     return 0
   fi
@@ -110,10 +212,17 @@ try_acquire_path_lock() {
   if [[ -f "${owner_file}" ]]; then
     owner_pid="$(cat "${owner_file}" 2>/dev/null || true)"
   fi
-  if [[ -n "${owner_pid}" ]] && ! kill -0 "${owner_pid}" 2>/dev/null; then
+  if [[ -f "${owner_scope_file}" ]]; then
+    owner_scope="$(tr -d '\r\n' < "${owner_scope_file}" 2>/dev/null || true)"
+  fi
+  if supports_owner_pid_stale_lock_recovery \
+    && [[ -n "${owner_pid}" ]] \
+    && [[ "${owner_pid}" =~ ^[0-9]+$ ]] \
+    && [[ -z "${owner_scope}" || "${owner_scope}" == "posix-pid" ]] \
+    && ! kill -0 "${owner_pid}" 2>/dev/null; then
     rm -rf "${lock_dir}" >/dev/null 2>&1 || true
     if mkdir "${lock_dir}" 2>/dev/null; then
-      printf '%s\n' "${BASHPID:-$$}" > "${owner_file}" 2>/dev/null || true
+      write_lock_owner_metadata "${owner_file}" "${owner_scope_file}"
       echo "${lock_dir}"
       return 0
     fi
@@ -184,14 +293,6 @@ set_env_value() {
 generate_random_mcp_api_key() {
   local generated=""
 
-  if command -v openssl >/dev/null 2>&1; then
-    generated="$(openssl rand -hex 24 2>/dev/null | tr -d '\r\n' || true)"
-    if [[ -n "${generated}" ]]; then
-      printf '%s\n' "${generated}"
-      return 0
-    fi
-  fi
-
   local python_candidate
   for python_candidate in python3 python; do
     if ! command -v "${python_candidate}" >/dev/null 2>&1; then
@@ -218,6 +319,14 @@ generate_random_mcp_api_key() {
         return 0
       fi
     done
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    generated="$(openssl rand -hex 24 2>/dev/null | tr -d '\r\n' || true)"
+    if [[ -n "${generated}" ]]; then
+      printf '%s\n' "${generated}"
+      return 0
+    fi
   fi
 
   echo "Failed to generate MCP_API_KEY: no usable openssl/python3/python/py runtime is available." >&2
@@ -304,20 +413,14 @@ sync_docker_wal_overrides() {
 
 resolve_windows_db_path() {
   local db_path="${PROJECT_ROOT}/demo.db"
-  if command -v cygpath >/dev/null 2>&1; then
-    cygpath -am "${db_path}"
+  local resolved_path
+
+  resolved_path="$(resolve_windows_host_path "${db_path}")"
+  if [[ "${resolved_path}" =~ ^[A-Z]:/.*$ ]]; then
+    printf '%s\n' "${resolved_path}"
     return 0
   fi
-  case "${db_path}" in
-    /mnt/[a-zA-Z]/*)
-      printf '%s\n' "${db_path}" | sed -E 's#^/mnt/([a-zA-Z])/#\1:/#'
-      return 0
-      ;;
-    /[a-zA-Z]/*)
-      printf '%s\n' "${db_path}" | sed -E 's#^/([a-zA-Z])/#\1:/#'
-      return 0
-      ;;
-  esac
+
   printf '%s\n' 'C:/memory_palace/demo.db'
 }
 

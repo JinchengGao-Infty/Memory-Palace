@@ -1,9 +1,39 @@
-import os
 from pathlib import Path
 import subprocess
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _write_shell_script(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        handle.write(content.replace("\r\n", "\n").replace("\r", ""))
+    path.chmod(0o755)
+
+
+def _write_windows_cmd(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="\r\n") as handle:
+        handle.write(content.replace("\r\n", "\n").replace("\r", ""))
+
+
+def _run_command(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env=env,
+    )
 
 
 def test_pre_publish_check_uses_cross_platform_python_scans_and_env_globs() -> None:
@@ -44,11 +74,16 @@ def test_apply_profile_shell_generates_docker_api_key_from_crlf_base_template(
     script_path.parent.mkdir(parents=True, exist_ok=True)
 
     source_wrapper = (
-        PROJECT_ROOT / "scripts" / "apply_profile.sh"
-    ).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "")
-    with script_path.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.write(source_wrapper)
-    script_path.chmod(0o755)
+        "openssl() { return 1; }\n"
+        "python3() { return 1; }\n"
+        "python() {\n"
+        "  printf 'python-fallback-token\\n'\n"
+        "}\n"
+        + (
+            PROJECT_ROOT / "scripts" / "apply_profile.sh"
+        ).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "")
+    )
+    _write_shell_script(script_path, source_wrapper)
 
     (project_root / ".env.example").write_bytes(b"MCP_API_KEY=\r\n")
     profile_path = project_root / "deploy" / "profiles" / "docker" / "profile-a.env"
@@ -59,12 +94,9 @@ def test_apply_profile_shell_generates_docker_api_key_from_crlf_base_template(
         b"RETRIEVAL_RERANKER_ENABLED=false\r\n"
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "docker", "a", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0
@@ -82,11 +114,16 @@ def test_apply_profile_shell_accepts_linux_platform_with_dedicated_profile_templ
     script_path.parent.mkdir(parents=True, exist_ok=True)
 
     source_wrapper = (
-        PROJECT_ROOT / "scripts" / "apply_profile.sh"
-    ).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "")
-    with script_path.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.write(source_wrapper)
-    script_path.chmod(0o755)
+        "openssl() { return 1; }\n"
+        "python3() { return 1; }\n"
+        "python() {\n"
+        "  printf 'python-fallback-token\\n'\n"
+        "}\n"
+        + (
+            PROJECT_ROOT / "scripts" / "apply_profile.sh"
+        ).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "")
+    )
+    _write_shell_script(script_path, source_wrapper)
 
     (project_root / ".env.example").write_bytes(
         b"DATABASE_URL=sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db\r\n"
@@ -99,12 +136,9 @@ def test_apply_profile_shell_accepts_linux_platform_with_dedicated_profile_templ
         b"RETRIEVAL_EMBEDDING_BACKEND=hash\r\n"
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "linux", "b", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0
@@ -138,11 +172,16 @@ def test_apply_profile_shell_falls_back_to_python_when_openssl_is_unusable(
     script_path.parent.mkdir(parents=True, exist_ok=True)
 
     source_wrapper = (
-        PROJECT_ROOT / "scripts" / "apply_profile.sh"
-    ).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "")
-    with script_path.open("w", encoding="utf-8", newline="\n") as handle:
-        handle.write(source_wrapper)
-    script_path.chmod(0o755)
+        "openssl() { return 1; }\n"
+        "python3() { return 1; }\n"
+        "python() {\n"
+        "  printf 'python-fallback-token\\n'\n"
+        "}\n"
+        + (
+            PROJECT_ROOT / "scripts" / "apply_profile.sh"
+        ).read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "")
+    )
+    _write_shell_script(script_path, source_wrapper)
 
     (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
     profile_path = project_root / "deploy" / "profiles" / "docker" / "profile-a.env"
@@ -154,28 +193,9 @@ def test_apply_profile_shell_falls_back_to_python_when_openssl_is_unusable(
         encoding="utf-8",
     )
 
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir()
-    (fake_bin / "openssl").write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
-    (fake_bin / "python3").write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
-    (fake_bin / "python").write_text(
-        "#!/usr/bin/env bash\n"
-        "printf 'python-fallback-token\\n'\n",
-        encoding="utf-8",
-    )
-    for executable in ("openssl", "python3", "python"):
-        (fake_bin / executable).chmod(0o755)
-
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}{os.pathsep}{env['PATH']}"
-
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "docker", "a", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
     )
 
     assert result.returncode == 0, result.stderr

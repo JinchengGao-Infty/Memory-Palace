@@ -35,81 +35,139 @@ DOCKER_ENV_FILE="${PROJECT_ROOT}/.env.docker"
 DEFAULT_DB_PATH="${PROJECT_ROOT}/demo.db"
 DOCKER_INTERNAL_SQLITE_PREFIXES=("/app/" "/data/")
 
+is_windows_host_shell() {
+  case "${OSTYPE:-}" in
+    msys*|cygwin*|win32*)
+      return 0
+      ;;
+  esac
+
+  [[ "${OS:-}" == "Windows_NT" ]]
+}
+
+prefer_windows_venv_layout() {
+  is_windows_host_shell
+}
+
+normalize_path_slashes() {
+  local value="${1:-}"
+  printf '%s' "${value//\\//}"
+}
+
+uppercase_windows_drive() {
+  local value
+  value="$(normalize_path_slashes "${1:-}")"
+  if [[ "${value}" =~ ^([a-zA-Z]):/?(.*)$ ]]; then
+    local drive rest
+    drive="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')"
+    rest="${BASH_REMATCH[2]}"
+    if [[ -n "${rest}" ]]; then
+      printf '%s:/%s' "${drive}" "${rest}"
+    else
+      printf '%s:/' "${drive}"
+    fi
+    return 0
+  fi
+  printf '%s' "${value}"
+}
+
+resolve_windows_host_path() {
+  local value="${1:-}"
+  local converted=""
+
+  value="$(normalize_path_slashes "${value}")"
+  if [[ -z "${value}" ]]; then
+    printf '%s' "${value}"
+    return 0
+  fi
+
+  if command -v cygpath >/dev/null 2>&1; then
+    converted="$(cygpath -am "${value}" 2>/dev/null || true)"
+    converted="$(uppercase_windows_drive "${converted}")"
+    if [[ "${converted}" =~ ^[A-Z]:/.*$ ]]; then
+      printf '%s' "${converted}"
+      return 0
+    fi
+  fi
+
+  if command -v wslpath >/dev/null 2>&1; then
+    converted="$(wslpath -w "${value}" 2>/dev/null || true)"
+    converted="$(uppercase_windows_drive "${converted}")"
+    if [[ "${converted}" =~ ^[A-Z]:/.*$ ]]; then
+      printf '%s' "${converted}"
+      return 0
+    fi
+  fi
+
+  if [[ "${value}" =~ ^/mnt/([a-zA-Z])/(.*)$ ]]; then
+    printf '%s:/%s' "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')" "${BASH_REMATCH[2]}"
+    return 0
+  fi
+
+  if [[ "${value}" =~ ^/([a-zA-Z])/(.*)$ ]]; then
+    printf '%s:/%s' "$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:lower:]' '[:upper:]')" "${BASH_REMATCH[2]}"
+    return 0
+  fi
+
+  printf '%s' "$(uppercase_windows_drive "${value}")"
+}
+
+prefer_windows_path_semantics() {
+  if [[ "${VENV_PYTHON:-}" == *.exe ]]; then
+    return 0
+  fi
+
+  prefer_windows_venv_layout
+}
+
 read_env_value() {
   local file_path="$1"
   local key="$2"
   if [[ ! -f "${file_path}" ]]; then
     return 0
   fi
-  local -a parser_candidates=()
-  if [[ -n "${VENV_PYTHON:-}" ]]; then
-    parser_candidates+=("${VENV_PYTHON}")
-  fi
-  local parser_candidate
-  for parser_candidate in python3 python; do
-    if command -v "${parser_candidate}" >/dev/null 2>&1; then
-      parser_candidates+=("${parser_candidate}")
-    fi
-  done
-
-  local parsed_value=""
-  for parser_candidate in "${parser_candidates[@]}"; do
-    parsed_value="$("${parser_candidate}" - "${file_path}" "${key}" <<'PY' 2>/dev/null || true
-import sys
-
-file_path, key = sys.argv[1], sys.argv[2]
-try:
-    from dotenv import dotenv_values  # type: ignore
-except Exception:
-    dotenv_values = None
-
-
-def fallback_read_env(path: str, target_key: str):
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            lines = handle.readlines()
-    except OSError:
-        return None
-
-    last_value = None
-    for raw_line in lines:
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        current_key, current_value = line.split("=", 1)
-        if current_key.strip() != target_key:
-            continue
-        value = current_value.strip()
-        if len(value) >= 2 and value[:1] == value[-1:] and value[:1] in {"'", '"'}:
-            value = value[1:-1]
-        last_value = value
-    return last_value
-
-
-value = None
-if dotenv_values is not None:
-    try:
-        value = dotenv_values(file_path).get(key)
-    except Exception:
-        value = None
-
-if value is None:
-    value = fallback_read_env(file_path, key)
-
-if value is not None:
-    print(value, end="")
-PY
-)"
-    parsed_value="${parsed_value%$'\r'}"
-    if [[ -n "${parsed_value}" ]]; then
-      printf '%s' "${parsed_value}"
-      return 0
-    fi
-  done
+  awk -v key="${key}" '
+    function ltrim(s) { sub(/^[[:space:]]+/, "", s); return s }
+    function rtrim(s) { sub(/[[:space:]]+$/, "", s); return s }
+    function trim(s) { return rtrim(ltrim(s)) }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      if (line ~ /^[[:space:]]*#/ || index(line, "=") == 0) {
+        next
+      }
+      eq = index(line, "=")
+      current_key = trim(substr(line, 1, eq - 1))
+      if (current_key != key) {
+        next
+      }
+      value = trim(substr(line, eq + 1))
+      if (length(value) >= 2) {
+        first = substr(value, 1, 1)
+        last = substr(value, length(value), 1)
+        if ((first == "\"" || first == "'\''") && last == first) {
+          last_value = substr(value, 2, length(value) - 2)
+          next
+        }
+      }
+      sub(/[[:space:]]+#.*$/, "", value)
+      value = trim(value)
+      if (length(value) >= 2) {
+        first = substr(value, 1, 1)
+        last = substr(value, length(value), 1)
+        if ((first == "\"" || first == "'\''") && last == first) {
+          value = substr(value, 2, length(value) - 2)
+        }
+      }
+      last_value = value
+    }
+    END { printf "%s", last_value }
+  ' "${file_path}"
 }
 
 normalize_env_value() {
   local value="${1:-}"
+  value="${value//$'\r'/}"
   value="${value#"${value%%[![:space:]]*}"}"
   value="${value%"${value##*[![:space:]]}"}"
   if [[ "${#value}" -ge 2 ]]; then
@@ -124,6 +182,15 @@ normalize_env_value() {
 
 format_sqlite_absolute_url() {
   local absolute_path="${1:-}"
+  absolute_path="$(normalize_path_slashes "${absolute_path%$'\r'}")"
+  if prefer_windows_path_semantics; then
+    absolute_path="$(resolve_windows_host_path "${absolute_path}")"
+  fi
+  absolute_path="$(uppercase_windows_drive "${absolute_path}")"
+  if [[ "${absolute_path}" =~ ^[A-Za-z]:/.*$ ]]; then
+    printf 'sqlite+aiosqlite:///%s' "${absolute_path}"
+    return 0
+  fi
   while [[ "${absolute_path}" == /* ]]; do
     absolute_path="${absolute_path#/}"
   done
@@ -145,7 +212,13 @@ is_docker_internal_database_url() {
 }
 
 VENV_PYTHON=""
-if [[ -x "${POSIX_VENV_PYTHON}" ]]; then
+if prefer_windows_venv_layout; then
+  if [[ -x "${WINDOWS_VENV_PYTHON}" ]]; then
+    VENV_PYTHON="${WINDOWS_VENV_PYTHON}"
+  elif [[ -x "${POSIX_VENV_PYTHON}" ]]; then
+    VENV_PYTHON="${POSIX_VENV_PYTHON}"
+  fi
+elif [[ -x "${POSIX_VENV_PYTHON}" ]]; then
   VENV_PYTHON="${POSIX_VENV_PYTHON}"
 elif [[ -x "${WINDOWS_VENV_PYTHON}" ]]; then
   VENV_PYTHON="${WINDOWS_VENV_PYTHON}"
@@ -193,7 +266,7 @@ if [[ -z "${runtime_remote_timeout}" && -f "${ENV_FILE}" ]]; then
   runtime_remote_timeout="$(normalize_env_value "$(read_env_value "${ENV_FILE}" "RETRIEVAL_REMOTE_TIMEOUT_SEC")")"
 fi
 if [[ -n "${runtime_remote_timeout}" ]]; then
-  export RETRIEVAL_REMOTE_TIMEOUT_SEC="${runtime_remote_timeout}"
+export RETRIEVAL_REMOTE_TIMEOUT_SEC="${runtime_remote_timeout}"
 else
   export RETRIEVAL_REMOTE_TIMEOUT_SEC="8"
 fi
@@ -201,4 +274,21 @@ fi
 export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
 export PYTHONUTF8="${PYTHONUTF8:-1}"
 
-exec "${VENV_PYTHON}" mcp_server.py
+exec_backend_entrypoint() {
+  local backend_entrypoint="$1"
+  shift
+
+  if [[ "${backend_entrypoint}" == *.exe ]]; then
+    exec "${backend_entrypoint}" "$@"
+  fi
+
+  local header=""
+  header="$(LC_ALL=C head -c 2 "${backend_entrypoint}" 2>/dev/null || true)"
+  if [[ "${header}" == '#!' ]]; then
+    exec bash <(tr -d '\r' < "${backend_entrypoint}") "$@"
+  fi
+
+  exec "${backend_entrypoint}" "$@"
+}
+
+exec_backend_entrypoint "${VENV_PYTHON}" mcp_server.py

@@ -16,14 +16,86 @@ from sqlalchemy.engine import make_url
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _copy_script(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(
-        source.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", ""),
-        encoding="utf-8",
+def _write_text(path: Path, content: str, *, newline: str | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline=newline) as handle:
+        handle.write(content)
+
+
+def _write_shell_script(path: Path, content: str) -> None:
+    _write_text(
+        path,
+        content.replace("\r\n", "\n").replace("\r", ""),
         newline="\n",
     )
-    destination.chmod(0o755)
+    path.chmod(0o755)
+
+
+def _copy_script(source: Path, destination: Path) -> None:
+    _write_shell_script(destination, source.read_text(encoding="utf-8"))
+
+
+def _run_command(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+        env=env,
+    )
+
+
+def _popen_command(args: list[str], *, cwd: Path) -> subprocess.Popen[str]:
+    return subprocess.Popen(
+        args,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+
+
+def _normalize_shell_path(path_text: str) -> Path:
+    normalized = path_text.replace("\\", "/")
+    if match := re.fullmatch(r"/mnt/([a-zA-Z])/(.*)", normalized):
+        drive, remainder = match.groups()
+        return Path(f"{drive.upper()}:/{remainder}")
+    if match := re.fullmatch(r"/([a-zA-Z]):/(.*)", normalized):
+        drive, remainder = match.groups()
+        return Path(f"{drive.upper()}:/{remainder}")
+    if match := re.fullmatch(r"/([a-zA-Z])/(.*)", normalized):
+        drive, remainder = match.groups()
+        return Path(f"{drive.upper()}:/{remainder}")
+    return Path(normalized)
+
+
+def _normalize_sqlite_database_path(database_path: str) -> Path:
+    return _normalize_shell_path(database_path)
+
+
+def _assert_sqlite_url_points_to_path(database_url: str, expected_path: Path) -> None:
+    assert database_url.startswith("sqlite+aiosqlite:///")
+    actual_database = make_url(database_url).database
+    assert isinstance(actual_database, str)
+    assert _normalize_sqlite_database_path(actual_database) == expected_path
+
+
+def _assert_env_file_permissions(file_path: Path) -> None:
+    mode = stat.S_IMODE(file_path.stat().st_mode)
+    if os.name == "nt":
+        assert mode & 0o111 == 0
+        return
+    assert mode == 0o600
 
 
 def test_apply_profile_shell_keeps_database_url_valid_when_repo_path_has_spaces(
@@ -49,21 +121,16 @@ def test_apply_profile_shell_keeps_database_url_valid_when_repo_path_has_spaces(
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "macos", "b", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
     generated_env = project_root / ".env.generated"
     database_url = dotenv_values(generated_env).get("DATABASE_URL")
     assert isinstance(database_url, str)
-    expected_db_path = (project_root / "demo.db").as_posix()
-    assert database_url == f"sqlite+aiosqlite:///{expected_db_path}"
-    assert make_url(database_url).database == expected_db_path
+    _assert_sqlite_url_points_to_path(database_url, project_root / "demo.db")
 
 
 def test_apply_profile_shell_rewrites_database_url_when_placeholder_has_spacing_and_comment(
@@ -89,12 +156,9 @@ def test_apply_profile_shell_rewrites_database_url_when_placeholder_has_spacing_
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "macos", "b", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
@@ -102,9 +166,7 @@ def test_apply_profile_shell_rewrites_database_url_when_placeholder_has_spacing_
     generated_text = generated_env.read_text(encoding="utf-8")
     database_url = dotenv_values(generated_env).get("DATABASE_URL")
     assert isinstance(database_url, str)
-    expected_db_path = (project_root / "demo.db").as_posix()
-    assert database_url == f"sqlite+aiosqlite:///{expected_db_path}"
-    assert make_url(database_url).database == expected_db_path
+    _assert_sqlite_url_points_to_path(database_url, project_root / "demo.db")
     assert "<your-user>" not in generated_text
     assert "DATABASE_URL =" not in generated_text
 
@@ -130,19 +192,15 @@ def test_apply_profile_shell_rewrites_database_url_when_user_placeholder_name_ch
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "macos", "b", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
     database_url = dotenv_values(project_root / ".env.generated").get("DATABASE_URL")
     assert isinstance(database_url, str)
-    expected_db_path = (project_root / "demo.db").as_posix()
-    assert database_url == f"sqlite+aiosqlite:///{expected_db_path}"
+    _assert_sqlite_url_points_to_path(database_url, project_root / "demo.db")
 
 
 def test_apply_profile_shell_linux_keeps_local_template_selection_but_writes_host_path(
@@ -166,20 +224,16 @@ def test_apply_profile_shell_linux_keeps_local_template_selection_but_writes_hos
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "linux", "b", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
     database_url = dotenv_values(project_root / ".env.generated").get("DATABASE_URL")
     assert isinstance(database_url, str)
-    expected_db_path = (project_root / "demo.db").as_posix()
-    assert database_url == f"sqlite+aiosqlite:///{expected_db_path}"
+    _assert_sqlite_url_points_to_path(database_url, project_root / "demo.db")
 
 
 def test_apply_profile_shell_linux_rewrites_home_style_database_url_placeholder(
@@ -203,19 +257,15 @@ def test_apply_profile_shell_linux_rewrites_home_style_database_url_placeholder(
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "linux", "b", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
     database_url = dotenv_values(project_root / ".env.generated").get("DATABASE_URL")
     assert isinstance(database_url, str)
-    expected_db_path = (project_root / "demo.db").as_posix()
-    assert database_url == f"sqlite+aiosqlite:///{expected_db_path}"
+    _assert_sqlite_url_points_to_path(database_url, project_root / "demo.db")
 
 
 def test_apply_profile_shell_rejects_unresolved_profile_c_placeholders(
@@ -413,17 +463,14 @@ def test_apply_profile_shell_tightens_generated_env_permissions(
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/apply_profile.sh", "macos", "b", ".env.generated"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
     generated_env = project_root / ".env.generated"
-    assert stat.S_IMODE(generated_env.stat().st_mode) == 0o600
+    _assert_env_file_permissions(generated_env)
 
 
 def test_apply_profile_shell_backs_up_existing_target_before_overwrite(
@@ -486,17 +533,28 @@ def test_apply_profile_shell_rejects_concurrent_writer_for_same_target(
         encoding="utf-8",
     )
 
-    lock_dir = project_root / ".env.generated.lockdir"
-    lock_dir.mkdir(parents=True, exist_ok=True)
-    (lock_dir / "owner_pid").write_text(f"{os.getpid()}\n", encoding="utf-8")
-
-    result = subprocess.run(
-        ["bash", "scripts/apply_profile.sh", "macos", "b", ".env.generated"],
+    lock_holder = _popen_command(
+        [
+            "bash",
+            "-c",
+            "mkdir -p .env.generated.lockdir && printf '%s\\n' $$ > .env.generated.lockdir/owner_pid && sleep 5",
+        ],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
+    time.sleep(0.5)
+
+    try:
+        result = _run_command(
+            ["bash", "scripts/apply_profile.sh", "macos", "b", ".env.generated"],
+            cwd=project_root,
+        )
+    finally:
+        lock_holder.terminate()
+        try:
+            lock_holder.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            lock_holder.kill()
+            lock_holder.wait(timeout=5)
 
     assert result.returncode == 1
     assert "another apply_profile.sh process is already writing .env.generated" in result.stderr
@@ -581,7 +639,7 @@ def test_apply_profile_powershell_dry_run_prints_generated_env_without_touching_
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         [
             "pwsh",
             "-NoLogo",
@@ -597,9 +655,6 @@ def test_apply_profile_powershell_dry_run_prints_generated_env_without_touching_
             "-DryRun",
         ],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
@@ -697,9 +752,7 @@ def test_apply_profile_powershell_linux_uses_dedicated_template_and_rewrites_hos
     generated_env = project_root / ".env.generated"
     database_url = dotenv_values(generated_env).get("DATABASE_URL")
     assert isinstance(database_url, str)
-    expected_db_path = (project_root / "demo.db").as_posix()
-    assert database_url == f"sqlite+aiosqlite:///{expected_db_path}"
-    assert make_url(database_url).database == expected_db_path
+    _assert_sqlite_url_points_to_path(database_url, project_root / "demo.db")
     assert result.stderr == ""
 
 
@@ -781,7 +834,7 @@ def test_apply_profile_powershell_rejects_concurrent_writer_for_same_target(
         encoding="utf-8",
     )
 
-    lock_holder = subprocess.Popen(
+    lock_holder = _popen_command(
         [
             "pwsh",
             "-NoLogo",
@@ -800,17 +853,14 @@ def test_apply_profile_powershell_rejects_concurrent_writer_for_same_target(
             ),
         ],
         cwd=project_root,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
     )
     time.sleep(0.5)
 
     try:
-        result = subprocess.run(
-            [
-                "pwsh",
-                "-NoLogo",
+            result = _run_command(
+                [
+                    "pwsh",
+                    "-NoLogo",
                 "-NoProfile",
                 "-File",
                 "scripts/apply_profile.ps1",
@@ -821,11 +871,8 @@ def test_apply_profile_powershell_rejects_concurrent_writer_for_same_target(
                 "-Target",
                 ".env.generated",
             ],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+                cwd=project_root,
+            )
     finally:
         lock_holder.terminate()
         try:
@@ -858,7 +905,7 @@ def test_apply_profile_powershell_rejects_unresolved_database_url_placeholders(
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     profile_path.write_text("SEARCH_DEFAULT_MODE=hybrid\n", encoding="utf-8")
 
-    result = subprocess.run(
+    result = _run_command(
         [
             "pwsh",
             "-NoLogo",
@@ -873,9 +920,6 @@ def test_apply_profile_powershell_rejects_unresolved_database_url_placeholders(
             ".env.generated",
         ],
         cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
     )
 
     assert result.returncode != 0
@@ -891,28 +935,24 @@ def test_repo_local_stdio_wrapper_resolves_real_project_root_through_symlink(
 
     _copy_script(PROJECT_ROOT / "scripts" / "run_memory_palace_mcp_stdio.sh", script_path)
     backend_python.parent.mkdir(parents=True, exist_ok=True)
-    backend_python.write_text(
+    _write_shell_script(
+        backend_python,
         "#!/usr/bin/env bash\nprintf '%s' \"$PWD\"\n",
-        encoding="utf-8",
     )
-    backend_python.chmod(0o755)
 
     link_dir = tmp_path / "symlink launch"
     link_dir.mkdir(parents=True, exist_ok=True)
     link_path = link_dir / "memory-palace-stdio"
     link_path.symlink_to(script_path)
 
-    result = subprocess.run(
-        ["bash", str(link_path)],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
+    result = _run_command(
+        ["bash", "./memory-palace-stdio"],
+        cwd=link_dir,
         env={key: value for key, value in os.environ.items() if key != "DATABASE_URL"},
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout == str(project_root / "backend")
+    assert _normalize_shell_path(result.stdout) == project_root / "backend"
 
 
 def test_repo_local_stdio_wrapper_prefers_env_file_remote_timeout_when_runtime_env_absent(
@@ -924,7 +964,8 @@ def test_repo_local_stdio_wrapper_prefers_env_file_remote_timeout_when_runtime_e
 
     _copy_script(PROJECT_ROOT / "scripts" / "run_memory_palace_mcp_stdio.sh", script_path)
     backend_python.parent.mkdir(parents=True, exist_ok=True)
-    backend_python.write_text(
+    _write_shell_script(
+        backend_python,
         "\n".join(
             [
                 "#!/usr/bin/env bash",
@@ -935,22 +976,17 @@ def test_repo_local_stdio_wrapper_prefers_env_file_remote_timeout_when_runtime_e
                 "",
             ]
         ),
-        encoding="utf-8",
     )
-    backend_python.chmod(0o755)
 
     (project_root / ".env").write_text(
         "RETRIEVAL_REMOTE_TIMEOUT_SEC=30\n",
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
         env={key: value for key, value in os.environ.items() if key != "RETRIEVAL_REMOTE_TIMEOUT_SEC"},
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
@@ -966,7 +1002,8 @@ def test_repo_local_stdio_wrapper_reads_env_without_python_dotenv(
 
     _copy_script(PROJECT_ROOT / "scripts" / "run_memory_palace_mcp_stdio.sh", script_path)
     backend_python.parent.mkdir(parents=True, exist_ok=True)
-    backend_python.write_text(
+    _write_shell_script(
+        backend_python,
         "\n".join(
             [
                 "#!/usr/bin/env bash",
@@ -977,22 +1014,17 @@ def test_repo_local_stdio_wrapper_reads_env_without_python_dotenv(
                 "",
             ]
         ),
-        encoding="utf-8",
     )
-    backend_python.chmod(0o755)
 
     (project_root / ".env").write_text(
         "RETRIEVAL_REMOTE_TIMEOUT_SEC=37\n",
         encoding="utf-8",
     )
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
         env={key: value for key, value in os.environ.items() if key != "RETRIEVAL_REMOTE_TIMEOUT_SEC"},
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
@@ -1007,27 +1039,24 @@ def test_repo_local_stdio_wrapper_normalizes_double_slash_default_database_path(
     backend_python = project_root / "backend" / ".venv" / "bin" / "python"
 
     _copy_script(PROJECT_ROOT / "scripts" / "run_memory_palace_mcp_stdio.sh", script_path)
-    script_path.write_text(
+    _write_text(
+        script_path,
         script_path.read_text(encoding="utf-8").replace(
             'DEFAULT_DB_PATH="${PROJECT_ROOT}/demo.db"',
             'DEFAULT_DB_PATH="//tmp/memory-palace/demo.db"',
         ),
-        encoding="utf-8",
+        newline="\n",
     )
     backend_python.parent.mkdir(parents=True, exist_ok=True)
-    backend_python.write_text(
+    _write_shell_script(
+        backend_python,
         "#!/usr/bin/env bash\nprintf '%s' \"${DATABASE_URL:-missing}\"\n",
-        encoding="utf-8",
     )
-    backend_python.chmod(0o755)
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
         env={key: value for key, value in os.environ.items() if key != "DATABASE_URL"},
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
@@ -1043,23 +1072,19 @@ def test_repo_local_stdio_wrapper_exports_utf8_python_defaults(
 
     _copy_script(PROJECT_ROOT / "scripts" / "run_memory_palace_mcp_stdio.sh", script_path)
     backend_python.parent.mkdir(parents=True, exist_ok=True)
-    backend_python.write_text(
+    _write_shell_script(
+        backend_python,
         "#!/usr/bin/env bash\nprintf '%s|%s' \"${PYTHONIOENCODING:-missing}\" \"${PYTHONUTF8:-missing}\"\n",
-        encoding="utf-8",
     )
-    backend_python.chmod(0o755)
 
-    result = subprocess.run(
+    result = _run_command(
         ["bash", "scripts/run_memory_palace_mcp_stdio.sh"],
         cwd=project_root,
-        capture_output=True,
-        text=True,
         env={
             key: value
             for key, value in os.environ.items()
             if key not in {"DATABASE_URL", "PYTHONIOENCODING", "PYTHONUTF8"}
         },
-        check=False,
     )
 
     assert result.returncode == 0, result.stderr
