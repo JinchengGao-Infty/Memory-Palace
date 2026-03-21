@@ -32,7 +32,6 @@ param(
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptDir
 $Platform = $Platform.ToLowerInvariant()
-if ($Platform -eq 'linux') { $Platform = 'macos' }
 $profileLower = $Profile.ToLower()
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
@@ -56,7 +55,9 @@ if ([string]::IsNullOrWhiteSpace($Target)) {
 }
 
 $baseEnv = Join-Path $projectRoot '.env.example'
-$overrideEnv = Join-Path $projectRoot ("deploy/profiles/{0}/profile-{1}.env" -f $Platform, $profileLower)
+$overrideEnv = Join-Path $projectRoot (
+    "deploy/profiles/{0}/profile-{1}.env" -f $Platform, $profileLower
+)
 
 function Read-LinesUtf8 {
     param([string]$FilePath)
@@ -416,8 +417,8 @@ try {
     }
     Write-LinesUtf8 -FilePath $workingTarget -Lines $combinedLines.ToArray()
 
-    if ($Platform -eq 'macos') {
-        $placeholderPattern = '^\s*DATABASE_URL\s*=\s*sqlite\+aiosqlite:////Users/<your-user>/memory_palace/agent_memory\.db(\s+#.*)?\s*$'
+    if ($Platform -in @('macos', 'linux')) {
+        $placeholderPattern = '^\s*DATABASE_URL\s*=\s*sqlite\+aiosqlite:////(Users|home)/[^/]+/memory_palace/agent_memory\.db(\s+#.*)?\s*$'
         if (Select-String -Path $workingTarget -Pattern $placeholderPattern -Quiet) {
             $dbPath = (Join-Path $projectRoot 'demo.db') -replace '\\', '/'
             $dbUrl = 'DATABASE_URL=sqlite+aiosqlite:////' + $dbPath.TrimStart('/')

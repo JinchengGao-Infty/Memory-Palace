@@ -256,7 +256,7 @@ memory-palace/
 │       └── lib/
 │           └── api.js          # 统一 API 客户端，运行时注入鉴权信息
 ├── deploy/
-│   ├── profiles/               # A/B/C/D 档位模板（macOS/Windows/Docker）
+│   ├── profiles/               # A/B/C/D 档位模板（macOS/Linux/Windows/Docker）
 │   └── docker/                 # Dockerfile 和 Compose 辅助配置
 ├── scripts/
 │   ├── apply_profile.sh        # macOS/Linux 档位应用脚本
@@ -390,14 +390,19 @@ MCP_API_KEY_ALLOW_INSECURE_LOCAL=true
 **方法 B — 使用档位脚本（推荐）：**
 
 ```bash
-# macOS / Linux（这里仍然使用 `macos` 这个模板值）
+# macOS
 bash scripts/apply_profile.sh macos b
+
+# Linux
+bash scripts/apply_profile.sh linux b
 
 # Windows PowerShell
 .\scripts\apply_profile.ps1 -Platform windows -Profile b
 ```
 
-脚本会根据平台从 `deploy/profiles/{macos,windows,docker}/profile-b.env` 模板生成一份 **基于档位 B 的环境文件**。本地 shell 路径（`macos` / `linux`）和原生 `windows` 默认目标仍是 `.env`；如果你跑的是 `docker` 变体且没有显式传目标文件，`apply_profile.sh/.ps1` 现在会默认写到 `.env.docker`。
+脚本会根据平台从 `deploy/profiles/{macos,linux,windows,docker}/profile-b.env` 模板生成一份 **基于档位 B 的环境文件**。本地 shell 路径（`macos` / `linux`）和原生 `windows` 默认目标仍是 `.env`；如果你跑的是 `docker` 变体且没有显式传目标文件，`apply_profile.sh/.ps1` 现在会默认写到 `.env.docker`。
+
+如果当前机器没装 `pwsh`，但已经有 Docker，也可以直接运行 `bash scripts/smoke_apply_profile_ps1_in_docker.sh`，对 `apply_profile.ps1` 做一轮 repo-local smoke。
 
 把 `deploy/profiles/*/*.env` 理解成 **Profile 模板输入**，不要直接手抄某个模板文件当成最终 `.env`。有些模板值会先保留占位路径，再由 `apply_profile.*` 按当前仓库位置自动改写。
 
@@ -698,7 +703,7 @@ COMPACT_GIST_LLM_MODEL=your-chat-model-id
 >
 > 对本地 Docker build 路径来说，一键脚本现在还会使用按 checkout 固定的本地镜像名。实际效果就是：只要这个 checkout 里之前已经 build 过一次，即使你换了 `COMPOSE_PROJECT_NAME`，`--no-build` 也还能继续复用这些本地镜像；只有第一次启动或你手动删掉本地镜像时，才需要重新走 `--build`。
 
-档位模板位于：`deploy/profiles/{macos,windows,docker}/profile-{a,b,c,d}.env`
+档位模板位于：`deploy/profiles/{macos,linux,windows,docker}/profile-{a,b,c,d}.env`
 
 完整参数参考：[DEPLOYMENT_PROFILES.md](docs/DEPLOYMENT_PROFILES.md)
 

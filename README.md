@@ -260,7 +260,7 @@ memory-palace/
 │       └── lib/
 │           └── api.js          # Unified API client with runtime auth injection
 ├── deploy/
-│   ├── profiles/               # A/B/C/D profile templates for macOS/Windows/Docker
+│   ├── profiles/               # A/B/C/D profile templates for macOS/Linux/Windows/Docker
 │   └── docker/                 # Dockerfile and compose helpers
 ├── scripts/
 │   ├── apply_profile.sh        # macOS/Linux profile applicator
@@ -391,14 +391,19 @@ MCP_API_KEY_ALLOW_INSECURE_LOCAL=true
 **Method B — Use the profile script (recommended):**
 
 ```bash
-# macOS / Linux (use the `macos` template value here)
+# macOS
 bash scripts/apply_profile.sh macos b
+
+# Linux
+bash scripts/apply_profile.sh linux b
 
 # Windows PowerShell
 .\scripts\apply_profile.ps1 -Platform windows -Profile b
 ```
 
-This generates a Profile B-based env file using the platform-specific template at `deploy/profiles/{macos,windows,docker}/profile-b.env`. Local shell runs (`macos` / `linux`) and native `windows` still default to `.env`; if you run the `docker` variant without an explicit target file, `apply_profile.sh/.ps1` now defaults to `.env.docker`.
+This generates a Profile B-based env file using the platform-specific template at `deploy/profiles/{macos,linux,windows,docker}/profile-b.env`. Local shell runs (`macos` / `linux`) and native `windows` still default to `.env`; if you run the `docker` variant without an explicit target file, `apply_profile.sh/.ps1` now defaults to `.env.docker`.
+
+If this machine does not have `pwsh` installed but does have Docker, you can run `bash scripts/smoke_apply_profile_ps1_in_docker.sh` to do a repo-local smoke run for `apply_profile.ps1`.
 
 Treat `deploy/profiles/*/*.env` as **Profile template inputs**, not as final `.env` files you should copy by hand. Some template values intentionally keep placeholder paths until `apply_profile.*` rewrites them for the current repository location.
 
@@ -690,7 +695,7 @@ COMPACT_GIST_LLM_API_KEY=
 COMPACT_GIST_LLM_MODEL=your-chat-model-id
 ```
 
-Profile templates are located at: `deploy/profiles/{macos,windows,docker}/profile-{a,b,c,d}.env`
+Profile templates are located at: `deploy/profiles/{macos,linux,windows,docker}/profile-{a,b,c,d}.env`
 
 Full parameter reference: [DEPLOYMENT_PROFILES_EN.md](docs/DEPLOYMENT_PROFILES_EN.md)
 

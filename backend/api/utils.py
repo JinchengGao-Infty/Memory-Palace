@@ -9,17 +9,17 @@ except ModuleNotFoundError:
 
 def get_text_diff(text_a: str, text_b: str) -> Tuple[str, str, str]:
     """
-    比较两个文本并返回diff
+    Compare two text blobs and return their diff artifacts.
 
     Args:
-        text_a: 旧文本
-        text_b: 新文本
+        text_a: Original text.
+        text_b: Updated text.
 
     Returns:
         (diff_html, diff_unified, summary)
-        - diff_html: HTML格式的diff，适合展示
-        - diff_unified: unified格式的diff
-        - summary: 简短的变化摘要
+        - diff_html: HTML diff suitable for UI rendering.
+        - diff_unified: Unified diff text.
+        - summary: Short change summary.
     """
     diff_unified = _build_unified_diff(text_a, text_b)
 
@@ -81,7 +81,7 @@ def _generate_fallback_diff_summary(text_a: str, text_b: str) -> str:
 
 
 def _generate_diff_summary(diffs, text_a: str, text_b: str) -> str:
-    """生成diff摘要"""
+    """Generate a compact summary for the semantic diff."""
     additions = 0
     deletions = 0
 

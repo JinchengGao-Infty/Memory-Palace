@@ -67,12 +67,7 @@ else
 fi
 
 base_env="${PROJECT_ROOT}/.env.example"
-template_platform="${platform}"
-if [[ "${template_platform}" == "linux" ]]; then
-  echo "[profile] linux currently reuses the macos local profile template and fills a host DATABASE_URL." >&2
-  template_platform="macos"
-fi
-override_env="${PROJECT_ROOT}/deploy/profiles/${template_platform}/profile-${profile}.env"
+override_env="${PROJECT_ROOT}/deploy/profiles/${platform}/profile-${profile}.env"
 
 normalize_cli_path() {
   local raw_path="${1:-}"

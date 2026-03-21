@@ -74,7 +74,7 @@ This document helps you choose the appropriate Memory Palace configuration profi
 Zero dependencies, uses keyword matching only:
 
 ```bash
-# Core Configuration (see deploy/profiles/macos/profile-a.env)
+# Core Configuration (see deploy/profiles/linux/profile-a.env)
 SEARCH_DEFAULT_MODE=keyword
 RETRIEVAL_EMBEDDING_BACKEND=none
 RETRIEVAL_RERANKER_ENABLED=false
@@ -86,7 +86,7 @@ RUNTIME_INDEX_WORKER_ENABLED=false    # No index worker needed
 Uses built-in 64-dimensional hash vectors to provide basic semantic capabilities:
 
 ```bash
-# Core Configuration (see deploy/profiles/macos/profile-b.env)
+# Core Configuration (see deploy/profiles/linux/profile-b.env)
 SEARCH_DEFAULT_MODE=hybrid
 RETRIEVAL_EMBEDDING_BACKEND=hash
 RETRIEVAL_EMBEDDING_MODEL=hash-v1
@@ -120,7 +120,7 @@ Profiles C and D use the same algorithm path, both calling OpenAI-compatible API
 **Profile C** (Local Model Services) —— Suitable for those with a GPU or using local inference like Ollama/vLLM:
 
 ```bash
-# Core Configuration (see deploy/profiles/macos/profile-c.env)
+# Core Configuration (see deploy/profiles/linux/profile-c.env)
 SEARCH_DEFAULT_MODE=hybrid
 RETRIEVAL_EMBEDDING_BACKEND=router
 
@@ -343,7 +343,9 @@ cd <project-root>
 
 > `apply_profile.ps1` now performs a unified deduplication of **all duplicate env keys**, keeping the last value, instead of just handling `DATABASE_URL`.
 >
-> If you are running `apply_profile.ps1` from PowerShell on Linux / WSL, `-Platform linux` is now accepted too; it maps to the same local template family as `macos`. On native Windows, keep using `-Platform windows`.
+> If you are running `apply_profile.ps1` from PowerShell on Linux / WSL, `-Platform linux` is now accepted too; it uses a dedicated local Linux template. On native Windows, keep using `-Platform windows`.
+>
+> If the current machine does not have `pwsh` installed but does have Docker, you can run `bash scripts/smoke_apply_profile_ps1_in_docker.sh` for a repo-local `apply_profile.ps1` smoke run.
 >
 > For native Windows / `pwsh`, it is still recommended to run it separately in the target environment; these steps are for deployment verification and are not intended for beginner-level reading.
 >
@@ -562,6 +564,8 @@ When using **Docker one-click deployment**, you don't need to write the key into
 *   This key is saved in the Docker env file used for this run by default.
 *   The browser only sees the proxied results and does not directly receive the real key.
 *   Treat that frontend port as a trusted admin/operator surface. If you expose `3000` beyond a trusted network, add your own VPN, reverse-proxy auth, or network ACL in front of it.
+*   If you really need a split-origin admin deployment, you can additionally set `FRONTEND_CSP_CONNECT_SRC` in the Docker env file; when left empty, the frontend keeps the more conservative default `connect-src 'self'`.
+*   If you deploy on a shared host and do not want to hard-code limits into the default compose file, copy `docker-compose.override.example.yml` to `docker-compose.override.yml` and tune the resource values for that machine.
 
 ### SSE Startup Example
 

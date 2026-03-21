@@ -45,7 +45,7 @@ memory-palace/
 │   └── vite.config.js    # 开发服务器 port 5173，代理到后端 8000
 ├── deploy/               # Docker 与 Profile 配置
 │   ├── docker/           # Dockerfile.backend / Dockerfile.frontend
-│   └── profiles/         # macos / windows / docker 档位模板
+│   └── profiles/         # macos / linux / windows / docker 档位模板
 ├── scripts/              # 运维脚本
 │   ├── apply_profile.sh  # Profile 应用脚本（macOS/Linux）
 │   ├── apply_profile.ps1 # Profile 应用脚本（Windows）
@@ -97,7 +97,7 @@ cp .env.example .env
 
 ```bash
 # macOS / Linux —— 参数：平台 档位 [目标文件]
-# 当前脚本接受的模板值是 macos|linux|windows|docker；其中 `linux` 会在内部映射到 `macos` 这套本地模板。
+# 当前脚本接受的模板值是 macos|linux|windows|docker；其中 `linux` 会使用独立的 Linux 本地模板。
 bash scripts/apply_profile.sh macos b
 
 # Windows PowerShell
@@ -123,7 +123,7 @@ bash scripts/apply_profile.sh macos b
 >
 > 本地 `profile c/d` 现在也会默认保留 `RUNTIME_AUTO_FLUSH_ENABLED=true`，所以只要你没有手工覆盖，生成出来的 `.env` 会继续沿用和 A/B 一致的 auto-flush 默认值。
 >
-> 如果你是在 Linux / WSL 环境里用 PowerShell 跑 `apply_profile.ps1`，`-Platform linux` 现在也已经可用；它会映射到和 `macos` 相同的本地模板。原生 Windows 仍然继续使用 `-Platform windows`。
+> 如果你是在 Linux / WSL 环境里用 PowerShell 跑 `apply_profile.ps1`，`-Platform linux` 现在也已经可用；它会使用独立的 Linux 本地模板。原生 Windows 仍然继续使用 `-Platform windows`。
 >
 > 另外，`profile c/d` 现在也会在脚本阶段直接拦截未替换的 endpoint / key / model 占位值；如果你还留着示例里的 `PORT`、`replace-with-your-key`、`your-embedding-model-id` 这类占位内容，脚本会先报错，而不是等到后面启动时再用一份明显错误的配置继续往下跑。
 >

@@ -152,12 +152,12 @@ def test_apply_profile_shell_linux_keeps_local_template_selection_but_writes_hos
     _copy_script(PROJECT_ROOT / "scripts" / "apply_profile.sh", script_path)
 
     (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
-    profile_path = project_root / "deploy" / "profiles" / "macos" / "profile-b.env"
+    profile_path = project_root / "deploy" / "profiles" / "linux" / "profile-b.env"
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     profile_path.write_text(
         "\n".join(
             [
-                "DATABASE_URL=sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db",
+                "DATABASE_URL=sqlite+aiosqlite:////home/<your-user>/memory_palace/agent_memory.db",
                 "SEARCH_DEFAULT_MODE=hybrid",
                 "",
             ]
@@ -174,8 +174,7 @@ def test_apply_profile_shell_linux_keeps_local_template_selection_but_writes_hos
     )
 
     assert result.returncode == 0, result.stderr
-    assert "linux" in result.stderr
-    assert "macos local profile template" in result.stderr
+    assert result.stderr == ""
     database_url = dotenv_values(project_root / ".env.generated").get("DATABASE_URL")
     assert isinstance(database_url, str)
     expected_db_path = (project_root / "demo.db").as_posix()
@@ -190,7 +189,7 @@ def test_apply_profile_shell_linux_rewrites_home_style_database_url_placeholder(
     _copy_script(PROJECT_ROOT / "scripts" / "apply_profile.sh", script_path)
 
     (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
-    profile_path = project_root / "deploy" / "profiles" / "macos" / "profile-b.env"
+    profile_path = project_root / "deploy" / "profiles" / "linux" / "profile-b.env"
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     profile_path.write_text(
         "\n".join(
@@ -649,6 +648,60 @@ def test_apply_profile_powershell_defaults_docker_target_to_env_docker(
     assert not (project_root / ".env").exists()
 
 
+def test_apply_profile_powershell_linux_uses_dedicated_template_and_rewrites_host_database_url(
+    tmp_path: Path,
+) -> None:
+    if shutil.which("pwsh") is None:
+        pytest.skip("pwsh not available")
+
+    project_root = tmp_path / "repo"
+    script_path = project_root / "scripts" / "apply_profile.ps1"
+    _copy_script(PROJECT_ROOT / "scripts" / "apply_profile.ps1", script_path)
+
+    (project_root / ".env.example").write_text("MCP_API_KEY=\n", encoding="utf-8")
+    profile_path = project_root / "deploy" / "profiles" / "linux" / "profile-b.env"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=sqlite+aiosqlite:////home/tester/memory_palace/agent_memory.db",
+                "SEARCH_DEFAULT_MODE=hybrid",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            "pwsh",
+            "-NoLogo",
+            "-NoProfile",
+            "-File",
+            "scripts/apply_profile.ps1",
+            "-Platform",
+            "linux",
+            "-Profile",
+            "b",
+            "-Target",
+            ".env.generated",
+        ],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    generated_env = project_root / ".env.generated"
+    database_url = dotenv_values(generated_env).get("DATABASE_URL")
+    assert isinstance(database_url, str)
+    expected_db_path = (project_root / "demo.db").as_posix()
+    assert database_url == f"sqlite+aiosqlite:///{expected_db_path}"
+    assert make_url(database_url).database == expected_db_path
+    assert result.stderr == ""
+
+
 def test_apply_profile_powershell_backs_up_existing_target_before_overwrite(
     tmp_path: Path,
 ) -> None:
@@ -1022,7 +1075,6 @@ def test_apply_profile_powershell_declares_utf8_no_bom_and_placeholder_guard() -
     assert "Usage: ./scripts/apply_profile.ps1" in script_text
     assert "[ValidateSet('macos', 'linux', 'windows', 'docker')]" in script_text
     assert "$Platform = $Platform.ToLowerInvariant()" in script_text
-    assert "if ($Platform -eq 'linux') { $Platform = 'macos' }" in script_text
     assert "[System.Text.UTF8Encoding]::new($false)" in script_text
     assert "function Write-LinesUtf8" in script_text
     assert "function New-AdjacentTempFile" in script_text
@@ -1033,6 +1085,7 @@ def test_apply_profile_powershell_declares_utf8_no_bom_and_placeholder_guard() -
     assert "function Assert-ResolvedProfilePlaceholders" in script_text
     assert "function Sync-DockerWalOverrides" in script_text
     assert "function Ensure-DefaultEnvValue" in script_text
+    assert '$Platform -in @(\'macos\', \'linux\')' in script_text
     assert "MEMORY_PALACE_DOCKER_WAL_ENABLED" in script_text
     assert "MEMORY_PALACE_DOCKER_JOURNAL_MODE" in script_text
     assert '$workingTarget = $Target' in script_text
@@ -1051,7 +1104,7 @@ def test_apply_profile_powershell_declares_utf8_no_bom_and_placeholder_guard() -
     assert "$line -match '=\\s*replace-with-your-key(\\s+#.*)?\\s*$'" in script_text
     assert "$line -match '=\\s*your-embedding-model-id(\\s+#.*)?\\s*$'" in script_text
     assert "$line -match '=\\s*your-reranker-model-id(\\s+#.*)?\\s*$'" in script_text
-    assert "$placeholderPattern = '^\\s*DATABASE_URL\\s*=\\s*sqlite\\+aiosqlite:////Users/<your-user>/memory_palace/agent_memory\\.db(\\s+#.*)?\\s*$'" in script_text
+    assert "$placeholderPattern = '^\\s*DATABASE_URL\\s*=\\s*sqlite\\+aiosqlite:////(Users|home)/[^/]+/memory_palace/agent_memory\\.db(\\s+#.*)?\\s*$'" in script_text
     assert "$placeholderPattern = '^\\s*DATABASE_URL\\s*=\\s*sqlite\\+aiosqlite:///C:/memory_palace/agent_memory\\.db(\\s+#.*)?\\s*$'" in script_text
 
 

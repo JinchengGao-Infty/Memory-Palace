@@ -1,6 +1,7 @@
 import logging
 import json
 import threading
+import time
 import ctypes as stdlib_ctypes
 from pathlib import Path
 
@@ -11,6 +12,35 @@ from db.snapshot import SnapshotManager
 
 def _sqlite_url(db_path: Path) -> str:
     return f"sqlite+aiosqlite:///{db_path}"
+
+
+def test_get_snapshot_manager_uses_a_single_instance_under_thread_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FakeSnapshotManager:
+        init_calls = 0
+
+        def __init__(self) -> None:
+            type(self).init_calls += 1
+            time.sleep(0.01)
+
+    monkeypatch.setattr(snapshot_module, "SnapshotManager", _FakeSnapshotManager)
+    monkeypatch.setattr(snapshot_module, "_snapshot_manager", None)
+    monkeypatch.setattr(snapshot_module, "_snapshot_manager_lock", threading.Lock())
+
+    created_instances: list[object] = []
+
+    def _load_manager() -> None:
+        created_instances.append(snapshot_module.get_snapshot_manager())
+
+    threads = [threading.Thread(target=_load_manager) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert _FakeSnapshotManager.init_calls == 1
+    assert len({id(instance) for instance in created_instances}) == 1
 
 
 def test_snapshot_manager_filters_sessions_by_current_database_scope(

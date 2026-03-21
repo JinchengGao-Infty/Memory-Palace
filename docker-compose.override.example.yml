@@ -1,0 +1,10 @@
+services:
+  backend:
+    # Optional local/shared-host resource guardrails.
+    mem_limit: ${MEMORY_PALACE_BACKEND_MEM_LIMIT:-2g}
+    cpus: ${MEMORY_PALACE_BACKEND_CPUS:-2.0}
+
+  frontend:
+    # Optional local/shared-host resource guardrails.
+    mem_limit: ${MEMORY_PALACE_FRONTEND_MEM_LIMIT:-512m}
+    cpus: ${MEMORY_PALACE_FRONTEND_CPUS:-1.0}

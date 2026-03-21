@@ -305,8 +305,20 @@ def test_frontend_nginx_template_disables_index_html_caching() -> None:
     )
 
     assert 'Content-Security-Policy "default-src \'self\'' in template_text
+    assert "connect-src ${FRONTEND_CSP_CONNECT_SRC_NGINX_ESCAPED};" in template_text
     assert "object-src 'none'" in template_text
     assert "frame-ancestors 'none'" in template_text
     assert 'location = /index.html {' in template_text
     assert 'Cache-Control "no-store, no-cache, must-revalidate" always' in template_text
     assert "try_files /index.html =404;" in template_text
+
+
+def test_optional_compose_override_example_exposes_resource_limit_knobs() -> None:
+    override_text = (PROJECT_ROOT / "docker-compose.override.example.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "MEMORY_PALACE_BACKEND_MEM_LIMIT" in override_text
+    assert "MEMORY_PALACE_BACKEND_CPUS" in override_text
+    assert "MEMORY_PALACE_FRONTEND_MEM_LIMIT" in override_text
+    assert "MEMORY_PALACE_FRONTEND_CPUS" in override_text

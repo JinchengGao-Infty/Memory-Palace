@@ -75,7 +75,7 @@
 零依赖，仅使用关键词匹配：
 
 ```bash
-# 核心配置（参见 deploy/profiles/macos/profile-a.env）
+# 核心配置（参见 deploy/profiles/linux/profile-a.env）
 SEARCH_DEFAULT_MODE=keyword
 RETRIEVAL_EMBEDDING_BACKEND=none
 RETRIEVAL_RERANKER_ENABLED=false
@@ -87,7 +87,7 @@ RUNTIME_INDEX_WORKER_ENABLED=false    # 无需索引 worker
 使用内置的 64 维哈希向量，提供基础语义能力：
 
 ```bash
-# 核心配置（参见 deploy/profiles/macos/profile-b.env）
+# 核心配置（参见 deploy/profiles/linux/profile-b.env）
 SEARCH_DEFAULT_MODE=hybrid
 RETRIEVAL_EMBEDDING_BACKEND=hash
 RETRIEVAL_EMBEDDING_MODEL=hash-v1
@@ -121,7 +121,7 @@ C 和 D 的算法路径相同，均使用 `router` 后端调用 OpenAI-compatibl
 **Profile C**（本地模型服务）——适合有 GPU 或使用 Ollama/vLLM 等本地推理：
 
 ```bash
-# 核心配置（参见 deploy/profiles/macos/profile-c.env）
+# 核心配置（参见 deploy/profiles/linux/profile-c.env）
 SEARCH_DEFAULT_MODE=hybrid
 RETRIEVAL_EMBEDDING_BACKEND=router
 
@@ -339,7 +339,9 @@ cd <project-root>
 
 > `apply_profile.ps1` 现已对 **所有重复 env key** 做“保留最后值”的统一去重，不再只处理 `DATABASE_URL`。
 >
-> 如果你是在 Linux / WSL 里的 PowerShell 环境运行 `apply_profile.ps1`，`-Platform linux` 现在也已可用；它会映射到和 `macos` 相同的本地模板。原生 Windows 继续使用 `-Platform windows` 即可。
+> 如果你是在 Linux / WSL 里的 PowerShell 环境运行 `apply_profile.ps1`，`-Platform linux` 现在也已可用；它会使用独立的 Linux 本地模板。原生 Windows 继续使用 `-Platform windows` 即可。
+>
+> 如果当前机器没有安装 `pwsh`，但你已经有 Docker，可直接运行 `bash scripts/smoke_apply_profile_ps1_in_docker.sh` 做一轮 repo-local 的 `apply_profile.ps1` 实际 smoke。
 >
 > 原生 Windows / `pwsh` 仍建议在目标环境单独补跑一次；这些步骤面向部署补验，不建议和新手入口文档混在一起读。
 >
@@ -553,6 +555,8 @@ Authorization: Bearer <你的 MCP_API_KEY>
 - 这把 key 默认保存在本次运行使用的 Docker env 文件里
 - 浏览器只看到代理后的结果，不会直接拿到真实 key
 - 也请把这个前端端口视为可信管理入口。如果你要把 `3000` 暴露到受信网络之外，请先在前面加上自己的 VPN、反向代理鉴权或网络访问控制。
+- 如果你确实要做分离 origin 的管理面部署，可在 Docker env 里额外设置 `FRONTEND_CSP_CONNECT_SRC`；留空时默认仍是更保守的 `connect-src 'self'`。
+- 如果你部署在共享主机上，又不想把资源限制硬编码进默认 compose，可从仓库根目录的 `docker-compose.override.example.yml` 复制一份 `docker-compose.override.yml` 再按机器规格调整。
 
 ### SSE 启动示例
 

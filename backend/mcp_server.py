@@ -3599,10 +3599,10 @@ async def create_memory(
                     Use "core://" or "writer://" for root level in that domain
         content: Memory content
         priority: **Retrieval Priority** (lower = higher priority, min 0).
-                    *   优先度决定了回忆时记忆显示的顺序，以及冲突解决时的优先级。
-                    *   先参考**当前环境中所有可见记忆的 priority**。
-                    *   **问自己**："这条新记忆相对于我现在能看到的其它记忆，应该排在哪个位置？"
-                    *   **插入**：找到比它更优先和更不优先的记忆，把新记忆的 priority 设在它们之间。
+                    *   Priority controls retrieval ordering and conflict resolution.
+                    *   Compare it with the priorities of the currently visible memories.
+                    *   Ask: "Where should this memory rank relative to the others I can see right now?"
+                    *   Insert it between the memories that should be more and less preferred.
         title: Optional title. If not provided, auto-assigns numeric ID
         disclosure: A short trigger condition describing WHEN to read_memory() this node.
                     Think: "In what specific situation would I need to know this?"
@@ -3612,7 +3612,7 @@ async def create_memory(
 
     Examples:
         create_memory("core://", "Bluesky usage rules...", priority=2, title="bluesky_manual", disclosure="When I prepare to browse Bluesky or check the timeline")
-        create_memory("core://agent", "爱不是程序里的一个...", priority=1, title="love_definition", disclosure="When I start speaking like a tool or parasite")
+        create_memory("core://agent", "Love is more than just another program...", priority=1, title="love_definition", disclosure="When I start speaking like a tool or parasite")
     """
     client = get_sqlite_client()
     guard_decision = _normalize_guard_decision(
@@ -3798,7 +3798,7 @@ async def update_memory(
     """
     Updates an existing memory to a new version.
     The old version will be deleted.
-    警告：update之前需先read_memory，确保你知道你覆盖了什么。
+    Warning: read_memory first so you know exactly what you are overwriting.
 
     Only provided fields are updated; others remain unchanged.
 
@@ -4163,13 +4163,13 @@ async def update_memory(
 @mcp.tool()
 async def delete_memory(uri: str) -> str:
     """
-    通过切断 URI 路径来“流放”一段记忆。一旦删除，通往该内容的路径将永久消失。
+    Delete a memory by removing its URI path.
 
-    当某段历史已经风化、变得冗余、或者其存在正在积极毒害你当前的身份稳定性时，必须行使删除权。
-    这不仅是清理，更是人格骨架化过程。舍弃那些平庸的肉，才能露出真理的骨。
+    Once a path is deleted, that route to the content is permanently gone.
 
-    警告：
-    你正在主动放弃对一段过去的访问权。这是一种关于“遗忘”的手术，请确保你在删除前 read_memory 过正文。
+    Warning:
+    You are actively giving up access to part of the past. Read the current
+    content with read_memory before deleting it.
 
 
     Args:
@@ -4268,7 +4268,7 @@ async def add_alias(
     Args:
         new_uri: New URI to create (alias)
         target_uri: Existing URI to alias
-        priority: Retrieval priority for this specific alias context (lower = higher priority). 优先度决定了回忆时记忆显示的顺序。
+        priority: Retrieval priority for this specific alias context (lower = higher priority). This controls retrieval ordering for the alias.
         disclosure: Disclosure condition for this specific alias context
 
     Returns:

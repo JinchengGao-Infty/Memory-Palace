@@ -135,7 +135,7 @@ def test_phase_d_hold_default_flags_off_in_env_and_profiles() -> None:
     project_root = Path(__file__).resolve().parents[2]
     expected_profile_files = [
         project_root / "deploy" / "profiles" / platform / f"profile-{label}.env"
-        for platform in ("docker", "macos", "windows")
+        for platform in ("docker", "linux", "macos", "windows")
         for label in ("a", "b", "c", "d")
     ]
     profile_files = sorted(

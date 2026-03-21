@@ -45,7 +45,7 @@ memory-palace/
 │   └── vite.config.js    # Dev server port 5173, proxies to backend 8000
 ├── deploy/               # Docker and Profile configurations
 │   ├── docker/           # Dockerfile.backend / Dockerfile.frontend
-│   └── profiles/         # macOS / Windows / Docker profile templates
+│   └── profiles/         # macOS / Linux / Windows / Docker profile templates
 ├── scripts/              # Operation scripts
 │   ├── apply_profile.sh  # Profile application script (macOS/Linux)
 │   ├── apply_profile.ps1 # Profile application script (Windows)
@@ -97,7 +97,7 @@ You can also use the Profile script to quickly generate an `.env` with default c
 
 ```bash
 # macOS / Linux —— Parameters: Platform Profile [Target File]
-# Current script accepted template values are macos|linux|windows|docker; `linux` maps internally to the same local template as `macos`.
+# Current script accepted template values are macos|linux|windows|docker; `linux` now uses a dedicated local Linux template.
 bash scripts/apply_profile.sh macos b
 
 # Windows PowerShell
@@ -123,7 +123,7 @@ bash scripts/apply_profile.sh macos b
 >
 > Local `profile c/d` now also keeps `RUNTIME_AUTO_FLUSH_ENABLED=true` by default, so unless you override it yourself, the generated `.env` keeps the same auto-flush default as A/B.
 >
-> If you are running `apply_profile.ps1` from PowerShell on Linux / WSL, `-Platform linux` is now accepted as well; it maps to the same local template family as `macos`. On native Windows, keep using `-Platform windows`.
+> If you are running `apply_profile.ps1` from PowerShell on Linux / WSL, `-Platform linux` is now accepted as well; it uses a dedicated local Linux template. On native Windows, keep using `-Platform windows`.
 >
 > In addition, `profile c/d` now fail-closed at the script stage when endpoint/key/model placeholders are still unresolved. If values such as `PORT`, `replace-with-your-key`, or `your-embedding-model-id` are still present, the script stops immediately instead of carrying an obviously broken config into later startup steps.
 >

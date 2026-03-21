@@ -74,7 +74,7 @@ def test_apply_profile_shell_generates_docker_api_key_from_crlf_base_template(
     assert mcp_api_key_line != "MCP_API_KEY="
 
 
-def test_apply_profile_shell_accepts_linux_alias_and_maps_to_macos_profile(
+def test_apply_profile_shell_accepts_linux_platform_with_dedicated_profile_template(
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "repo"
@@ -91,10 +91,10 @@ def test_apply_profile_shell_accepts_linux_alias_and_maps_to_macos_profile(
     (project_root / ".env.example").write_bytes(
         b"DATABASE_URL=sqlite+aiosqlite:////Users/<your-user>/memory_palace/agent_memory.db\r\n"
     )
-    profile_path = project_root / "deploy" / "profiles" / "macos" / "profile-b.env"
+    profile_path = project_root / "deploy" / "profiles" / "linux" / "profile-b.env"
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     profile_path.write_bytes(
-        b"PROFILE_MARKER=macos_b\r\n"
+        b"PROFILE_MARKER=linux_b\r\n"
         b"SEARCH_DEFAULT_MODE=keyword\r\n"
         b"RETRIEVAL_EMBEDDING_BACKEND=hash\r\n"
     )
@@ -110,13 +110,24 @@ def test_apply_profile_shell_accepts_linux_alias_and_maps_to_macos_profile(
     assert result.returncode == 0
     assert "Generated" in result.stdout
     generated_lines = (project_root / ".env.generated").read_text(encoding="utf-8").splitlines()
-    assert "PROFILE_MARKER=macos_b" in generated_lines
+    assert "PROFILE_MARKER=linux_b" in generated_lines
     database_url_line = next(
         line for line in generated_lines if line.startswith("DATABASE_URL=")
     )
     assert "<your-user>" not in database_url_line
     assert database_url_line.startswith("DATABASE_URL=sqlite+aiosqlite:////")
     assert database_url_line.endswith("demo.db")
+
+
+def test_linux_profile_templates_exist_with_home_placeholders() -> None:
+    for relative_path in (
+        "deploy/profiles/linux/profile-a.env",
+        "deploy/profiles/linux/profile-b.env",
+        "deploy/profiles/linux/profile-c.env",
+        "deploy/profiles/linux/profile-d.env",
+    ):
+        text = (PROJECT_ROOT / relative_path).read_text(encoding="utf-8")
+        assert "DATABASE_URL=sqlite+aiosqlite:////home/<your-user>/memory_palace/agent_memory.db" in text
 
 
 def test_apply_profile_shell_falls_back_to_python_when_openssl_is_unusable(

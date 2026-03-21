@@ -91,6 +91,7 @@ def test_frontend_nginx_template_targets_repo_managed_sse_port() -> None:
     ).read_text(encoding="utf-8")
 
     assert "proxy_pass http://backend:8000/sse/;" in template_text
+    assert "connect-src ${FRONTEND_CSP_CONNECT_SRC_NGINX_ESCAPED};" in template_text
     assert "location ^~ /messages {" in template_text
     assert "location ^~ /sse/messages {" in template_text
     assert "location = /sse/ {" in template_text
@@ -134,10 +135,13 @@ def test_frontend_entrypoint_escapes_dollar_signs_in_api_key() -> None:
     ).read_text(encoding="utf-8")
 
     assert "sed 's/[\\\\\\\"$]/\\\\&/g'" in script_text
+    assert "FRONTEND_CSP_CONNECT_SRC" in script_text
     assert "carriage_return=\"$(printf '\\r')\"" in script_text
     assert "backtick=\"$(printf '\\140')\"" in script_text
     assert "tr -d '[:cntrl:]'" in script_text
     assert "MCP_API_KEY contains unsupported control characters." in script_text
+    assert "FRONTEND_CSP_CONNECT_SRC contains unsupported characters." in script_text
+    assert "FRONTEND_CSP_CONNECT_SRC_NGINX_ESCAPED" in script_text
 
 
 def test_frontend_entrypoint_rejects_tab_in_api_key() -> None:
@@ -172,3 +176,66 @@ def test_frontend_entrypoint_rejects_backtick_in_api_key() -> None:
 
     assert result.returncode == 1
     assert "unsupported control characters" in result.stderr
+
+
+def test_frontend_entrypoint_accepts_default_connect_src_and_renders_template(
+    tmp_path: Path,
+) -> None:
+    script_source = (
+        PROJECT_ROOT / "deploy" / "docker" / "frontend-entrypoint.sh"
+    ).read_text(encoding="utf-8")
+    template_path = tmp_path / "default.conf.template"
+    target_path = tmp_path / "default.conf"
+    template_path.write_text(
+        'add_header Content-Security-Policy "connect-src ${FRONTEND_CSP_CONNECT_SRC_NGINX_ESCAPED};";\n',
+        encoding="utf-8",
+    )
+
+    script_path = tmp_path / "frontend-entrypoint.sh"
+    script_path.write_text(
+        script_source
+        .replace(
+            'template_path="/etc/nginx/templates/default.conf.template"',
+            f'template_path="{template_path}"',
+        )
+        .replace(
+            'target_path="/etc/nginx/conf.d/default.conf"',
+            f'target_path="{target_path}"',
+        )
+        .replace("nginx -t", ":")
+        .replace("exec nginx -g 'daemon off;'", "exit 0"),
+        encoding="utf-8",
+    )
+    script_path.chmod(0o755)
+
+    env = os.environ.copy()
+    env["MCP_API_KEY"] = "local-key"
+
+    result = subprocess.run(
+        ["sh", str(script_path)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "connect-src 'self';" in target_path.read_text(encoding="utf-8")
+
+
+def test_frontend_entrypoint_rejects_semicolon_in_connect_src() -> None:
+    script_path = PROJECT_ROOT / "deploy" / "docker" / "frontend-entrypoint.sh"
+    env = os.environ.copy()
+    env["MCP_API_KEY"] = "local-key"
+    env["FRONTEND_CSP_CONNECT_SRC"] = "'self'; script-src https://evil.example"
+
+    result = subprocess.run(
+        ["sh", str(script_path)],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "FRONTEND_CSP_CONNECT_SRC contains unsupported characters." in result.stderr

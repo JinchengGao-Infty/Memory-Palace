@@ -1,6 +1,7 @@
 import inspect
-import os
 import hmac
+import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -37,6 +38,9 @@ from runtime_bootstrap import (
     _try_restore_legacy_sqlite_file,
 )
 from run_sse import create_embedded_sse_apps
+
+logger = logging.getLogger(__name__)
+
 
 def _health_request_allows_details(
     request: Optional[Request],
@@ -93,41 +97,38 @@ def _mount_embedded_sse_apps(app: FastAPI) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
-    # 启动时
-    print("Memory API starting...")
-    
-    # Initialize SQLite
+    """Manage the FastAPI application lifespan."""
+    logger.info("Memory API starting.")
+
     try:
         await initialize_backend_runtime()
         _mount_embedded_sse_apps(app)
-        print("SQLite database initialized.")
-    except Exception as e:
-        print(f"Failed to initialize SQLite: {e}")
-        raise RuntimeError("Failed to initialize SQLite during startup") from e
-    
+        logger.info("SQLite database initialized.")
+    except Exception as exc:
+        logger.exception("Failed to initialize SQLite during startup.")
+        raise RuntimeError("Failed to initialize SQLite during startup") from exc
+
     yield
-    
-    # 关闭时
-    print("Closing database connections...")
+
+    logger.info("Closing database connections.")
     try:
         from mcp_server import drain_pending_flush_summaries
 
         await drain_pending_flush_summaries(reason="runtime.shutdown")
     except Exception as exc:
-        print(f"Best-effort flush drain skipped: {type(exc).__name__}")
+        logger.warning("Best-effort flush drain skipped: %s", type(exc).__name__)
     await runtime_state.shutdown()
     await close_sqlite_client()
 
 
 app = FastAPI(
     title="Memory Palace API",
-    description="AI Agent 长期记忆系统后端",
+    description="Persistent memory backend for AI agents.",
     version="1.0.1",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
-# CORS设置
+# Configure CORS.
 _cors_origins, _cors_allow_credentials = _resolve_cors_config()
 app.add_middleware(
     CORSMiddleware,
@@ -137,7 +138,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册路由
+# Register API routers.
 app.include_router(review_router)
 app.include_router(browse_router)
 app.include_router(maintenance_router)
@@ -146,11 +147,11 @@ app.include_router(setup_router)
 
 @app.get("/")
 async def root():
-    """根路径"""
+    """Return the API root payload."""
     return {
         "message": "Memory Palace API",
         "version": "1.0.1",
-        "docs": "/docs"
+        "docs": "/docs",
     }
 
 
@@ -160,7 +161,7 @@ async def health(
     x_mcp_api_key: Optional[str] = Header(default=None, alias="X-MCP-API-Key"),
     authorization: Optional[str] = Header(default=None, alias="Authorization"),
 ):
-    """健康检查"""
+    """Return the health payload for the active backend runtime."""
     payload: Dict[str, Any] = {
         "status": "ok",
         "timestamp": _utc_iso_now(),

@@ -26,6 +26,7 @@ import re
 import shutil
 import stat
 import tempfile
+import threading
 import time
 from contextlib import contextmanager
 from typing import Optional, Dict, Any, List
@@ -785,11 +786,14 @@ class SnapshotManager:
 
 # Global singleton
 _snapshot_manager: Optional[SnapshotManager] = None
+_snapshot_manager_lock = threading.Lock()
 
 
 def get_snapshot_manager() -> SnapshotManager:
     """Get the global SnapshotManager instance."""
     global _snapshot_manager
     if _snapshot_manager is None:
-        _snapshot_manager = SnapshotManager()
+        with _snapshot_manager_lock:
+            if _snapshot_manager is None:
+                _snapshot_manager = SnapshotManager()
     return _snapshot_manager
