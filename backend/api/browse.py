@@ -544,17 +544,8 @@ async def update_node(
         guard_action = str(guard_decision.get("action") or "NOOP").upper()
         blocked = False
         if body.content is not None:
-            if guard_action == "ADD":
+            if guard_action in ("ADD", "UPDATE"):
                 blocked = False
-            elif guard_action == "UPDATE":
-                target_id = guard_decision.get("target_id")
-                current_memory_id = lane_memory.get("id")
-                if (
-                    not isinstance(target_id, int)
-                    or not isinstance(current_memory_id, int)
-                    or target_id != current_memory_id
-                ):
-                    blocked = True
             else:
                 blocked = True
 

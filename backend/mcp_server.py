@@ -4031,19 +4031,8 @@ async def update_memory(
             guard_action = str(guard_decision.get("action") or "NOOP").upper()
             blocked = False
             if content is not None:
-                if guard_action == "ADD":
-                    # Content updates keep the current URI stable. If the guard thinks the
-                    # new content looks like a fresh memory, we still treat this as an
-                    # in-place revision instead of forcing the caller down create_memory.
+                if guard_action in ("ADD", "UPDATE"):
                     blocked = False
-                elif guard_action == "UPDATE":
-                    target_id = guard_decision.get("target_id")
-                    if (
-                        not isinstance(target_id, int)
-                        or not isinstance(current_memory_id, int)
-                        or target_id != current_memory_id
-                    ):
-                        blocked = True
                 else:
                     blocked = True
             try:
