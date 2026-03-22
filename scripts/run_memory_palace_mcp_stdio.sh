@@ -229,6 +229,9 @@ if [[ -z "${VENV_PYTHON}" ]]; then
   exit 1
 fi
 
+# Prevent system proxy from interfering with local Ollama/embedding connections
+unset all_proxy ALL_PROXY http_proxy HTTP_PROXY https_proxy HTTPS_PROXY
+
 cd "${BACKEND_DIR}"
 
 runtime_database_url="$(normalize_env_value "${DATABASE_URL:-}")"

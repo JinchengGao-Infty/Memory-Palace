@@ -5225,6 +5225,7 @@ class SQLiteClient:
         domain: str = "core",
         path_prefix: Optional[str] = None,
         exclude_memory_id: Optional[int] = None,
+        skip_llm: bool = False,
     ) -> Dict[str, Any]:
         query = (content or "").strip()
         if not query:
@@ -5327,12 +5328,12 @@ class SQLiteClient:
                         else None
                     ),
                 )
-            if vector_score >= 0.78:
+            if vector_score >= 0.85:
                 return self._build_guard_decision(
                     action="UPDATE",
                     target_id=semantic_top.get("memory_id"),
                     target_uri=semantic_top.get("uri"),
-                    reason=f"semantic similarity {vector_score:.3f} >= 0.780",
+                    reason=f"semantic similarity {vector_score:.3f} >= 0.850",
                     method="embedding",
                     degrade_reasons=degrade_reasons,
                     semantic_top=semantic_top,
@@ -5379,14 +5380,15 @@ class SQLiteClient:
                     keyword_top=keyword_top,
                 )
 
-        llm_decision = await self._write_guard_llm_decision(
-            content=query,
-            semantic_candidates=semantic_candidates,
-            keyword_candidates=keyword_candidates,
-            degrade_reasons=degrade_reasons,
-        )
-        if llm_decision is not None:
-            return llm_decision
+        if not skip_llm:
+            llm_decision = await self._write_guard_llm_decision(
+                content=query,
+                semantic_candidates=semantic_candidates,
+                keyword_candidates=keyword_candidates,
+                degrade_reasons=degrade_reasons,
+            )
+            if llm_decision is not None:
+                return llm_decision
 
         return self._build_guard_decision(
             action="ADD",

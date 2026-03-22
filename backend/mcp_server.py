@@ -3989,13 +3989,23 @@ async def update_memory(
                 )
 
             if content is not None:
+                # For update_memory, guard should check only the NEW content
+                # (append text or new_string), not the full merged result.
+                # Using full content causes false positives because the existing
+                # content is already indexed and will match other memories.
+                guard_content = content
+                if append is not None:
+                    guard_content = append
+                elif new_string is not None:
+                    guard_content = new_string
                 try:
                     guard_decision = _normalize_guard_decision(
                         await client.write_guard(
-                            content=content,
+                            content=guard_content,
                             domain=domain,
                             path_prefix=path.rsplit("/", 1)[0] if "/" in path else None,
                             exclude_memory_id=current_memory_id,
+                            skip_llm=True,
                         )
                     )
                 except Exception as guard_exc:
