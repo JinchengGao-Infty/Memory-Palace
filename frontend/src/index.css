@@ -29,6 +29,13 @@
     --palace-glow: rgba(212, 175, 55, 0.25);
   }
 
+  :root[data-browser-profile='edge'] {
+    --palace-glass-bg: rgba(255, 255, 255, 0.82);
+    --palace-glass-border: rgba(255, 255, 255, 0.72);
+    --palace-glass-shadow: 0 6px 18px 0 rgba(179, 133, 79, 0.08);
+    --palace-glass-blur: 0px;
+  }
+
   body {
     margin: 0;
     min-height: 100vh;
@@ -50,6 +57,10 @@
     z-index: 9999; /* Ensure noise is on top but pointer-events none */
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
     mix-blend-mode: overlay;
+  }
+
+  html[data-browser-profile='edge'] body::before {
+    opacity: 0.14;
   }
 
   h1,
@@ -79,6 +90,17 @@
     transform: translateY(-2px);
   }
 
+  html[data-browser-profile='edge'] .glass-card {
+    transition-duration: 120ms;
+  }
+
+  html[data-browser-profile='edge'] .glass-card:hover {
+    background: rgba(255, 255, 255, 0.82);
+    border-color: rgba(255, 255, 255, 0.72);
+    box-shadow: 0 8px 20px rgba(179, 133, 79, 0.1);
+    transform: none;
+  }
+
   /* Legacy Panel (Backwards Compatibility) */
   .palace-panel {
     @apply glass-card;
@@ -106,6 +128,11 @@
     border-color: var(--palace-accent);
     background: rgba(255, 255, 255, 0.8);
     box-shadow: 0 0 0 3px var(--palace-glow);
+  }
+
+  html[data-browser-profile='edge'] .palace-input {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .palace-btn-primary {
@@ -164,6 +191,14 @@
   .palace-harmonized [class*="text-amber-300"],
   .palace-harmonized [class*="text-amber-400"] {
      color: var(--palace-accent-2) !important; /* Darker gold/bronze */
+  }
+
+  html[data-browser-profile='edge'] .backdrop-blur-sm,
+  html[data-browser-profile='edge'] .backdrop-blur-md,
+  html[data-browser-profile='edge'] .backdrop-blur-xl,
+  html[data-browser-profile='edge'] .backdrop-blur-2xl {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 }
 

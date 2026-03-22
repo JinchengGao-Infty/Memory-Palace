@@ -1,9 +1,30 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-const FluidBackground = () => {
+const FluidBackground = ({ reducedEffects = false }) => {
+  if (reducedEffects) {
+    return (
+      <div
+        className="fixed inset-0 -z-10 overflow-hidden bg-[#fdfbf7]"
+        data-testid="fluid-background-static"
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-[#fdfbf7] via-[#f7f2ea] to-[#efe5d6] opacity-90" />
+        <div className="absolute inset-x-[-8%] top-[-10%] h-[32vh] rounded-[50%] bg-[#d4af37]/6 blur-[24px]" />
+        <div className="absolute bottom-[8%] right-[8%] h-[20rem] w-[20rem] rounded-full bg-[#e6dccf]/40 blur-[20px]" />
+        <div
+          className="absolute inset-0 opacity-[0.02]"
+          style={{
+            backgroundImage:
+              'linear-gradient(#d4af37 1px, transparent 1px), linear-gradient(90deg, #d4af37 1px, transparent 1px)',
+            backgroundSize: '44px 44px',
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 -z-10 overflow-hidden bg-[#fdfbf7]">
+    <div className="fixed inset-0 -z-10 overflow-hidden bg-[#fdfbf7]" data-testid="fluid-background-animated">
       {/* Base Gradient Layer - Static for performance */}
       <div className="absolute inset-0 bg-gradient-to-br from-[#fdfbf7] via-[#f7f2ea] to-[#efe5d6] opacity-80" />
 

@@ -259,6 +259,8 @@ If you wish to view the Dashboard buttons, fields, and typical operation flows p
 
 > The frontend restores the stored language first. If there is no stored choice yet, common Chinese browser locales (`zh`, `zh-TW`, `zh-HK`, and similar `zh-*`) are normalized to `zh-CN`; other first-visit cases fall back to English. If you want to switch manually, use the language button in the top right, and the browser will remember your choice.
 
+> If you open the Dashboard in Microsoft Edge, the current frontend now switches to a lighter visual mode automatically. In plain terms: the functions, auth flow, and setup assistant stay the same, but the page uses a static background, less blur, and less card motion to reduce local lag. Other browsers keep the normal visual treatment.
+
 > The frontend dev server proxies `/api` to `MEMORY_PALACE_API_PROXY_TARGET` (default: `http://127.0.0.1:8000`) via `vite.config.js`.
 >
 > If you also want to verify same-origin SSE from the **local Vite dev entry**, start `run_sse.py` separately first and additionally set:

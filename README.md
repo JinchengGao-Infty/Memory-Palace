@@ -61,6 +61,7 @@ If you want the AI to guide installation step by step, start with the standalone
 - **Review rollback is now more conservative**: if the same URI already has a newer content snapshot in another review session, rolling back the older snapshot now fails closed instead of silently undoing the newer change.
 - **High-noise retrieval looks stronger in the current benchmark set**: compared with the old project, the C/D profiles show better recall in harder `s8,d200` and `s100,d200` style scenarios.
 - **Dashboard language is now easier to control**: the frontend restores the stored language first; if there is no stored choice yet, common Chinese browser locales fall back to `zh-CN`, otherwise it falls back to English. You can still switch between English and Chinese from the top-right corner, and the browser remembers the choice.
+- **Edge Dashboard rendering is now more conservative**: when the frontend detects Microsoft Edge, it automatically switches to a lighter visual mode with a static background, less blur, and fewer card motion effects to reduce local lag, while keeping the same Dashboard functions.
 - **Local operator paths are less brittle**: repo-local stdio wrappers now reuse `.env` `RETRIEVAL_REMOTE_TIMEOUT_SEC`, forward stdio in chunks instead of one byte at a time, export UTF-8 defaults on the shell-wrapper path, and give longer-running Dashboard observability / vitality confirmation actions a longer client-side timeout before the browser gives up.
 - **A few easy-to-miss edges are tighter now**: final search-result revalidation prefers batched path checks, Windows-style hosts that accidentally run `backend/mcp_wrapper.py` from `Git Bash / MSYS / Cygwin` are more likely to pick the correct `.venv` interpreter, and the Docker frontend proxy now rejects ASCII control characters such as tabs inside the proxy-held key.
 - **Public claims stay conservative**: the docs now include a native-Windows repo-local stdio path through `backend/mcp_wrapper.py`, while still asking you to re-check your own remote / GUI-host deployment environment.
@@ -123,6 +124,8 @@ On the repository-shipped Docker / GHCR compose paths, compose now forces WAL by
 A React-powered dashboard with four views: **Memory Browser**, **Review & Rollback**, **Maintenance**, and **Observability**.
 
 The current frontend first restores the stored language choice. If there is no stored choice yet, common Chinese browser locales (`zh`, `zh-TW`, `zh-HK`, and similar `zh-*`) are normalized to `zh-CN`; other first-visit cases fall back to English. You can still use the top-right language button to switch between English and Chinese, and the browser remembers your choice for common UI copy, date/number formatting, and common API error hints, including structured validation errors returned by the backend.
+
+When the Dashboard is opened in Microsoft Edge, the frontend now automatically switches to a lighter visual mode. In plain terms: the same pages, auth/setup flow, and data requests still work, but the page trims the animated background, blur, and some card motion to reduce local lag. Other browsers keep the normal visual treatment.
 
 Longer-running Observability search and vitality cleanup confirmation calls now also wait longer on the client side, so larger local datasets are less likely to show a browser timeout while the backend is still working.
 
@@ -967,6 +970,7 @@ than part of the public user package.
 > - These screenshots show the common English-mode dashboard state; on a first visit without a stored choice, common Chinese browser locales now auto-map to `zh-CN`, and other cases fall back to English
 > - The top bar now provides a unified auth/setup entry (`Set API key` / `Update API key` / `Clear key`; when runtime auth is injected, the page shows `Runtime key active` plus a `Setup` button)
 > - If auth is not configured yet, the page shell still opens, but protected data requests show an auth hint, empty state, or `401` until credentials are available
+> - If you open the live page in Microsoft Edge, it may look slightly flatter than these screenshots because Edge now uses a lighter visual mode to reduce local lag; the page structure and functions stay the same
 
 <details>
 <summary>🪄 First-Run Setup Assistant</summary>

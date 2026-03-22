@@ -62,6 +62,8 @@ If the Dashboard shell opens but protected data does not load, the usual fix is:
 
 A language toggle button is in the top-right corner. Click it to switch between English and Chinese. Your preference is remembered by the browser.
 
+> If you open the Dashboard in Microsoft Edge, the current frontend automatically switches to a lighter visual mode to reduce local lag. The page layout, buttons, and flows in this guide still apply; the live page may just look a bit flatter than Chrome screenshots.
+
 ---
 
 ## 📂 Memory Page

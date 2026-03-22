@@ -61,6 +61,31 @@ This document helps you quickly locate and resolve common issues encountered whi
 
 ---
 
+### Edge opens the Dashboard with visible lag, but Chrome is smooth
+
+**Phenomenon**:
+
+- The same local Dashboard feels obviously laggier in Microsoft Edge
+- Chrome on the same machine and the same URL feels smoother
+- Health checks and normal API requests do not look obviously broken
+
+**This usually does not mean the backend suddenly became slow**. It is more often a browser-side rendering issue on the Dashboard page itself.
+
+**Current code-path behavior**:
+
+- The frontend now detects Microsoft Edge automatically
+- Edge switches to a lighter visual mode by default
+- That lighter mode keeps the same pages, buttons, auth/setup flow, and data requests
+- The main visible difference is that the page trims animated background effects, blur, and some card motion to reduce local lag
+
+**What to do**:
+
+1. Hard refresh the page after updating to the latest frontend bundle
+2. Compare the same local URL in Chrome or another browser
+3. If only Edge is still laggy while Chrome is normal, prioritize browser-side rendering checks before treating it as a backend/API issue
+
+---
+
 ## 1.1 The page is in English by default, how do I switch to Chinese?
 
 **Phenomenon**:

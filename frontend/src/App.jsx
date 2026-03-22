@@ -17,6 +17,10 @@ import {
   clearStoredMaintenanceAuth,
   getMaintenanceAuthState,
 } from './lib/api';
+import {
+  applyBrowserProfileAttribute,
+  isEdgeBrowserProfile,
+} from './lib/browserProfile';
 import { CHINESE_LOCALE, DEFAULT_LOCALE } from './i18n';
 
 function NavItem({ to, icon: Icon, label }) {
@@ -133,10 +137,14 @@ export function buildRoutesKey(authState, authRevision) {
 function Layout({ authState, authRevision, onOpenSetup, onClearApiKey }) {
   const { t } = useTranslation();
   const routesKey = buildRoutesKey(authState, authRevision);
+  const reducedVisualMode = isEdgeBrowserProfile();
 
   return (
-    <div className="relative flex h-screen flex-col overflow-hidden text-[color:var(--palace-ink)]">
-      <FluidBackground />
+    <div
+      className="relative flex h-screen flex-col overflow-hidden text-[color:var(--palace-ink)]"
+      data-browser-performance={reducedVisualMode ? 'lite' : 'default'}
+    >
+      <FluidBackground reducedEffects={reducedVisualMode} />
 
       {/* Floating Header */}
       <div className="relative z-20 shrink-0 px-6 pt-6 pb-2">
@@ -231,6 +239,10 @@ function App() {
   React.useEffect(() => {
     document.title = t('app.documentTitle');
   }, [i18n.resolvedLanguage, t]);
+
+  React.useEffect(() => {
+    applyBrowserProfileAttribute();
+  }, []);
 
   React.useEffect(() => {
     if (typeof window === 'undefined') return;

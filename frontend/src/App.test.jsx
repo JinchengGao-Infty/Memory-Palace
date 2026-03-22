@@ -51,6 +51,7 @@ describe('App routing', () => {
     window.sessionStorage?.removeItem?.('memory-palace.dashboardAuth');
     window.localStorage?.removeItem?.(LOCALE_STORAGE_KEY);
     window.localStorage?.setItem?.('memory-palace.setupAssistantDismissed', '1');
+    delete document.documentElement.dataset.browserProfile;
     delete window.__MEMORY_PALACE_RUNTIME__;
     await i18n.changeLanguage('en');
     window.localStorage?.removeItem?.(LOCALE_STORAGE_KEY);
@@ -285,6 +286,32 @@ describe('App routing', () => {
     expect(await screen.findByText(i18n.t('app.auth.runtimeBadge'))).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: i18n.t('app.auth.setApiKey') })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: i18n.t('app.auth.openSetup') })).toBeInTheDocument();
+  });
+
+  it('switches dashboard visuals into lite mode for Edge', async () => {
+    const originalUserAgent = window.navigator.userAgent;
+    window.history.pushState({}, '', '/memory');
+
+    Object.defineProperty(window.navigator, 'userAgent', {
+      configurable: true,
+      value:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/135.0.0.0 Safari/537.36 Edg/135.0.0.0',
+    });
+
+    try {
+      const { container } = render(<App />);
+
+      expect(await screen.findByTestId('fluid-background-static')).toBeInTheDocument();
+      expect(container.firstChild).toHaveAttribute('data-browser-performance', 'lite');
+      await waitFor(() => {
+        expect(document.documentElement.dataset.browserProfile).toBe('edge');
+      });
+    } finally {
+      Object.defineProperty(window.navigator, 'userAgent', {
+        configurable: true,
+        value: originalUserAgent,
+      });
+    }
   });
 
   it('toggles language and persists the selection across remounts', async () => {
