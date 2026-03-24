@@ -3789,6 +3789,7 @@ async def create_memory(
 @mcp.tool()
 async def update_memory(
     uri: str,
+    content: Optional[str] = None,
     old_string: Optional[str] = None,
     new_string: Optional[str] = None,
     append: Optional[str] = None,
@@ -3802,7 +3803,7 @@ async def update_memory(
 
     Only provided fields are updated; others remain unchanged.
 
-    Two content-editing modes (mutually exclusive):
+    Three content-editing modes (mutually exclusive):
 
     1. **Patch mode** (primary): Provide old_string + new_string.
        Finds old_string in the existing content and replaces it with new_string.
@@ -3812,11 +3813,13 @@ async def update_memory(
     2. **Append mode**: Provide append.
        Adds the given text to the end of existing content.
 
-    There is NO full-replace mode. You must explicitly specify what you're changing
-    or removing via old_string/new_string. This prevents accidental content loss.
+    3. **Full-replace mode**: Provide content.
+       Replaces the entire content. Use when the memory needs a major rewrite
+       and patch mode would be impractical.
 
     Args:
         uri: URI to update (e.g., "core://agent/my_user")
+        content: [Full-replace mode] New content to replace the entire memory
         old_string: [Patch mode] Text to find in existing content (must be unique)
         new_string: [Patch mode] Text to replace old_string with. Use "" to delete a section.
         append: [Append mode] Text to append to the end of existing content
@@ -3830,6 +3833,7 @@ async def update_memory(
         update_memory("core://agent/my_user", old_string="old paragraph content", new_string="new paragraph content")
         update_memory("core://agent", append="\\n## New Section\\nNew content...")
         update_memory("writer://chapter_1", priority=5)
+        update_memory("core://infrastructure", content="# Infrastructure\\n\\nFull new content here...")
     """
     guard_decision = _normalize_guard_decision(
         {"action": "BYPASS", "method": "none", "reason": "guard_not_evaluated"},
@@ -3846,12 +3850,18 @@ async def update_memory(
             uri=full_uri,
         )
         # --- Validate mutually exclusive content-editing modes ---
-        if old_string is not None and append is not None:
+        content_modes = sum([
+            content is not None,
+            old_string is not None,
+            append is not None,
+        ])
+        if content_modes > 1:
             return _tool_response(
                 ok=False,
                 message=(
-                    "Error: Cannot use both old_string/new_string (patch) and append "
-                    "at the same time. Pick one."
+                    "Error: Cannot use multiple content-editing modes at once. "
+                    "Pick one: content (full-replace), old_string+new_string (patch), "
+                    "or append."
                 ),
                 updated=False,
                 uri=full_uri,
@@ -3900,9 +3910,22 @@ async def update_memory(
         async def _write_task():
             nonlocal guard_decision, preview_text
             current_memory_id: Optional[int] = None
-            content = None
+            resolved_content = None
 
-            if old_string is not None:
+            if content is not None:
+                # Full-replace mode
+                memory = await client.get_memory_by_path(path, domain)
+                if not memory:
+                    return _tool_response(
+                        ok=False,
+                        message=f"Error: Memory at '{full_uri}' not found.",
+                        updated=False,
+                        uri=full_uri,
+                        **_guard_fields(guard_decision),
+                    )
+                current_memory_id = memory.get("id")
+                resolved_content = content
+            elif old_string is not None:
                 memory = await client.get_memory_by_path(path, domain)
                 if not memory:
                     return _tool_response(
@@ -3937,8 +3960,8 @@ async def update_memory(
                         uri=full_uri,
                         **_guard_fields(guard_decision),
                     )
-                content = current_content.replace(old_string, new_string, 1)
-                if content == current_content:
+                resolved_content = current_content.replace(old_string, new_string, 1)
+                if resolved_content == current_content:
                     return _tool_response(
                         ok=False,
                         message=(
@@ -3973,27 +3996,27 @@ async def update_memory(
                     )
                 current_memory_id = memory.get("id")
                 current_content = memory.get("content", "")
-                content = current_content + append
+                resolved_content = current_content + append
 
-            if content is None and priority is None and disclosure is None:
+            if resolved_content is None and priority is None and disclosure is None:
                 return _tool_response(
                     ok=False,
                     message=(
                         f"Error: No update fields provided for '{full_uri}'. "
-                        "Use patch mode (old_string + new_string), append mode (append), "
-                        "or metadata fields (priority/disclosure)."
+                        "Use content (full-replace), patch mode (old_string + new_string), "
+                        "append mode (append), or metadata fields (priority/disclosure)."
                     ),
                     updated=False,
                     uri=full_uri,
                     **_guard_fields(guard_decision),
                 )
 
-            if content is not None:
+            if resolved_content is not None:
                 # For update_memory, guard should check only the NEW content
                 # (append text or new_string), not the full merged result.
                 # Using full content causes false positives because the existing
                 # content is already indexed and will match other memories.
-                guard_content = content
+                guard_content = resolved_content
                 if append is not None:
                     guard_content = append
                 elif new_string is not None:
@@ -4030,7 +4053,7 @@ async def update_memory(
 
             guard_action = str(guard_decision.get("action") or "NOOP").upper()
             blocked = False
-            if content is not None:
+            if resolved_content is not None:
                 if guard_action in ("ADD", "UPDATE"):
                     blocked = False
                 else:
@@ -4056,20 +4079,20 @@ async def update_memory(
                     **_guard_fields(guard_decision),
                 )
 
-            if content is not None:
+            if resolved_content is not None:
                 await _snapshot_memory_content(full_uri)
             if priority is not None or disclosure is not None:
                 await _snapshot_path_meta(full_uri)
 
             result = await client.update_memory(
                 path=path,
-                content=content,
+                content=resolved_content,
                 priority=priority,
                 disclosure=disclosure,
                 domain=domain,
                 index_now=not defer_index,
             )
-            preview_text = content
+            preview_text = resolved_content
             if preview_text is None:
                 preview_text = (
                     f"meta update priority={priority if priority is not None else '(unchanged)'} "
