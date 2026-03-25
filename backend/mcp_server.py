@@ -38,7 +38,12 @@ from shared_utils import (
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.utilities.func_metadata import ArgModelBase
 from mcp.server.transport_security import TransportSecuritySettings
+
+# Ensure FastMCP silently ignores extra tool parameters (e.g. hallucinated
+# "patch_note") instead of raising -32602 Invalid request parameters.
+ArgModelBase.model_config["extra"] = "ignore"
 from db.sqlite_client import get_sqlite_client
 from db.snapshot import get_snapshot_manager
 from runtime_state import runtime_state
