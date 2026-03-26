@@ -3599,21 +3599,32 @@ async def create_memory(
     """
     Creates a new memory under a parent URI.
 
+    IMPORTANT: The first parameter is `parent_uri`, NOT `uri`.
+    This is where the new memory will be placed in the tree.
+    Do NOT pass a `uri` parameter — that is for update_memory/read_memory only.
+
     Args:
-        parent_uri: Parent URI (e.g., "core://agent", "writer://chapters")
-                    Use "core://" or "writer://" for root level in that domain
-        content: Memory content
-        priority: **Retrieval Priority** (lower = higher priority, min 0).
-                    *   Priority controls retrieval ordering and conflict resolution.
-                    *   Compare it with the priorities of the currently visible memories.
-                    *   Ask: "Where should this memory rank relative to the others I can see right now?"
-                    *   Insert it between the memories that should be more and less preferred.
-        title: Optional title. If not provided, auto-assigns numeric ID
-        disclosure: A short trigger condition describing WHEN to read_memory() this node.
+        parent_uri: (REQUIRED) Parent URI where the new memory will be created.
+                    Examples: "core://", "notes://", "core://agent", "writer://chapters"
+                    Use "core://" or "notes://" for root level in that domain.
+                    The new memory's final URI will be parent_uri + "/" + title.
+        content: (REQUIRED) Memory content text
+        priority: (REQUIRED) Retrieval priority — integer, lower = higher priority (min 0).
+                    Compare with priorities of currently visible memories to decide placement.
+        title: (optional) URL-safe path segment (alphanumeric, hyphens, underscores only).
+               If not provided, auto-assigns a numeric ID.
+               Example: title="my_note" under parent "notes://" → URI "notes://my_note"
+        disclosure: (optional) A short trigger condition describing WHEN to recall this memory.
                     Think: "In what specific situation would I need to know this?"
 
     Returns:
         The created memory's full URI
+
+    Common mistakes:
+        - WRONG: create_memory(uri="notes://foo", content="...", priority=1)
+          RIGHT: create_memory(parent_uri="notes://", content="...", priority=1, title="foo")
+        - WRONG: create_memory(parent_uri="notes://foo", ...) when you want URI "notes://foo"
+          RIGHT: create_memory(parent_uri="notes://", title="foo", ...)
 
     Examples:
         create_memory("core://", "Bluesky usage rules...", priority=2, title="bluesky_manual", disclosure="When I prepare to browse Bluesky or check the timeline")
@@ -3802,9 +3813,10 @@ async def update_memory(
     disclosure: Optional[str] = None,
 ) -> str:
     """
-    Updates an existing memory to a new version.
-    The old version will be deleted.
-    Warning: read_memory first so you know exactly what you are overwriting.
+    Updates an existing memory. Always read_memory() first to see current content.
+
+    IMPORTANT: The first parameter is `uri` (the memory to update), NOT `parent_uri`.
+    The memory at this URI must already exist. To create new memories, use create_memory.
 
     Only provided fields are updated; others remain unchanged.
 
@@ -3823,7 +3835,8 @@ async def update_memory(
        and patch mode would be impractical.
 
     Args:
-        uri: URI to update (e.g., "core://agent/my_user")
+        uri: (REQUIRED) URI of the existing memory to update (e.g., "core://agent/my_user").
+             NOT parent_uri — this must be the exact URI of an existing memory.
         content: [Full-replace mode] New content to replace the entire memory
         old_string: [Patch mode] Text to find in existing content (must be unique)
         new_string: [Patch mode] Text to replace old_string with. Use "" to delete a section.
@@ -3833,6 +3846,10 @@ async def update_memory(
 
     Returns:
         Success message with URI
+
+    Common mistakes:
+        - WRONG: update_memory(parent_uri="notes://foo", ...) — no `parent_uri` param here
+          RIGHT: update_memory(uri="notes://foo", ...)
 
     Examples:
         update_memory("core://agent/my_user", old_string="old paragraph content", new_string="new paragraph content")
