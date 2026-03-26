@@ -2003,7 +2003,11 @@ class SQLiteClient:
         original = (query or "").strip()
         normalized = re.sub(r"\s+", " ", original)
         lowered = normalized.lower()
-        tokens = re.findall(r"[a-z0-9_]+", lowered)
+        # Extract hyphenated compound words first (e.g. "meta-kan", "hs-kan"),
+        # then individual tokens. Compounds go first for higher signal.
+        compounds = re.findall(r"[a-z0-9_]+-[a-z0-9_]+(?:-[a-z0-9_]+)*", lowered)
+        individual = re.findall(r"[a-z0-9_]+", lowered)
+        tokens = compounds + individual
         deduped_tokens = list(dict.fromkeys(tokens))
 
         has_uri_hint = "://" in normalized or "/" in normalized
