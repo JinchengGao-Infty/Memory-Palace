@@ -1,3 +1,6 @@
+# DEPRECATED: This file uses the legacy SSE transport.
+# Use run_http.py (Streamable HTTP) instead.
+# Kept for rollback purposes. Will be removed in a future version.
 import os
 import sys
 import hmac
