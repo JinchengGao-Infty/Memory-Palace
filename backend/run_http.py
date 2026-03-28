@@ -132,7 +132,9 @@ def _inject_mcp_route(app: ASGIApp) -> ASGIApp:
     """Route /mcp to session manager, everything else to Starlette."""
 
     async def dispatcher(scope: Scope, receive: Receive, send: Send) -> None:
-        if scope.get("type") == "http" and scope.get("path", "") in ("/mcp", "/mcp/"):
+        if scope.get("type") == "http" and scope.get("path", "") in (
+            "/mcp", "/mcp/", "/sse", "/sse/",
+        ):
             await _session_manager.handle_request(scope, receive, send)
         else:
             await app(scope, receive, send)
