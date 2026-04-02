@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from db.sqlite_client import Memory, SQLiteClient
 from db.models_lifecycle import LifecycleLog, MemoryFeedback
@@ -621,6 +621,13 @@ class TestPhase6FeedbackAdjust:
         async with client.session() as session:
             mem = await session.get(Memory, mem_id)
             assert abs(mem.importance - 0.6) < 1e-6
+            # Feedback rows should be deleted after processing
+            fb_count = await session.scalar(
+                select(func.count()).select_from(MemoryFeedback).where(
+                    MemoryFeedback.memory_id == mem_id
+                )
+            )
+            assert fb_count == 0
 
         await client.close()
 
@@ -648,6 +655,13 @@ class TestPhase6FeedbackAdjust:
         async with client.session() as session:
             mem = await session.get(Memory, mem_id)
             assert abs(mem.importance - 0.35) < 1e-6
+            # Feedback rows should be deleted after processing
+            fb_count = await session.scalar(
+                select(func.count()).select_from(MemoryFeedback).where(
+                    MemoryFeedback.memory_id == mem_id
+                )
+            )
+            assert fb_count == 0
 
         await client.close()
 
@@ -673,6 +687,42 @@ class TestPhase6FeedbackAdjust:
         async with client.session() as session:
             mem = await session.get(Memory, mem_id)
             assert mem.importance == 1.0
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_phase6_feedback_not_reconsumed(self, tmp_path: Path) -> None:
+        """Running phase6 twice should not re-apply the same feedback."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p6e.db"))
+        await client.init_db()
+
+        mem_id = await _create_core_memory(
+            client, "stable memory", importance=0.5
+        )
+
+        async with client.session() as session:
+            for _ in range(3):
+                session.add(MemoryFeedback(memory_id=mem_id, signal="helpful"))
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+
+        # First run: importance 0.5 → 0.6
+        result1 = await engine._phase6_feedback_adjust()
+        assert result1["adjusted_count"] == 1
+
+        async with client.session() as session:
+            mem = await session.get(Memory, mem_id)
+            assert abs(mem.importance - 0.6) < 1e-6
+
+        # Second run: no feedback left, importance stays 0.6
+        result2 = await engine._phase6_feedback_adjust()
+        assert result2["adjusted_count"] == 0
+
+        async with client.session() as session:
+            mem = await session.get(Memory, mem_id)
+            assert abs(mem.importance - 0.6) < 1e-6
 
         await client.close()
 

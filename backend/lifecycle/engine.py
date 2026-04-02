@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
-from sqlalchemy import func, select, update, and_, case, text
+from sqlalchemy import delete, func, select, update, and_, case, text
 
 from db.sqlite_client import SQLiteClient, Memory
 from db.models_lifecycle import LifecycleLog, MemoryFeedback
@@ -61,7 +61,7 @@ async def _call_compress_llm(
     base_url = os.environ.get("ROUTER_API_BASE", "http://localhost:8080")
     api_key = os.environ.get("ROUTER_API_KEY", "")
     model = os.environ.get("LIFECYCLE_COMPRESS_MODEL", "default")
-    timeout_sec = int(os.environ.get("LIFECYCLE_COMPRESS_TIMEOUT_SEC", "10"))
+    timeout_sec = _env_float("LIFECYCLE_COMPRESS_TIMEOUT_SEC", 10)
 
     system_prompt = (
         "You are a memory compression assistant. "
@@ -92,7 +92,13 @@ async def _call_compress_llm(
         resp = await client.post(url, json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        choices = data.get("choices") or []
+        if not choices:
+            raise ValueError("LLM returned no choices")
+        content = choices[0].get("message", {}).get("content")
+        if not content:
+            raise ValueError("LLM returned empty content")
+        return content
 
 
 class LifecycleEngine:
@@ -494,6 +500,13 @@ class LifecycleEngine:
 
                 if adjusted:
                     adjusted_ids.append(memory_id)
+
+                # Delete consumed feedback rows regardless of adjustment
+                await session.execute(
+                    delete(MemoryFeedback).where(
+                        MemoryFeedback.memory_id == memory_id
+                    )
+                )
 
             # Compute category stats for logging
             for cat_key in set(cat_negative) | set(cat_total):
