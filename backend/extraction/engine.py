@@ -24,6 +24,16 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _dedup_cache: Dict[str, float] = {}
+_DEDUP_MAX_SIZE = 10_000
+
+
+def _maybe_prune_cache(window_sec: int) -> None:
+    if len(_dedup_cache) < _DEDUP_MAX_SIZE:
+        return
+    cutoff = time.time() - window_sec
+    stale = [k for k, v in _dedup_cache.items() if v < cutoff]
+    for k in stale:
+        del _dedup_cache[k]
 
 
 def _env_bool(name: str, default: bool = True) -> bool:
@@ -121,6 +131,9 @@ async def ingest_conversation(
     deep_enabled = _env_bool("EXTRACTION_DEEP_ENABLED", True)
     dedup_window = _env_int("EXTRACTION_DEDUP_WINDOW_SEC", 600)
 
+    # --- Prune dedup cache if too large ---
+    _maybe_prune_cache(dedup_window)
+
     # --- Dedup ---
     dedup_key = _compute_dedup_key(agent_id, user_message, assistant_message)
     if _is_duplicate(dedup_key, dedup_window):
@@ -132,12 +145,11 @@ async def ingest_conversation(
     # --- Fast channel (sync) ---
     fast_results: List[Dict[str, Any]] = []
     if fast_enabled:
-        try:
-            # Run on both user and assistant messages
-            fast_results = extract_fast(user_message, role="user")
-            fast_results += extract_fast(assistant_message, role="assistant")
-        except Exception:
-            logger.exception("fast_channel extraction failed")
+        for msg, role in [(user_message, "user"), (assistant_message, "assistant")]:
+            try:
+                fast_results.extend(extract_fast(msg, role=role))
+            except Exception:
+                logger.exception("fast_channel failed for role=%s", role)
 
     # --- Deep channel (async) ---
     deep_results: List[Dict[str, Any]] = []
@@ -148,14 +160,17 @@ async def ingest_conversation(
             logger.exception("deep_channel extraction failed")
 
     # --- Write to DB ---
+    db_ok = True
     if fast_results or deep_results:
         try:
             await _write_memories(fast_results, deep_results)
         except Exception:
             logger.exception("Failed to write extracted memories to DB")
+            db_ok = False
 
     return {
         "ok": True,
         "fast_extracted": fast_results,
         "deep_extracted": deep_results,
+        "db_write_failed": not db_ok,
     }
