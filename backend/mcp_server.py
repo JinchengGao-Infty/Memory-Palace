@@ -13,6 +13,7 @@ Multiple paths can point to the same memory (aliases).
 """
 
 import asyncio
+import logging
 import os
 import re
 import sys
@@ -50,6 +51,8 @@ from runtime_state import runtime_state
 from runtime_bootstrap import initialize_backend_runtime
 import db.models_lifecycle  # noqa: F401  — register lifecycle ORM models with Base.metadata
 from db.models_lifecycle import MemoryFeedback
+
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 # Explicitly look for .env in the parent directory (project root)
@@ -5126,12 +5129,20 @@ async def ingest_conversation(
     Extract and store memories from a conversation exchange.
     Fast channel (regex) writes directly to core. Deep channel (LLM) writes to working layer.
     """
+    if not user_message or not user_message.strip():
+        return _to_json({"ok": False, "error": "user_message must be non-empty"})
+    if not assistant_message or not assistant_message.strip():
+        return _to_json({"ok": False, "error": "assistant_message must be non-empty"})
+    _MAX_INGEST_LEN = 100_000
+    if len(user_message) > _MAX_INGEST_LEN or len(assistant_message) > _MAX_INGEST_LEN:
+        return _to_json({"ok": False, "error": f"Message exceeds max length ({_MAX_INGEST_LEN})"})
     try:
         from extraction.engine import ingest_conversation as _ingest
         result = await _ingest(user_message, assistant_message, agent_id=agent_id)
         return _to_json(result)
-    except Exception as e:
-        return _to_json({"ok": False, "error": str(e)})
+    except Exception:
+        logger.exception("ingest_conversation failed")
+        return _to_json({"ok": False, "error": "Extraction failed; see server logs"})
 
 
 @mcp.tool()
@@ -5144,6 +5155,11 @@ async def memory_feedback(
     Provide feedback on a recalled memory. Signals: helpful, outdated, wrong.
     Feedback influences memory importance during lifecycle processing.
     """
+    try:
+        memory_id = int(memory_id)
+    except (TypeError, ValueError):
+        return _to_json({"ok": False, "error": "memory_id must be an integer"})
+
     valid_signals = ("helpful", "outdated", "wrong")
     if signal not in valid_signals:
         return _to_json({"ok": False, "error": f"Invalid signal '{signal}'. Must be one of: {', '.join(valid_signals)}"})
@@ -5158,8 +5174,9 @@ async def memory_feedback(
             fb = MemoryFeedback(memory_id=memory_id, signal=signal, reason=reason)
             session.add(fb)
         return _to_json({"ok": True, "memory_id": memory_id, "signal": signal})
-    except Exception as e:
-        return _to_json({"ok": False, "error": str(e)})
+    except Exception:
+        logger.exception("memory_feedback failed")
+        return _to_json({"ok": False, "error": "Feedback recording failed; see server logs"})
 
 
 # =============================================================================
