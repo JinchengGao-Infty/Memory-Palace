@@ -87,14 +87,15 @@ def _build_user_prompt(user_msg: str, assistant_msg: str) -> str:
     )
 
 
-def _call_llm(system_prompt: str, user_prompt: str) -> str:
-    """Synchronous call to OpenAI-compatible chat completions API.
+async def _call_llm(system_prompt: str, user_prompt: str) -> str:
+    """Async call to OpenAI-compatible chat completions API.
 
     Returns the raw text content from the LLM response.
     Raises TimeoutError or httpx errors on failure.
     """
     base_url = os.environ.get("ROUTER_API_BASE", "http://localhost:8080")
     api_key = os.environ.get("ROUTER_API_KEY", "")
+    model = os.environ.get("EXTRACTION_DEEP_MODEL", "default")
     timeout_sec = int(os.environ.get("EXTRACTION_DEEP_TIMEOUT_SEC", "5"))
 
     url = f"{base_url.rstrip('/')}/v1/chat/completions"
@@ -105,6 +106,7 @@ def _call_llm(system_prompt: str, user_prompt: str) -> str:
         headers["Authorization"] = f"Bearer {api_key}"
 
     payload = {
+        "model": model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -113,8 +115,8 @@ def _call_llm(system_prompt: str, user_prompt: str) -> str:
     }
 
     try:
-        with httpx.Client(timeout=timeout_sec) as client:
-            resp = client.post(url, json=payload, headers=headers)
+        async with httpx.AsyncClient(timeout=timeout_sec) as client:
+            resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
@@ -153,10 +155,10 @@ async def extract_deep(
     """
     try:
         user_prompt = _build_user_prompt(user_message, assistant_message)
-        raw = _call_llm(_SYSTEM_PROMPT, user_prompt)
+        raw = await _call_llm(_SYSTEM_PROMPT, user_prompt)
         memories = _parse_memories(raw)
-    except (TimeoutError, json.JSONDecodeError, Exception) as exc:
-        logger.debug("deep_channel extraction failed: %s", exc)
+    except (TimeoutError, json.JSONDecodeError, httpx.HTTPStatusError, httpx.TimeoutException, KeyError, ValueError) as exc:
+        logger.warning("deep_channel extraction failed: %s", exc)
         return []
 
     results: List[Dict[str, Any]] = []

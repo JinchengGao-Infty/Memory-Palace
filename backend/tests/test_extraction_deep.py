@@ -26,7 +26,7 @@ class TestValidCategories:
 
 class TestExtractDeep:
     @pytest.mark.asyncio
-    @patch("extraction.deep_channel._call_llm")
+    @patch("extraction.deep_channel._call_llm", new_callable=AsyncMock)
     async def test_returns_structured_results(self, mock_llm):
         mock_llm.return_value = json.dumps(
             {
@@ -52,7 +52,7 @@ class TestExtractDeep:
         assert r["_attributed_to"] == "user"
 
     @pytest.mark.asyncio
-    @patch("extraction.deep_channel._call_llm")
+    @patch("extraction.deep_channel._call_llm", new_callable=AsyncMock)
     async def test_enforces_attribution(self, mock_llm):
         """Assistant-attributed memory with user category should be remapped."""
         mock_llm.return_value = json.dumps(
@@ -73,21 +73,21 @@ class TestExtractDeep:
         assert results[0]["category"] == "agent_user_habit"
 
     @pytest.mark.asyncio
-    @patch("extraction.deep_channel._call_llm")
+    @patch("extraction.deep_channel._call_llm", new_callable=AsyncMock)
     async def test_llm_timeout_returns_empty(self, mock_llm):
         mock_llm.side_effect = TimeoutError("LLM timed out")
         results = await extract_deep("Hello", "Hi")
         assert results == []
 
     @pytest.mark.asyncio
-    @patch("extraction.deep_channel._call_llm")
+    @patch("extraction.deep_channel._call_llm", new_callable=AsyncMock)
     async def test_invalid_json_returns_empty(self, mock_llm):
         mock_llm.return_value = "this is not json at all {{{garbage"
         results = await extract_deep("Hello", "Hi")
         assert results == []
 
     @pytest.mark.asyncio
-    @patch("extraction.deep_channel._call_llm")
+    @patch("extraction.deep_channel._call_llm", new_callable=AsyncMock)
     async def test_clamps_importance_and_confidence(self, mock_llm):
         mock_llm.return_value = json.dumps(
             {
@@ -107,7 +107,7 @@ class TestExtractDeep:
         assert results[0]["confidence"] == 0.0
 
     @pytest.mark.asyncio
-    @patch("extraction.deep_channel._call_llm")
+    @patch("extraction.deep_channel._call_llm", new_callable=AsyncMock)
     async def test_invalid_category_filtered(self, mock_llm):
         mock_llm.return_value = json.dumps(
             {
