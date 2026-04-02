@@ -48,6 +48,8 @@ from db.sqlite_client import get_sqlite_client
 from db.snapshot import get_snapshot_manager
 from runtime_state import runtime_state
 from runtime_bootstrap import initialize_backend_runtime
+import db.models_lifecycle  # noqa: F401  — register lifecycle ORM models with Base.metadata
+from db.models_lifecycle import MemoryFeedback
 
 # Load environment variables
 # Explicitly look for .env in the parent directory (project root)
@@ -4705,6 +4707,11 @@ async def search_memory(
         ordered_results = _sort_search_results_for_response(revalidated_results)
         session_first_metrics.update(revalidation_metrics)
         final_results = ordered_results[:resolved_max_results]
+        # Inject feedback hint so callers know how to provide feedback
+        for item in final_results:
+            mid = item.get("memory_id")
+            if mid is not None:
+                item["feedback_hint"] = f"memory_feedback(memory_id={mid}, signal='helpful|outdated|wrong')"
         session_before = int(session_first_metrics.get("session_contributed") or 0)
         global_before = int(session_first_metrics.get("global_contributed") or 0)
         merged_before = int(session_first_metrics.get("merged_candidates") or 0)
@@ -5107,6 +5114,52 @@ async def index_status() -> str:
                 "timestamp": _utc_iso_now(),
             }
         )
+
+
+@mcp.tool()
+async def ingest_conversation(
+    user_message: str,
+    assistant_message: str,
+    agent_id: Optional[str] = None,
+) -> str:
+    """
+    Extract and store memories from a conversation exchange.
+    Fast channel (regex) writes directly to core. Deep channel (LLM) writes to working layer.
+    """
+    try:
+        from extraction.engine import ingest_conversation as _ingest
+        result = await _ingest(user_message, assistant_message, agent_id=agent_id)
+        return _to_json(result)
+    except Exception as e:
+        return _to_json({"ok": False, "error": str(e)})
+
+
+@mcp.tool()
+async def memory_feedback(
+    memory_id: int,
+    signal: str,
+    reason: Optional[str] = None,
+) -> str:
+    """
+    Provide feedback on a recalled memory. Signals: helpful, outdated, wrong.
+    Feedback influences memory importance during lifecycle processing.
+    """
+    valid_signals = ("helpful", "outdated", "wrong")
+    if signal not in valid_signals:
+        return _to_json({"ok": False, "error": f"Invalid signal '{signal}'. Must be one of: {', '.join(valid_signals)}"})
+
+    client = get_sqlite_client()
+    mem = await client.get_memory_by_id(memory_id)
+    if mem is None:
+        return _to_json({"ok": False, "error": f"Memory {memory_id} not found"})
+
+    try:
+        async with client.session() as session:
+            fb = MemoryFeedback(memory_id=memory_id, signal=signal, reason=reason)
+            session.add(fb)
+        return _to_json({"ok": True, "memory_id": memory_id, "signal": signal})
+    except Exception as e:
+        return _to_json({"ok": False, "error": str(e)})
 
 
 # =============================================================================
