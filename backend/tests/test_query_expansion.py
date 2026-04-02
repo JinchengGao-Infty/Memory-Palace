@@ -58,7 +58,7 @@ async def test_short_query_expands_keywords():
     mock_cls, mock_post = _mock_httpx_client(variants)
 
     with patch.dict("os.environ", {"ROUTER_API_BASE": "http://fake:8000"}):
-        with patch("extraction.query_expansion.QUERY_EXPANSION_ENABLED", True):
+        with patch.dict("os.environ", {"QUERY_EXPANSION_ENABLED": "true"}):
             with patch("extraction.query_expansion.httpx.AsyncClient", mock_cls):
                 from extraction.query_expansion import expand_query
                 result = await expand_query("编辑")
@@ -80,7 +80,7 @@ async def test_long_query_expands_rephrases():
     mock_cls, mock_post = _mock_httpx_client(variants)
 
     with patch.dict("os.environ", {"ROUTER_API_BASE": "http://fake:8000"}):
-        with patch("extraction.query_expansion.QUERY_EXPANSION_ENABLED", True):
+        with patch.dict("os.environ", {"QUERY_EXPANSION_ENABLED": "true"}):
             with patch("extraction.query_expansion.httpx.AsyncClient", mock_cls):
                 from extraction.query_expansion import expand_query
                 result = await expand_query("how to set up Python development environment")
@@ -99,7 +99,7 @@ async def test_cjk_adds_english():
     mock_cls, mock_post = _mock_httpx_client(variants)
 
     with patch.dict("os.environ", {"ROUTER_API_BASE": "http://fake:8000"}):
-        with patch("extraction.query_expansion.QUERY_EXPANSION_ENABLED", True):
+        with patch.dict("os.environ", {"QUERY_EXPANSION_ENABLED": "true"}):
             with patch("extraction.query_expansion.httpx.AsyncClient", mock_cls):
                 from extraction.query_expansion import expand_query
                 await expand_query("内存管理")
@@ -115,7 +115,7 @@ async def test_llm_failure_returns_original():
     mock_cls = _mock_httpx_client_error()
 
     with patch.dict("os.environ", {"ROUTER_API_BASE": "http://fake:8000"}):
-        with patch("extraction.query_expansion.QUERY_EXPANSION_ENABLED", True):
+        with patch.dict("os.environ", {"QUERY_EXPANSION_ENABLED": "true"}):
             with patch("extraction.query_expansion.httpx.AsyncClient", mock_cls):
                 from extraction.query_expansion import expand_query
                 result = await expand_query("test query")
@@ -126,7 +126,7 @@ async def test_llm_failure_returns_original():
 @pytest.mark.asyncio
 async def test_disabled_returns_original():
     """When QUERY_EXPANSION_ENABLED is False, return [original_query]."""
-    with patch("extraction.query_expansion.QUERY_EXPANSION_ENABLED", False):
+    with patch.dict("os.environ", {"QUERY_EXPANSION_ENABLED": "false"}):
         from extraction.query_expansion import expand_query
         result = await expand_query("anything")
 

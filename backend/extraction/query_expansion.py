@@ -13,11 +13,6 @@ from shared_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
-QUERY_EXPANSION_ENABLED = env_bool("QUERY_EXPANSION_ENABLED", True)
-QUERY_EXPANSION_TIMEOUT_SEC = float(os.environ.get("QUERY_EXPANSION_TIMEOUT_SEC", "3"))
-QUERY_EXPANSION_MIN_QUERY_LEN = int(os.environ.get("QUERY_EXPANSION_MIN_QUERY_LEN", "2"))
-
-
 def _detect_cjk(text: str) -> bool:
     """Check if text contains CJK characters."""
     return bool(re.search(r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]', text))
@@ -34,9 +29,13 @@ async def expand_query(query: str) -> List[str]:
     Returns [original_query] + expanded variants.
     On error: returns [original_query] only.
     """
-    if not QUERY_EXPANSION_ENABLED:
+    enabled = env_bool("QUERY_EXPANSION_ENABLED", True)
+    timeout_sec = float(os.environ.get("QUERY_EXPANSION_TIMEOUT_SEC", "3"))
+    min_query_len = int(os.environ.get("QUERY_EXPANSION_MIN_QUERY_LEN", "2"))
+
+    if not enabled:
         return [query]
-    if len(query.strip()) < QUERY_EXPANSION_MIN_QUERY_LEN:
+    if len(query.strip()) < min_query_len:
         return [query]
 
     is_short = len(query) <= 15
@@ -61,7 +60,7 @@ async def expand_query(query: str) -> List[str]:
         return [query]
 
     try:
-        async with httpx.AsyncClient(timeout=QUERY_EXPANSION_TIMEOUT_SEC) as client:
+        async with httpx.AsyncClient(timeout=timeout_sec) as client:
             resp = await client.post(
                 f"{base_url}/v1/chat/completions",
                 json={
@@ -77,10 +76,17 @@ async def expand_query(query: str) -> List[str]:
             resp.raise_for_status()
             content = resp.json()["choices"][0]["message"]["content"]
 
+            content = content.strip()
+            if content.startswith("```"):
+                content = re.sub(r'^```\w*\n?', '', content)
+                content = re.sub(r'\n?```$', '', content)
+                content = content.strip()
+
             variants = json.loads(content)
             if not isinstance(variants, list):
                 return [query]
             variants = [str(v).strip() for v in variants if v and str(v).strip()]
+            variants = [v for v in variants if v.strip().lower() != query.strip().lower()]
             return [query] + variants[:6]
     except Exception:
         logger.debug("Query expansion failed, using original query")
