@@ -750,3 +750,61 @@ class TestPhase6FeedbackAdjust:
             assert mem.importance == 0.0
 
         await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Scheduler
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycleScheduler:
+    @pytest.mark.asyncio
+    async def test_scheduler_respects_enabled_flag(self) -> None:
+        """With LIFECYCLE_ENABLED=false, scheduler.start() should not create a task."""
+        with patch.dict("os.environ", {"LIFECYCLE_ENABLED": "false"}):
+            from lifecycle.scheduler import LifecycleScheduler
+
+            scheduler = LifecycleScheduler()
+            assert scheduler._enabled is False
+            await scheduler.start()
+            assert scheduler._task is None
+            await scheduler.stop()
+
+    @pytest.mark.asyncio
+    async def test_full_lifecycle_run_audit_log(self, tmp_path: Path) -> None:
+        """Run full lifecycle via scheduler.trigger(), verify lifecycle_log has 6 phases."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "sched.db"))
+        await client.init_db()
+
+        from lifecycle.scheduler import LifecycleScheduler
+
+        scheduler = LifecycleScheduler()
+        scheduler.set_client_factory(lambda: client)
+
+        result = await scheduler.trigger(force=True)
+
+        assert result["status"] == "completed"
+        assert "phases" in result
+        phases = result["phases"]
+        for key in ("phase1", "phase2", "phase3", "phase4", "phase5", "phase6"):
+            assert key in phases
+
+        # Verify lifecycle_log has entries for all 6 phases
+        async with client.session() as session:
+            log_result = await session.execute(
+                select(LifecycleLog).order_by(LifecycleLog.id)
+            )
+            logs = log_result.scalars().all()
+            assert len(logs) == 6
+            phase_names = [log.phase for log in logs]
+            assert phase_names == [
+                "phase1_clean_expired",
+                "phase2_promote",
+                "phase3_dedup",
+                "phase4_archive",
+                "phase5_compress",
+                "phase6_feedback_adjust",
+            ]
+
+        await scheduler.stop()
+        await client.close()

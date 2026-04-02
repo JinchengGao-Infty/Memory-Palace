@@ -2909,6 +2909,31 @@ async def delete_orphan(memory_id: int):
         raise HTTPException(status_code=409, detail=str(e))
 
 
+@router.post("/lifecycle/trigger")
+async def trigger_lifecycle(force: bool = False):
+    """Force-run the lifecycle engine, return results."""
+    await runtime_state.ensure_started(get_sqlite_client)
+    result = await runtime_state.lifecycle_scheduler.trigger(force=force)
+    ok = result.get("status") == "completed"
+    return {
+        "ok": ok,
+        "status": result.get("status", "unknown"),
+        "result": result,
+    }
+
+
+@router.get("/lifecycle/status")
+async def lifecycle_status():
+    """Return lifecycle scheduler last run info."""
+    await runtime_state.ensure_started(get_sqlite_client)
+    info = await runtime_state.lifecycle_scheduler.status()
+    return {
+        "ok": True,
+        "status": "ok",
+        "result": info,
+    }
+
+
 @router.post("/vitality/decay")
 async def trigger_vitality_decay(force: bool = False, reason: str = "api"):
     await runtime_state.ensure_started(get_sqlite_client)
@@ -3778,6 +3803,7 @@ async def get_observability_summary():
     worker_status = await runtime_state.index_worker.status()
     write_lane_status = await runtime_state.write_lanes.status()
     vitality_decay_status = await runtime_state.vitality_decay.status()
+    lifecycle_scheduler_status = await runtime_state.lifecycle_scheduler.status()
     cleanup_review_status = await runtime_state.cleanup_reviews.summary()
     sleep_consolidation_status = await runtime_state.sleep_consolidation.status()
     try:
@@ -3830,6 +3856,7 @@ async def get_observability_summary():
         "gist_stats": gist_stats,
         "vitality_stats": vitality_stats,
         "vitality_decay": vitality_decay_status,
+        "lifecycle_scheduler": lifecycle_scheduler_status,
         "cleanup_reviews": cleanup_review_status,
         "sleep_consolidation": sleep_consolidation_status,
     }

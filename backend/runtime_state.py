@@ -2276,6 +2276,8 @@ class RuntimeState:
         self.index_worker = IndexTaskWorker()
         self.index_worker.set_write_runner(self.write_lanes.run_write)
         self.sleep_consolidation = SleepTimeConsolidator()
+        from lifecycle.scheduler import LifecycleScheduler
+        self.lifecycle_scheduler = LifecycleScheduler()
 
     async def ensure_started(self, client_factory: Callable[[], Any]) -> None:
         await self.index_worker.ensure_started(client_factory)
@@ -2289,9 +2291,12 @@ class RuntimeState:
             force=False,
             reason="runtime.ensure_started",
         )
+        self.lifecycle_scheduler.set_client_factory(client_factory)
+        await self.lifecycle_scheduler.start()
 
     async def shutdown(self) -> None:
         await self.index_worker.shutdown()
+        await self.lifecycle_scheduler.stop()
 
 
 runtime_state = RuntimeState()
