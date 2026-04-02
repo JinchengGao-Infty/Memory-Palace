@@ -51,6 +51,11 @@ from runtime_state import runtime_state
 from runtime_bootstrap import initialize_backend_runtime
 import db.models_lifecycle  # noqa: F401  — register lifecycle ORM models with Base.metadata
 from db.models_lifecycle import MemoryFeedback
+from extraction.query_expansion import (
+    expand_query as _expand_query,
+    apply_multi_hit_boost as _apply_multi_hit_boost,
+    QUERY_EXPANSION_ENABLED as _QUERY_EXPANSION_ENABLED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -4654,6 +4659,89 @@ async def search_memory(
             raw_results, normalized_filters
         )
         degraded_reasons.extend(local_filter_reasons)
+
+        # --- Query Expansion: re-search with expanded variants and merge ---
+        query_expansion_applied = False
+        query_expansion_variants: List[str] = []
+        if (
+            _QUERY_EXPANSION_ENABLED
+            and mode_requested in ("hybrid", "semantic")
+            and method_name is not None
+        ):
+            try:
+                expansion_variants = await _expand_query(query_effective)
+                query_expansion_variants = expansion_variants
+                # Only run expansion if we actually got extra variants
+                extra_variants = expansion_variants[1:]  # skip original
+                if extra_variants:
+                    all_variant_results: List[List[Dict[str, Any]]] = [
+                        list(filtered_results)
+                    ]
+                    for variant in extra_variants:
+                        try:
+                            v_kwargs_list = [
+                                dict(k, query=variant)
+                                for k in [
+                                    {
+                                        "query": variant,
+                                        "mode": mode_requested,
+                                        "max_results": resolved_max_results,
+                                        "candidate_multiplier": resolved_candidate_multiplier,
+                                        "filters": normalized_filters,
+                                        "intent_profile": intent_for_search,
+                                    },
+                                    {
+                                        "query": variant,
+                                        "mode": mode_requested,
+                                        "max_results": resolved_max_results,
+                                        "candidate_multiplier": resolved_candidate_multiplier,
+                                        "filters": normalized_filters,
+                                    },
+                                    {
+                                        "query": variant,
+                                        "mode": mode_requested,
+                                        "max_results": resolved_max_results,
+                                        "candidate_multiplier": resolved_candidate_multiplier,
+                                        **normalized_filters,
+                                    },
+                                    {
+                                        "query": variant,
+                                        "mode": mode_requested,
+                                        "limit": candidate_pool_size,
+                                        **normalized_filters,
+                                    },
+                                    {
+                                        "query": variant,
+                                        "limit": candidate_pool_size,
+                                        "domain": normalized_filters.get("domain"),
+                                    },
+                                ]
+                            ]
+                            _, _, v_raw = await _try_client_method_variants(
+                                client,
+                                [
+                                    "search_advanced",
+                                    "search_memories",
+                                    "search_memory",
+                                    "search_with_filters",
+                                    "search_v2",
+                                    "search",
+                                ],
+                                v_kwargs_list,
+                            )
+                            if v_raw is not None:
+                                v_results, _ = _extract_search_payload(v_raw)
+                                v_filtered, _ = _apply_local_filters_to_results(
+                                    v_results, normalized_filters
+                                )
+                                all_variant_results.append(list(v_filtered))
+                        except Exception:
+                            pass  # skip failed variant, continue
+                    filtered_results = _apply_multi_hit_boost(all_variant_results)
+                    query_expansion_applied = True
+            except Exception:
+                degraded_reasons.append("query_expansion_failed")
+
         backend_degrade_reasons = backend_metadata.get("degrade_reasons")
         if isinstance(backend_degrade_reasons, list):
             for reason in backend_degrade_reasons:
@@ -4768,6 +4856,9 @@ async def search_memory(
             "count": len(final_results),
             "results": final_results,
             "backend_method": f"sqlite_client.{method_name}",
+            "query_expansion_enabled": _QUERY_EXPANSION_ENABLED,
+            "query_expansion_applied": query_expansion_applied,
+            "query_expansion_variants": query_expansion_variants if query_expansion_applied else [],
             "degraded": bool(degraded_reasons) or bool(backend_metadata.get("degraded")),
         }
         if scope_resolution.get("conflicts"):
