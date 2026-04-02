@@ -74,6 +74,8 @@ EXPECTED_TOOLS = {
     "compact_context",
     "rebuild_index",
     "index_status",
+    "ingest_conversation",
+    "memory_feedback",
 }
 
 
@@ -136,7 +138,7 @@ async def run_suite() -> tuple[list[StepResult], str]:
                 tools = await session.list_tools()
                 discovered = {tool.name for tool in tools.tools}
                 if discovered == EXPECTED_TOOLS:
-                    results.append(_result("PASS", "tool_inventory", "stdio MCP 暴露 9 个工具"))
+                    results.append(_result("PASS", "tool_inventory", "stdio MCP 暴露 11 个工具"))
                 else:
                     results.append(
                         _result(

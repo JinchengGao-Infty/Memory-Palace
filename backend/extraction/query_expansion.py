@@ -13,6 +13,9 @@ from shared_utils import env_bool
 
 logger = logging.getLogger(__name__)
 
+# Module-level constant for import by mcp_server
+QUERY_EXPANSION_ENABLED: bool = env_bool("QUERY_EXPANSION_ENABLED", True)
+
 def _detect_cjk(text: str) -> bool:
     """Check if text contains CJK characters."""
     return bool(re.search(r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]', text))

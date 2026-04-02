@@ -81,6 +81,8 @@ def test_phase_d_hold_http_and_mcp_contracts() -> None:
         "/maintenance/vitality/cleanup/confirm",
         "/maintenance/vitality/cleanup/prepare",
         "/maintenance/vitality/decay",
+        "/maintenance/lifecycle/status",
+        "/maintenance/lifecycle/trigger",
     }
     assert set(business_paths) == allowed_business_paths
 
@@ -96,6 +98,8 @@ def test_phase_d_hold_http_and_mcp_contracts() -> None:
         "compact_context",
         "rebuild_index",
         "index_status",
+        "ingest_conversation",
+        "memory_feedback",
     }
 
 
