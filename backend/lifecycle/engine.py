@@ -1,9 +1,12 @@
 """
-Lifecycle Engine — Phases 1-3
+Lifecycle Engine — Phases 1-6
 
 Phase 1: Clean expired working-layer memories
 Phase 2: Promote working → core based on score or fast-track rules
 Phase 3: Core deduplication via vector similarity (requires sqlite-vec)
+Phase 4: Decay core → archive (stale, low-vitality core memories)
+Phase 5: Compress archive → core summary (LLM-powered)
+Phase 6: Feedback adjustment (importance tuning from user signals)
 """
 
 from __future__ import annotations
@@ -11,13 +14,15 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, List
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, update, and_, text
+import httpx
+from sqlalchemy import func, select, update, and_, case, text
 
 from db.sqlite_client import SQLiteClient, Memory
-from db.models_lifecycle import LifecycleLog
+from db.models_lifecycle import LifecycleLog, MemoryFeedback
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +39,9 @@ def _env_float(name: str, default: float) -> float:
 
 PROMOTE_THRESHOLD = _env_float("LIFECYCLE_PROMOTE_THRESHOLD", 0.4)
 DEDUP_SIMILARITY_THRESHOLD = _env_float("LIFECYCLE_DEDUP_SIMILARITY_THRESHOLD", 0.92)
+ARCHIVE_VITALITY_THRESHOLD = _env_float("LIFECYCLE_ARCHIVE_VITALITY_THRESHOLD", 0.2)
+ARCHIVE_STALE_DAYS = _env_float("LIFECYCLE_ARCHIVE_STALE_DAYS", 90)
+ARCHIVE_RETENTION_DAYS = _env_float("LIFECYCLE_ARCHIVE_RETENTION_DAYS", 90)
 
 # Categories eligible for fast-track promotion
 _FAST_TRACK_CATEGORIES = frozenset({"identity", "constraint"})
@@ -41,6 +49,50 @@ _FAST_TRACK_CATEGORIES = frozenset({"identity", "constraint"})
 
 def _utc_now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+async def _call_compress_llm(
+    category: Optional[str], contents: List[str]
+) -> Optional[str]:
+    """Call LLM to compress multiple memory contents into a single summary.
+
+    Returns the summary text, or raises on failure.
+    """
+    base_url = os.environ.get("ROUTER_API_BASE", "http://localhost:8080")
+    api_key = os.environ.get("ROUTER_API_KEY", "")
+    model = os.environ.get("LIFECYCLE_COMPRESS_MODEL", "default")
+    timeout_sec = int(os.environ.get("LIFECYCLE_COMPRESS_TIMEOUT_SEC", "10"))
+
+    system_prompt = (
+        "You are a memory compression assistant. "
+        "Given a list of memory facts, produce a single concise summary "
+        "that preserves the key information. Output only the summary text."
+    )
+    user_prompt = (
+        f"Category: {category or 'general'}\n\n"
+        "Memories to compress:\n"
+        + "\n".join(f"- {c}" for c in contents)
+    )
+
+    url = f"{base_url.rstrip('/')}/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.1,
+    }
+
+    async with httpx.AsyncClient(timeout=timeout_sec) as client:
+        resp = await client.post(url, json=payload, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
 
 
 class LifecycleEngine:
@@ -55,6 +107,9 @@ class LifecycleEngine:
         results["phase1"] = await self._phase1_clean_expired()
         results["phase2"] = await self._phase2_promote()
         results["phase3"] = await self._phase3_dedup()
+        results["phase4"] = await self._phase4_archive()
+        results["phase5"] = await self._phase5_compress()
+        results["phase6"] = await self._phase6_feedback_adjust()
         return results
 
     # ------------------------------------------------------------------
@@ -263,6 +318,200 @@ class LifecycleEngine:
         }
         await self._log_phase("phase3_dedup", details)
         logger.info("Phase 3: merged %d duplicate pairs", len(merged_pairs))
+        return details
+
+    # ------------------------------------------------------------------
+    # Phase 4: Decay core → archive
+    # ------------------------------------------------------------------
+
+    async def _phase4_archive(self) -> Dict[str, Any]:
+        now = _utc_now_naive()
+        stale_cutoff = now - timedelta(days=ARCHIVE_STALE_DAYS)
+        retention_delta = timedelta(days=ARCHIVE_RETENTION_DAYS)
+        archived_ids: List[int] = []
+
+        async with self._client.session() as session:
+            stmt = select(Memory).where(
+                and_(
+                    Memory.layer == "core",
+                    Memory.vitality_score < ARCHIVE_VITALITY_THRESHOLD,
+                    Memory.deprecated == False,  # noqa: E712
+                )
+            )
+            result = await session.execute(stmt)
+            candidates = result.scalars().all()
+
+            for mem in candidates:
+                # Use last_accessed_at, fallback to created_at
+                effective_date = mem.last_accessed_at or mem.created_at
+                if effective_date is not None and effective_date < stale_cutoff:
+                    mem.layer = "archive"
+                    mem.expires_at = now + retention_delta
+                    archived_ids.append(mem.id)
+
+        details = {"archived_count": len(archived_ids), "archived_ids": archived_ids}
+        await self._log_phase("phase4_archive", details)
+        logger.info("Phase 4: archived %d stale core memories", len(archived_ids))
+        return details
+
+    # ------------------------------------------------------------------
+    # Phase 5: Compress archive → core summary
+    # ------------------------------------------------------------------
+
+    async def _phase5_compress(self) -> Dict[str, Any]:
+        now = _utc_now_naive()
+        compressed_groups = 0
+        originals_deprecated = 0
+        errors = 0
+
+        async with self._client.session() as session:
+            # Find expired, non-deprecated archive memories
+            stmt = select(Memory).where(
+                and_(
+                    Memory.layer == "archive",
+                    Memory.expires_at < now,
+                    Memory.deprecated == False,  # noqa: E712
+                )
+            )
+            result = await session.execute(stmt)
+            expired_archives = result.scalars().all()
+
+            # Group by category
+            by_category: Dict[Optional[str], List[Memory]] = defaultdict(list)
+            for mem in expired_archives:
+                by_category[mem.category].append(mem)
+
+            for category, memories in by_category.items():
+                # Build content for LLM
+                contents = [m.content for m in memories]
+                try:
+                    summary = await _call_compress_llm(category, contents)
+                except Exception:
+                    logger.warning(
+                        "Phase 5: LLM failed for category=%s, skipping %d memories",
+                        category,
+                        len(memories),
+                        exc_info=True,
+                    )
+                    errors += 1
+                    continue
+
+                if not summary:
+                    errors += 1
+                    continue
+
+                # Create compressed memory
+                new_mem = Memory(
+                    content=summary,
+                    layer="core",
+                    source="compressed",
+                    importance=0.3,
+                    category=category,
+                    vitality_score=1.0,
+                    created_at=now,
+                )
+                session.add(new_mem)
+                await session.flush()  # get new_mem.id
+
+                # Mark originals as deprecated, point to new memory
+                for mem in memories:
+                    mem.deprecated = True
+                    mem.migrated_to = new_mem.id
+
+                compressed_groups += 1
+                originals_deprecated += len(memories)
+
+        details = {
+            "compressed_groups": compressed_groups,
+            "originals_deprecated": originals_deprecated,
+            "errors": errors,
+        }
+        await self._log_phase("phase5_compress", details)
+        logger.info(
+            "Phase 5: compressed %d groups (%d originals), %d errors",
+            compressed_groups,
+            originals_deprecated,
+            errors,
+        )
+        return details
+
+    # ------------------------------------------------------------------
+    # Phase 6: Feedback adjustment
+    # ------------------------------------------------------------------
+
+    async def _phase6_feedback_adjust(self) -> Dict[str, Any]:
+        adjusted_ids: List[int] = []
+        category_stats: Dict[str, Dict[str, Any]] = {}
+
+        async with self._client.session() as session:
+            # Query feedback counts grouped by memory_id and signal
+            stmt = (
+                select(
+                    MemoryFeedback.memory_id,
+                    MemoryFeedback.signal,
+                    func.count().label("cnt"),
+                )
+                .group_by(MemoryFeedback.memory_id, MemoryFeedback.signal)
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+
+            # Aggregate per memory_id
+            feedback_map: Dict[int, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+            for memory_id, signal, cnt in rows:
+                feedback_map[memory_id][signal] = cnt
+
+            # Per-category negative tracking
+            cat_negative: Dict[str, int] = defaultdict(int)
+            cat_total: Dict[str, int] = defaultdict(int)
+
+            for memory_id, signals in feedback_map.items():
+                total = sum(signals.values())
+                if total < 3:
+                    continue
+
+                helpful = signals.get("helpful", 0)
+                wrong = signals.get("wrong", 0)
+                outdated = signals.get("outdated", 0)
+                negative = wrong + outdated
+
+                mem = await session.get(Memory, memory_id)
+                if mem is None or mem.deprecated:
+                    continue
+
+                # Track per-category stats
+                cat_key = mem.category or "_uncategorized"
+                cat_negative[cat_key] += negative
+                cat_total[cat_key] += total
+
+                adjusted = False
+                if helpful / total > 0.7:
+                    mem.importance = min(1.0, (mem.importance or 0.0) + 0.1)
+                    adjusted = True
+                elif negative / total > 0.5:
+                    mem.importance = max(0.0, (mem.importance or 0.0) - 0.15)
+                    adjusted = True
+
+                if adjusted:
+                    adjusted_ids.append(memory_id)
+
+            # Compute category stats for logging
+            for cat_key in set(cat_negative) | set(cat_total):
+                t = cat_total.get(cat_key, 0)
+                n = cat_negative.get(cat_key, 0)
+                category_stats[cat_key] = {
+                    "total_feedbacks": t,
+                    "negative_feedbacks": n,
+                    "negative_rate": round(n / t, 4) if t > 0 else 0.0,
+                }
+
+        details = {
+            "adjusted_count": len(adjusted_ids),
+            "adjusted_ids": adjusted_ids,
+            "category_stats": category_stats,
+        }
+        await self._log_phase("phase6_feedback_adjust", details)
+        logger.info("Phase 6: adjusted importance for %d memories", len(adjusted_ids))
         return details
 
     # ------------------------------------------------------------------

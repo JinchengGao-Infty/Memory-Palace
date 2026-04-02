@@ -1,14 +1,14 @@
-"""Tests for Lifecycle Engine — Phases 1-3."""
+"""Tests for Lifecycle Engine — Phases 1-6."""
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from sqlalchemy import select, text
 
 from db.sqlite_client import Memory, SQLiteClient
-from db.models_lifecycle import LifecycleLog
+from db.models_lifecycle import LifecycleLog, MemoryFeedback
 
 
 def _sqlite_url(db_path: Path) -> str:
@@ -317,7 +317,7 @@ class TestPhase3Dedup:
 class TestLifecycleRun:
     @pytest.mark.asyncio
     async def test_full_run_returns_all_phases(self, tmp_path: Path) -> None:
-        """engine.run() should return results for all three phases."""
+        """engine.run() should return results for all six phases."""
         client = SQLiteClient(_sqlite_url(tmp_path / "run.db"))
         await client.init_db()
 
@@ -326,24 +326,377 @@ class TestLifecycleRun:
         engine = LifecycleEngine(client)
         results = await engine.run()
 
-        assert "phase1" in results
-        assert "phase2" in results
-        assert "phase3" in results
+        for key in ("phase1", "phase2", "phase3", "phase4", "phase5", "phase6"):
+            assert key in results
         # Phase 3 should skip (no sqlite-vec in tests)
         assert results["phase3"].get("skipped") == "sqlite_vec_unavailable"
 
-        # Verify lifecycle_log has entries
+        # Verify lifecycle_log has entries for all 6 phases
         async with client.session() as session:
             log_result = await session.execute(
                 select(LifecycleLog).order_by(LifecycleLog.id)
             )
             logs = log_result.scalars().all()
-            assert len(logs) == 3
+            assert len(logs) == 6
             phases = [log.phase for log in logs]
             assert phases == [
                 "phase1_clean_expired",
                 "phase2_promote",
                 "phase3_dedup",
+                "phase4_archive",
+                "phase5_compress",
+                "phase6_feedback_adjust",
             ]
+
+        await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Helpers for Phase 4-6
+# ---------------------------------------------------------------------------
+
+
+async def _create_core_memory(
+    client: SQLiteClient,
+    content: str,
+    *,
+    vitality_score: float = 1.0,
+    last_accessed_at: datetime | None = None,
+    importance: float = 0.5,
+    category: str | None = None,
+    source: str = "manual",
+    expires_at: datetime | None = None,
+    created_at: datetime | None = None,
+) -> int:
+    """Helper: create a core-layer memory with given fields."""
+    created = await client.create_memory(
+        parent_path="",
+        content=content,
+        priority=0,
+        title=None,
+        domain="core",
+    )
+    mem_id = created["id"]
+    async with client.session() as session:
+        mem = await session.get(Memory, mem_id)
+        mem.layer = "core"
+        mem.vitality_score = vitality_score
+        mem.last_accessed_at = last_accessed_at
+        mem.importance = importance
+        mem.category = category
+        mem.source = source
+        mem.expires_at = expires_at
+        if created_at is not None:
+            mem.created_at = created_at
+    return mem_id
+
+
+async def _create_archive_memory(
+    client: SQLiteClient,
+    content: str,
+    *,
+    expires_at: datetime,
+    category: str | None = None,
+    importance: float = 0.5,
+) -> int:
+    """Helper: create an archive-layer memory."""
+    created = await client.create_memory(
+        parent_path="",
+        content=content,
+        priority=0,
+        title=None,
+        domain="core",
+    )
+    mem_id = created["id"]
+    async with client.session() as session:
+        mem = await session.get(Memory, mem_id)
+        mem.layer = "archive"
+        mem.expires_at = expires_at
+        mem.category = category
+        mem.importance = importance
+    return mem_id
+
+
+# ---------------------------------------------------------------------------
+# Phase 4
+# ---------------------------------------------------------------------------
+
+
+class TestPhase4Archive:
+    @pytest.mark.asyncio
+    async def test_phase4_archives_stale_core(self, tmp_path: Path) -> None:
+        """Core memory with low vitality and stale access should be archived."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p4a.db"))
+        await client.init_db()
+
+        stale_date = _utc_now_naive() - timedelta(days=100)
+        mem_id = await _create_core_memory(
+            client,
+            "stale core memory",
+            vitality_score=0.1,
+            last_accessed_at=stale_date,
+        )
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+        result = await engine._phase4_archive()
+
+        assert result["archived_count"] == 1
+        assert mem_id in result["archived_ids"]
+
+        async with client.session() as session:
+            mem = await session.get(Memory, mem_id)
+            assert mem.layer == "archive"
+            assert mem.expires_at is not None
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_phase4_keeps_healthy_core(self, tmp_path: Path) -> None:
+        """Core memory with high vitality and recent access should stay core."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p4b.db"))
+        await client.init_db()
+
+        recent = _utc_now_naive() - timedelta(days=1)
+        mem_id = await _create_core_memory(
+            client,
+            "healthy core memory",
+            vitality_score=0.8,
+            last_accessed_at=recent,
+        )
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+        result = await engine._phase4_archive()
+
+        assert result["archived_count"] == 0
+
+        async with client.session() as session:
+            mem = await session.get(Memory, mem_id)
+            assert mem.layer == "core"
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_phase4_uses_created_at_fallback(self, tmp_path: Path) -> None:
+        """Core memory with NULL last_accessed_at uses created_at as fallback."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p4c.db"))
+        await client.init_db()
+
+        old_created = _utc_now_naive() - timedelta(days=100)
+        mem_id = await _create_core_memory(
+            client,
+            "never accessed memory",
+            vitality_score=0.1,
+            last_accessed_at=None,
+            created_at=old_created,
+        )
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+        result = await engine._phase4_archive()
+
+        assert result["archived_count"] == 1
+        assert mem_id in result["archived_ids"]
+
+        await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5
+# ---------------------------------------------------------------------------
+
+
+class TestPhase5Compress:
+    @pytest.mark.asyncio
+    async def test_phase5_compresses_expired_archive(self, tmp_path: Path) -> None:
+        """Expired archive memories should be compressed into a core summary."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p5a.db"))
+        await client.init_db()
+
+        past = _utc_now_naive() - timedelta(hours=1)
+        mid1 = await _create_archive_memory(
+            client, "fact A about topic", expires_at=past, category="preference"
+        )
+        mid2 = await _create_archive_memory(
+            client, "fact B about topic", expires_at=past, category="preference"
+        )
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+
+        # Mock the LLM call
+        with patch(
+            "lifecycle.engine._call_compress_llm", new_callable=AsyncMock
+        ) as mock_llm:
+            mock_llm.return_value = "Compressed summary of preference facts"
+            result = await engine._phase5_compress()
+
+        assert result["compressed_groups"] == 1
+        assert result["originals_deprecated"] == 2
+
+        # Originals should be deprecated
+        async with client.session() as session:
+            m1 = await session.get(Memory, mid1)
+            m2 = await session.get(Memory, mid2)
+            assert m1.deprecated is True
+            assert m2.deprecated is True
+
+            # New compressed memory should exist
+            new_id = m1.migrated_to
+            assert new_id is not None
+            new_mem = await session.get(Memory, new_id)
+            assert new_mem.layer == "core"
+            assert new_mem.source == "compressed"
+            assert new_mem.importance == 0.3
+            assert new_mem.category == "preference"
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_phase5_skips_when_llm_unavailable(self, tmp_path: Path) -> None:
+        """When LLM times out, archives should be retained without crash."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p5b.db"))
+        await client.init_db()
+
+        past = _utc_now_naive() - timedelta(hours=1)
+        mid = await _create_archive_memory(
+            client, "some fact", expires_at=past, category="preference"
+        )
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+
+        with patch(
+            "lifecycle.engine._call_compress_llm", new_callable=AsyncMock
+        ) as mock_llm:
+            mock_llm.side_effect = TimeoutError("LLM unavailable")
+            result = await engine._phase5_compress()
+
+        assert result["compressed_groups"] == 0
+        assert result.get("errors", 0) >= 1
+
+        # Original should NOT be deprecated
+        async with client.session() as session:
+            mem = await session.get(Memory, mid)
+            assert mem.deprecated is False
+            assert mem.layer == "archive"
+
+        await client.close()
+
+
+# ---------------------------------------------------------------------------
+# Phase 6
+# ---------------------------------------------------------------------------
+
+
+class TestPhase6FeedbackAdjust:
+    @pytest.mark.asyncio
+    async def test_phase6_adjusts_importance_up(self, tmp_path: Path) -> None:
+        """Memory with 3 helpful feedbacks should increase importance by 0.1."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p6a.db"))
+        await client.init_db()
+
+        mem_id = await _create_core_memory(
+            client, "helpful memory", importance=0.5
+        )
+
+        # Insert 3 helpful feedbacks
+        async with client.session() as session:
+            for _ in range(3):
+                session.add(MemoryFeedback(memory_id=mem_id, signal="helpful"))
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+        result = await engine._phase6_feedback_adjust()
+
+        assert result["adjusted_count"] >= 1
+
+        async with client.session() as session:
+            mem = await session.get(Memory, mem_id)
+            assert abs(mem.importance - 0.6) < 1e-6
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_phase6_adjusts_importance_down(self, tmp_path: Path) -> None:
+        """Memory with 3 wrong feedbacks should decrease importance by 0.15."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p6b.db"))
+        await client.init_db()
+
+        mem_id = await _create_core_memory(
+            client, "wrong memory", importance=0.5
+        )
+
+        async with client.session() as session:
+            for _ in range(3):
+                session.add(MemoryFeedback(memory_id=mem_id, signal="wrong"))
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+        result = await engine._phase6_feedback_adjust()
+
+        assert result["adjusted_count"] >= 1
+
+        async with client.session() as session:
+            mem = await session.get(Memory, mem_id)
+            assert abs(mem.importance - 0.35) < 1e-6
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_phase6_caps_importance(self, tmp_path: Path) -> None:
+        """Memory with importance=1.0 + 3 helpful feedbacks should stay 1.0."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p6c.db"))
+        await client.init_db()
+
+        mem_id = await _create_core_memory(
+            client, "max importance", importance=1.0
+        )
+
+        async with client.session() as session:
+            for _ in range(3):
+                session.add(MemoryFeedback(memory_id=mem_id, signal="helpful"))
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+        result = await engine._phase6_feedback_adjust()
+
+        async with client.session() as session:
+            mem = await session.get(Memory, mem_id)
+            assert mem.importance == 1.0
+
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_phase6_floors_importance(self, tmp_path: Path) -> None:
+        """Memory with importance=0.05 + wrong feedbacks should floor at 0.0."""
+        client = SQLiteClient(_sqlite_url(tmp_path / "p6d.db"))
+        await client.init_db()
+
+        mem_id = await _create_core_memory(
+            client, "almost zero importance", importance=0.05
+        )
+
+        async with client.session() as session:
+            for _ in range(3):
+                session.add(MemoryFeedback(memory_id=mem_id, signal="wrong"))
+
+        from lifecycle.engine import LifecycleEngine
+
+        engine = LifecycleEngine(client)
+        result = await engine._phase6_feedback_adjust()
+
+        async with client.session() as session:
+            mem = await session.get(Memory, mem_id)
+            assert mem.importance == 0.0
 
         await client.close()
