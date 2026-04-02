@@ -2910,10 +2910,10 @@ async def delete_orphan(memory_id: int):
 
 
 @router.post("/lifecycle/trigger")
-async def trigger_lifecycle(force: bool = False):
+async def trigger_lifecycle():
     """Force-run the lifecycle engine, return results."""
     await runtime_state.ensure_started(get_sqlite_client)
-    result = await runtime_state.lifecycle_scheduler.trigger(force=force)
+    result = await runtime_state.lifecycle_scheduler.trigger()
     ok = result.get("status") == "completed"
     return {
         "ok": ok,

@@ -781,7 +781,7 @@ class TestLifecycleScheduler:
         scheduler = LifecycleScheduler()
         scheduler.set_client_factory(lambda: client)
 
-        result = await scheduler.trigger(force=True)
+        result = await scheduler.trigger()
 
         assert result["status"] == "completed"
         assert "phases" in result

@@ -17,14 +17,9 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
 
+from shared_utils import env_bool as _env_bool
+
 logger = logging.getLogger(__name__)
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _parse_interval_hours(cron_expr: str) -> float:
@@ -63,19 +58,25 @@ class LifecycleScheduler:
         self._task: Optional[asyncio.Task] = None
         self._client_factory: Optional[Callable[[], Any]] = None
         self._last_result: Dict[str, Any] = {"status": "not_started"}
+        self._started = False
 
     def set_client_factory(self, factory: Callable[[], Any]) -> None:
         """Set the SQLiteClient factory for creating engine instances."""
+        if self._client_factory is not None:
+            return
         self._client_factory = factory
 
     async def start(self) -> None:
         """Start the cron scheduler as a background asyncio task."""
+        if self._started:
+            return
+        self._started = True
         if not self._enabled:
             logger.info("Lifecycle scheduler disabled (LIFECYCLE_ENABLED=false)")
             return
         if self._task is not None and not self._task.done():
             return
-        self._task = asyncio.create_task(self._run_loop())
+        self._task = asyncio.create_task(self._run_loop(), name="lifecycle-scheduler")
         logger.info(
             "Lifecycle scheduler started (interval=%.1fh, cron=%s)",
             self._interval_hours,
@@ -134,15 +135,8 @@ class LifecycleScheduler:
 
             return dict(self._last_result)
 
-    async def trigger(self, force: bool = False) -> Dict[str, Any]:
-        """Manual trigger for API endpoint.
-
-        Args:
-            force: If True, run even if guard is held (waits for lock).
-
-        Returns:
-            Result dict with status and phase results.
-        """
+    async def trigger(self) -> Dict[str, Any]:
+        """Manual trigger. Waits for any in-progress run to finish."""
         return await self._execute()
 
     async def stop(self) -> None:
