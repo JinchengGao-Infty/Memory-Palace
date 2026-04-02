@@ -1,0 +1,59 @@
+{
+  "user_patterns": [
+    {
+      "category": "identity",
+      "patterns": [
+        "我是(?:一[名个位])?([^，,。.！!？?；;、\\n]+)",
+        "(?i)I[''']?m\\s+(?:a\\s+)?([^,\\.!?;\\n]+)",
+        "(?i)I\\s+am\\s+(?:a\\s+)?([^,\\.!?;\\n]+)"
+      ],
+      "extract_group": 1
+    },
+    {
+      "category": "constraint",
+      "patterns": [
+        "不要(.+)",
+        "别(.+)",
+        "禁止(.+)",
+        "(?i)don[''']t\\s+(.+)",
+        "(?i)never\\s+(.+)",
+        "(?i)do\\s+not\\s+(.+)"
+      ],
+      "extract_group": 0
+    },
+    {
+      "category": "preference",
+      "patterns": [
+        "记住(.+)",
+        "偏好(.+)",
+        "(?i)remember\\s+(.+)",
+        "(?i)I\\s+prefer\\s+(.+)",
+        "我喜欢(.+)",
+        "我偏好(.+)"
+      ],
+      "extract_group": 0
+    },
+    {
+      "category": "correction",
+      "patterns": [
+        "其实(.+)",
+        "(?i)actually[,，]?\\s*(.+)",
+        "纠正一下(.+)",
+        "(?i)correction[:\\s]+(.+)"
+      ],
+      "extract_group": 0
+    }
+  ],
+  "assistant_patterns": [
+    {
+      "category": "agent_user_habit",
+      "patterns": [
+        "(?i)I\\s+noticed\\s+(?:that\\s+)?you(.+)",
+        "你似乎(.+)",
+        "(?i)you\\s+(?:seem|tend)\\s+to(.+)",
+        "我注意到你(.+)"
+      ],
+      "extract_group": 0
+    }
+  ]
+}
