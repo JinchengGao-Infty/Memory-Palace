@@ -291,6 +291,19 @@ class Memory(Base):
     access_count = Column(
         Integer, default=0, server_default=text("0"), nullable=False
     )
+    # Lifecycle fields (migration 0004)
+    layer = Column(Text, default="core", server_default=text("'core'"), nullable=False)
+    importance = Column(
+        Float, default=0.5, server_default=text("0.5"), nullable=False
+    )
+    category = Column(Text, nullable=True)
+    source = Column(
+        Text, default="manual", server_default=text("'manual'"), nullable=False
+    )
+    confidence = Column(
+        Float, default=1.0, server_default=text("1.0"), nullable=False
+    )
+    expires_at = Column(DateTime, nullable=True)
 
     # Relationship to paths
     paths = relationship("Path", back_populates="memory")
