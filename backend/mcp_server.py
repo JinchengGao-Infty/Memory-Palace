@@ -4680,42 +4680,39 @@ async def search_memory(
                     for variant in extra_variants:
                         try:
                             v_kwargs_list = [
-                                dict(k, query=variant)
-                                for k in [
-                                    {
-                                        "query": variant,
-                                        "mode": mode_requested,
-                                        "max_results": resolved_max_results,
-                                        "candidate_multiplier": resolved_candidate_multiplier,
-                                        "filters": normalized_filters,
-                                        "intent_profile": intent_for_search,
-                                    },
-                                    {
-                                        "query": variant,
-                                        "mode": mode_requested,
-                                        "max_results": resolved_max_results,
-                                        "candidate_multiplier": resolved_candidate_multiplier,
-                                        "filters": normalized_filters,
-                                    },
-                                    {
-                                        "query": variant,
-                                        "mode": mode_requested,
-                                        "max_results": resolved_max_results,
-                                        "candidate_multiplier": resolved_candidate_multiplier,
-                                        **normalized_filters,
-                                    },
-                                    {
-                                        "query": variant,
-                                        "mode": mode_requested,
-                                        "limit": candidate_pool_size,
-                                        **normalized_filters,
-                                    },
-                                    {
-                                        "query": variant,
-                                        "limit": candidate_pool_size,
-                                        "domain": normalized_filters.get("domain"),
-                                    },
-                                ]
+                                {
+                                    "query": variant,
+                                    "mode": mode_requested,
+                                    "max_results": resolved_max_results,
+                                    "candidate_multiplier": resolved_candidate_multiplier,
+                                    "filters": normalized_filters,
+                                    "intent_profile": intent_for_search,
+                                },
+                                {
+                                    "query": variant,
+                                    "mode": mode_requested,
+                                    "max_results": resolved_max_results,
+                                    "candidate_multiplier": resolved_candidate_multiplier,
+                                    "filters": normalized_filters,
+                                },
+                                {
+                                    "query": variant,
+                                    "mode": mode_requested,
+                                    "max_results": resolved_max_results,
+                                    "candidate_multiplier": resolved_candidate_multiplier,
+                                    **normalized_filters,
+                                },
+                                {
+                                    "query": variant,
+                                    "mode": mode_requested,
+                                    "limit": candidate_pool_size,
+                                    **normalized_filters,
+                                },
+                                {
+                                    "query": variant,
+                                    "limit": candidate_pool_size,
+                                    "domain": normalized_filters.get("domain"),
+                                },
                             ]
                             _, _, v_raw = await _try_client_method_variants(
                                 client,
